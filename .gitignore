@@ -1,0 +1,102 @@
+
+#///////////////////////////
+# Cocos Creator 3D Project
+#///////////////////////////
+
+# 临时文件和缓存
+temp/
+local/
+build/
+
+# Library目录 - 但保留重要的配置文件
+library/
+!library/startup.json
+!library/tsconfig.cocos.json
+
+# 原生平台构建文件
+native/
+builds/
+
+# 日志文件
+logs/
+*.log
+
+#//////////////////////////
+# 项目配置文件 - 选择性提交
+#//////////////////////////
+
+# Profiles - 保留编辑器设置但忽略个人偏好
+profiles/
+!profiles/v2/
+!profiles/v2/packages/
+!profiles/v2/packages/*.json
+
+# Settings - 保留项目设置
+!settings/
+!settings/v2/
+!settings/v2/packages/
+!settings/v2/packages/*.json
+!settings/v2/default-profiles/
+
+#//////////////////////////
+# 依赖和包管理
+#//////////////////////////
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+#//////////////////////////
+# 编辑器相关
+#//////////////////////////
+.vscode/
+.idea/
+
+# Creator编辑器生成的文件
+.creator/
+
+#//////////////////////////
+# 系统文件
+#//////////////////////////
+.DS_Store
+Thumbs.db
+desktop.ini
+
+#//////////////////////////
+# 构建输出
+#//////////////////////////
+dist/
+out/
+bin/
+
+#//////////////////////////
+# 平台特定文件
+#//////////////////////////
+# iOS
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData
+*.hmap
+*.ipa
+*.xcuserstate
+
+# Android
+*.apk
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+.gradle/
+local.properties
+
+# Windows
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
