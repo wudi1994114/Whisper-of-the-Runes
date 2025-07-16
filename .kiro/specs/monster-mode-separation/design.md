@@ -2,279 +2,315 @@
 
 ## Overview
 
-本设计文档描述了怪物模式分离系统的技术架构。该系统将彻底分离怪物的AI控制逻辑和测试控制逻辑，通过控制器模式和工厂模式实现清晰的职责分离。系统支持多种怪物类型（NormalEnemy、Boss等），并在启动时根据游戏模式选择对应的控制策略。
+本设计文档描述了如何将怪物系统的测试模式和正常模式逻辑完全分离。通过创建独立的控制器架构，确保AI控制和手动测试控制互不干扰，同时支持不同类型的怪物（NormalEnemy、Boss等）。
 
 ## Architecture
 
-### 核心架构原则
+### 核心设计原则
 
-1. **控制器分离**: AI控制器和测试控制器完全独立，互不依赖
-2. **接口统一**: 所有控制器实现相同的接口，确保一致性
-3. **工厂创建**: 使用工厂模式根据游戏模式创建对应的控制器
-4. **单一职责**: 每个控制器只负责一种控制逻辑
-5. **启动时决定**: 游戏模式在启动时确定，运行时不切换
+1. **单一职责原则**: 每个控制器只负责一种控制模式
+2. **接口隔离**: 通过统一接口支持不同怪物类型
+3. **模式独立**: 测试模式和正常模式完全独立，不支持运行时切换
+4. **可扩展性**: 支持未来添加新的怪物类型和控制模式
 
 ### 系统架构图
 
 ```mermaid
 graph TB
-    GM[GameManager] --> MCF[MonsterControllerFactory]
-    MCF --> |Normal Mode| AIC[AIController]
-    MCF --> |Testing Mode| TC[TestController]
+    GM[GameManager] --> MC[MonsterController]
+    MC --> IMonsterBehavior[IMonsterBehavior Interface]
     
-    AIC --> MAC[MonsterAnimationController]
-    TC --> MAC
+    IMonsterBehavior --> AIController[AIMonsterController]
+    IMonsterBehavior --> TestController[TestMonsterController]
     
-    AIC --> CS[CharacterStats]
-    TC --> CS
+    AIController --> NormalEnemyAI[NormalEnemyAI]
+    AIController --> BossAI[BossAI]
     
-    NE[NormalEnemy] --> MCF
-    BE[BossEnemy] --> MCF
+    TestController --> NormalEnemyTest[NormalEnemyTest]
+    TestController --> BossTest[BossTest]
     
-    AIC --> ASM[AIStateMachine]
-    TC --> IM[InputManager]
+    NormalEnemyAI --> NormalEnemy[NormalEnemy Entity]
+    BossAI --> Boss[Boss Entity]
+    NormalEnemyTest --> NormalEnemy
+    BossTest --> Boss
+    
+    NormalEnemy --> MAC[MonsterAnimationController]
+    Boss --> MAC
+    NormalEnemy --> CS[CharacterStats]
+    Boss --> CS
 ```
 
 ## Components and Interfaces
 
-### 1. IMonsterController 接口
+### 1. IMonsterBehavior 接口
 
-所有怪物控制器的基础接口，定义统一的控制方法：
+定义所有怪物控制器必须实现的基本接口：
 
 ```typescript
-interface IMonsterController {
-    // 初始化控制器
+interface IMonsterBehavior {
+    // 生命周期
     initialize(enemyData: EnemyData): Promise<void>;
+    activate(): void;
+    deactivate(): void;
+    destroy(): void;
     
-    // 更新控制器（每帧调用）
+    // 控制方法
     update(deltaTime: number): void;
-    
-    // 移动控制
-    move(direction: Vec2, deltaTime: number): void;
-    stopMovement(): void;
-    
-    // 动作控制
-    attack(): void;
-    takeDamage(damage: number): void;
+    handleInput?(keyCode: KeyCode): void;
     
     // 状态查询
-    isAlive(): boolean;
-    getPosition(): Vec3;
+    isActive(): boolean;
+    getControllerType(): MonsterControllerType;
     getStatusInfo(): string;
-    
-    // 生命周期
-    destroy(): void;
 }
 ```
 
-### 2. MonsterControllerFactory 工厂类
+### 2. MonsterController 主控制器
 
-负责根据游戏模式创建对应的控制器：
+负责管理怪物的控制器生命周期和模式选择：
 
 ```typescript
-class MonsterControllerFactory {
-    static createController(
-        gameMode: GameMode, 
-        monsterNode: Node, 
-        monsterType: MonsterType
-    ): IMonsterController {
-        switch (gameMode) {
-            case GameMode.Normal:
-                return new AIController(monsterNode, monsterType);
-            case GameMode.Testing:
-                return new TestController(monsterNode, monsterType);
-            default:
-                throw new Error(`Unsupported game mode: ${gameMode}`);
-        }
-    }
+class MonsterController extends Component {
+    private currentBehavior: IMonsterBehavior | null = null;
+    private enemyData: EnemyData | null = null;
+    private controllerType: MonsterControllerType;
+    
+    // 根据游戏模式初始化对应的控制器
+    public async initializeWithMode(gameMode: GameMode, enemyData: EnemyData): Promise<void>;
+    
+    // 更新当前激活的控制器
+    public update(deltaTime: number): void;
+    
+    // 处理输入（仅测试模式）
+    public handleInput(keyCode: KeyCode): void;
 }
 ```
 
-### 3. AIController 类
+### 3. AIMonsterController AI控制器
 
 专门处理AI逻辑的控制器：
 
-- 实现完整的AI状态机
-- 处理怪物的自动行为（巡逻、追逐、攻击等）
-- 不响应任何手动输入
-- 与GameManager的AI更新系统集成
-
-### 4. TestController 类
-
-专门处理测试控制的控制器：
-
-- 响应键盘输入进行手动控制
-- 提供调试信息显示
-- 不包含任何AI逻辑
-- 与GameManager的输入系统集成
-
-### 5. 重构后的怪物类
-
-#### BaseMonster 抽象基类
-
 ```typescript
-abstract class BaseMonster extends Component {
-    protected controller: IMonsterController | null = null;
-    protected characterStats: CharacterStats | null = null;
-    protected animationController: MonsterAnimationController | null = null;
+class AIMonsterController implements IMonsterBehavior {
+    private aiStateMachine: MonsterAIStateMachine;
+    private enemyType: EnemyType;
     
-    // 抽象方法，由子类实现
-    abstract getMonsterType(): MonsterType;
+    // AI状态机更新
+    public update(deltaTime: number): void;
     
-    // 通用初始化逻辑
-    protected async initializeMonster(): Promise<void>;
-    
-    // 委托给控制器的方法
-    public move(direction: Vec2, deltaTime: number): void;
-    public handleInput(keyCode: KeyCode): void;
-    // ... 其他方法
+    // AI行为逻辑
+    private executeAIBehavior(deltaTime: number): void;
 }
 ```
 
-#### NormalEnemy 类
+### 4. TestMonsterController 测试控制器
+
+专门处理手动测试控制的控制器：
+
+```typescript
+class TestMonsterController implements IMonsterBehavior {
+    private inputHandler: TestInputHandler;
+    private movementController: TestMovementController;
+    
+    // 处理测试输入
+    public handleInput(keyCode: KeyCode): void;
+    
+    // 测试模式更新
+    public update(deltaTime: number): void;
+}
+```
+
+### 5. 怪物实体类重构
+
+#### BaseMonster 基类
+
+```typescript
+abstract class BaseMonster extends Component {
+    protected characterStats: CharacterStats | null = null;
+    protected animationController: MonsterAnimationController | null = null;
+    protected monsterController: MonsterController | null = null;
+    
+    // 通用初始化逻辑
+    protected abstract setupMonsterSpecifics(): void;
+    
+    // 获取怪物类型
+    public abstract getMonsterType(): EnemyType;
+}
+```
+
+#### NormalEnemy 重构
 
 ```typescript
 class NormalEnemy extends BaseMonster {
-    getMonsterType(): MonsterType {
-        return MonsterType.NORMAL_ENEMY;
+    // 移除所有AI和测试逻辑
+    // 只保留基本的怪物属性和组件管理
+    
+    protected setupMonsterSpecifics(): void {
+        // NormalEnemy特有的设置
+    }
+    
+    public getMonsterType(): EnemyType {
+        return EnemyType.NORMAL_ENEMY;
     }
 }
 ```
 
-#### BossEnemy 类
+#### Boss 类
 
 ```typescript
-class BossEnemy extends BaseMonster {
-    getMonsterType(): MonsterType {
-        return MonsterType.BOSS;
+class Boss extends BaseMonster {
+    // Boss特有的属性和行为
+    
+    protected setupMonsterSpecifics(): void {
+        // Boss特有的设置
+    }
+    
+    public getMonsterType(): EnemyType {
+        return EnemyType.BOSS;
     }
 }
 ```
 
 ## Data Models
 
-### MonsterType 枚举
+### 枚举定义
 
 ```typescript
-enum MonsterType {
+enum MonsterControllerType {
+    AI_CONTROLLER = 'ai',
+    TEST_CONTROLLER = 'test'
+}
+
+enum EnemyType {
     NORMAL_ENEMY = 'normal_enemy',
-    BOSS = 'boss',
-    MINI_BOSS = 'mini_boss'
+    BOSS = 'boss'
 }
 ```
 
-### ControllerConfig 接口
+### 配置接口
 
 ```typescript
-interface ControllerConfig {
-    monsterType: MonsterType;
-    gameMode: GameMode;
-    enemyData: EnemyData;
-    enableDebug: boolean;
+interface MonsterControllerConfig {
+    controllerType: MonsterControllerType;
+    enemyType: EnemyType;
+    enableDebugMode: boolean;
 }
-```
 
-### AIState 枚举（仅AI控制器使用）
+interface AIBehaviorConfig {
+    stateMachineType: string;
+    aggressionLevel: number;
+    patrolRadius: number;
+    chaseDistance: number;
+}
 
-```typescript
-enum AIState {
-    IDLE = 'idle',
-    PATROL = 'patrol',
-    CHASE = 'chase',
-    ATTACK = 'attack',
-    RETURN = 'return',
-    HURT = 'hurt',
-    DEATH = 'death'
+interface TestControllerConfig {
+    enableAllInputs: boolean;
+    debugDisplayLevel: number;
+    allowedCommands: string[];
 }
 ```
 
 ## Error Handling
 
-### 控制器创建失败处理
-
-1. **工厂创建失败**: 记录错误日志，返回默认的空控制器
-2. **控制器初始化失败**: 尝试重新初始化，失败则禁用怪物
-3. **运行时错误**: 捕获异常，记录日志，尝试恢复或安全停止
-
-### 错误恢复策略
+### 错误类型定义
 
 ```typescript
-class SafeControllerWrapper implements IMonsterController {
-    private controller: IMonsterController;
-    
-    public update(deltaTime: number): void {
-        try {
-            this.controller.update(deltaTime);
-        } catch (error) {
-            console.error('Controller update failed:', error);
-            this.handleControllerError(error);
-        }
-    }
-    
-    private handleControllerError(error: Error): void {
-        // 错误恢复逻辑
-    }
+enum MonsterControllerError {
+    CONTROLLER_INIT_FAILED = 'CONTROLLER_INIT_FAILED',
+    INVALID_GAME_MODE = 'INVALID_GAME_MODE',
+    BEHAVIOR_NOT_FOUND = 'BEHAVIOR_NOT_FOUND',
+    ENEMY_DATA_MISSING = 'ENEMY_DATA_MISSING'
 }
 ```
+
+### 错误处理策略
+
+1. **初始化失败**: 回退到默认AI控制器
+2. **控制器切换失败**: 保持当前控制器状态
+3. **数据缺失**: 使用默认配置并记录警告
+4. **运行时错误**: 停用当前控制器并通知GameManager
 
 ## Testing Strategy
 
 ### 单元测试
 
-1. **控制器接口测试**: 验证所有控制器都正确实现接口
-2. **工厂模式测试**: 验证工厂能够根据模式创建正确的控制器
-3. **AI逻辑测试**: 测试AI状态机的各种状态转换
-4. **输入处理测试**: 测试测试控制器的输入响应
+1. **IMonsterBehavior接口测试**
+   - 测试所有实现类是否正确实现接口
+   - 测试生命周期方法的调用顺序
+
+2. **AIMonsterController测试**
+   - 测试AI状态机转换
+   - 测试不同怪物类型的AI行为
+
+3. **TestMonsterController测试**
+   - 测试输入处理逻辑
+   - 测试手动控制功能
 
 ### 集成测试
 
-1. **模式切换测试**: 验证不同模式下怪物行为的正确性
-2. **多怪物类型测试**: 验证不同类型怪物都能正常工作
-3. **生命周期测试**: 验证怪物创建、运行、销毁的完整流程
+1. **模式独立性测试**
+   - 验证AI模式下不响应手动输入
+   - 验证测试模式下AI逻辑完全停用
 
-### 测试用例示例
+2. **怪物类型支持测试**
+   - 测试NormalEnemy在两种模式下的行为
+   - 测试Boss在两种模式下的行为
 
-```typescript
-describe('MonsterControllerFactory', () => {
-    it('should create AIController in Normal mode', () => {
-        const controller = MonsterControllerFactory.createController(
-            GameMode.Normal, 
-            mockNode, 
-            MonsterType.NORMAL_ENEMY
-        );
-        expect(controller).toBeInstanceOf(AIController);
-    });
-    
-    it('should create TestController in Testing mode', () => {
-        const controller = MonsterControllerFactory.createController(
-            GameMode.Testing, 
-            mockNode, 
-            MonsterType.NORMAL_ENEMY
-        );
-        expect(controller).toBeInstanceOf(TestController);
-    });
-});
-```
+3. **生命周期测试**
+   - 测试控制器的创建、激活、停用、销毁流程
+
+### 性能测试
+
+1. **大量怪物测试**: 测试同时存在多个怪物时的性能表现
+2. **模式切换测试**: 测试游戏启动时模式选择的性能影响
+3. **内存泄漏测试**: 确保控制器正确清理资源
 
 ## Implementation Notes
 
-### 迁移策略
+### 关键实现要点
 
-1. **第一阶段**: 创建接口和工厂类
-2. **第二阶段**: 实现AI控制器，迁移现有AI逻辑
-3. **第三阶段**: 实现测试控制器，迁移现有测试逻辑
-4. **第四阶段**: 重构怪物类，使用新的控制器系统
-5. **第五阶段**: 清理旧代码，添加Boss支持
+1. **GameManager集成**
+   - 在GameManager初始化时确定游戏模式
+   - 移除运行时模式切换逻辑
+   - 简化输入分发逻辑
 
-### 性能考虑
+2. **MonsterSpawner适配**
+   - 修改怪物创建逻辑，根据游戏模式初始化对应控制器
+   - 支持不同怪物类型的创建
 
-1. **控制器缓存**: 避免频繁创建销毁控制器
-2. **状态更新优化**: AI控制器使用时间片更新，避免每帧计算
-3. **事件系统优化**: 减少不必要的事件监听和触发
+3. **事件系统优化**
+   - 减少不必要的事件监听
+   - 优化控制器间的通信
 
-### 扩展性设计
+4. **向后兼容性**
+   - 保持现有API的兼容性
+   - 提供迁移指南
 
-1. **新怪物类型**: 通过继承BaseMonster轻松添加
-2. **新控制模式**: 通过实现IMonsterController接口添加
-3. **AI行为扩展**: 通过修改AI状态机添加新行为
-4. **测试功能扩展**: 通过扩展TestController添加新的测试命令
+### 文件结构
+
+```
+assets/scripts/
+├── monster/
+│   ├── controllers/
+│   │   ├── IMonsterBehavior.ts
+│   │   ├── MonsterController.ts
+│   │   ├── AIMonsterController.ts
+│   │   └── TestMonsterController.ts
+│   ├── entities/
+│   │   ├── BaseMonster.ts
+│   │   ├── NormalEnemy.ts
+│   │   └── Boss.ts
+│   └── behaviors/
+│       ├── ai/
+│       │   ├── NormalEnemyAI.ts
+│       │   └── BossAI.ts
+│       └── test/
+│           ├── NormalEnemyTest.ts
+│           └── BossTest.ts
+```
+
+这个设计确保了：
+- 测试模式和正常模式完全独立
+- 支持不同类型的怪物
+- 代码结构清晰，易于维护和扩展
+- 性能优化，避免不必要的逻辑执行
