@@ -382,9 +382,9 @@ export class GameManager extends Component {
 
         // 设置资源预加载配置
         resourceManager.setPreloadConfig({
-            data: ['data/enemies', 'data/skills', 'data/levels'],
-            textures: ['monster/ent', 'monster/lich', 'player/player'],
-            prefabs: ['effects/explosion', 'ui/damage-text']
+            data: ['data/enemies', 'data/levels', 'data/skills'], // skills.json 确实存在
+            textures: [], // 暂时移除所有纹理预加载，避免路径问题
+            prefabs: [] // 移除不存在的预制体
         });
 
         // 执行资源预加载

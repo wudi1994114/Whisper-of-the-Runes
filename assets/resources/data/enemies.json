@@ -1,0 +1,232 @@
+{
+  "ent_normal": {
+      "id": "ent_normal",
+      "name": "小树人",
+      "category": 0,
+      "plistUrl": "monster/ent",
+      "assetNamePrefix": "Ent1",
+      "nodeScale": 0.8,
+      "baseHealth": 100,
+      "baseAttack": 10,
+      "baseDefense": 5,
+      "moveSpeed": 3,
+      "attackRange": 60,
+      "attackInterval": 2.5,
+      "animationSpeed": 8,
+      "ai": 0,
+      "detectionRange": 1200,
+      "pursuitRange": 1500,
+      "colliderSize": {
+          "width": 40,
+          "height": 60
+      },
+      "expReward": 10,
+      "stunDuration": 0.5,
+      "damageFlashDuration": 0.2,
+      "returnDistance": 300,
+      "chaseSpeedMultiplier": 1.2,
+      "hurtDuration": 0.3,
+      "deathDuration": 2,
+      "idleWaitTime": 1,
+      "aggroDecayTime": 5
+  },
+  "lich_elite": {
+      "id": "lich_elite",
+      "name": "精英巫妖",
+      "category": 1,
+      "plistUrl": "monster/lich",
+      "assetNamePrefix": "Lich2",
+      "nodeScale": 1,
+      "baseHealth": 500,
+      "baseAttack": 25,
+      "baseDefense": 10,
+      "moveSpeed": 2.5,
+      "attackRange": 300,
+      "attackInterval": 2,
+      "animationSpeed": 10,
+      "ai": 1,
+      "detectionRange": 1200,
+      "pursuitRange": 1500,
+      "colliderSize": {
+          "width": 50,
+          "height": 70
+      },
+      "skills": [
+          {
+              "id": "fireball",
+              "level": 1,
+              "cooldown": 5,
+              "chance": 0.8
+          }
+      ],
+      "expReward": 50,
+      "stunDuration": 0.3,
+      "damageFlashDuration": 0.2,
+      "returnDistance": 400,
+      "chaseSpeedMultiplier": 1,
+      "hurtDuration": 0.4,
+      "deathDuration": 2.5,
+      "idleWaitTime": 1.5,
+      "aggroDecayTime": 8
+  },
+  "ent_boss": {
+      "id": "ent_boss",
+      "name": "远古树精",
+      "category": 2,
+      "plistUrl": "monster/ent",
+      "assetNamePrefix": "Ent3",
+      "nodeScale": 1.5,
+      "baseHealth": 8000,
+      "baseAttack": 80,
+      "baseDefense": 40,
+      "moveSpeed": 4,
+      "attackRange": 80,
+      "attackInterval": 1.8,
+      "animationSpeed": 12,
+      "ai": 0,
+      "detectionRange": 1500,
+      "pursuitRange": 2000,
+      "colliderSize": {
+          "width": 80,
+          "height": 120
+      },
+      "skills": [
+          {
+              "id": "stomp",
+              "level": 1,
+              "cooldown": 10,
+              "chance": 1
+          },
+          {
+              "id": "summon_minions",
+              "level": 1,
+              "cooldown": 20,
+              "chance": 1
+          }
+      ],
+      "expReward": 500,
+      "stunDuration": 0.1,
+      "damageFlashDuration": 0.15,
+      "returnDistance": 500,
+      "chaseSpeedMultiplier": 0.8,
+      "hurtDuration": 0.2,
+      "deathDuration": 3,
+      "idleWaitTime": 2,
+      "aggroDecayTime": 10
+  },
+  "ent_test_giant": {
+      "id": "ent_test_giant",
+      "name": "巨型测试树人",
+      "category": 0,
+      "plistUrl": "monster/ent",
+      "assetNamePrefix": "Ent1",
+      "nodeScale": 12.8,
+      "baseHealth": 400,
+      "baseAttack": 40,
+      "baseDefense": 20,
+      "moveSpeed": 12,
+      "attackRange": 240,
+      "attackInterval": 1,
+      "animationSpeed": 12,
+      "ai": 0,
+      "detectionRange": 2400,
+      "pursuitRange": 3000,
+      "colliderSize": {
+          "width": 160,
+          "height": 240
+      },
+      "expReward": 40,
+      "stunDuration": 0.5,
+      "damageFlashDuration": 0.2,
+      "returnDistance": 600,
+      "chaseSpeedMultiplier": 1.5,
+      "hurtDuration": 0.4,
+      "deathDuration": 2.2,
+      "idleWaitTime": 1.2,
+      "aggroDecayTime": 6
+  },
+  "lich_test_giant": {
+      "id": "lich_test_giant",
+      "name": "巨型测试巫妖",
+      "category": 1,
+      "plistUrl": "monster/lich",
+      "assetNamePrefix": "Lich2",
+      "nodeScale": 16,
+      "baseHealth": 2000,
+      "baseAttack": 100,
+      "baseDefense": 40,
+      "moveSpeed": 10,
+      "attackRange": 1200,
+      "attackInterval": 1.5,
+      "animationSpeed": 14,
+      "ai": 1,
+      "detectionRange": 2400,
+      "pursuitRange": 3000,
+      "colliderSize": {
+          "width": 200,
+          "height": 280
+      },
+      "skills": [
+          {
+              "id": "fireball",
+              "level": 3,
+              "cooldown": 3,
+              "chance": 0.9
+          }
+      ],
+      "expReward": 200,
+      "stunDuration": 0.3,
+      "damageFlashDuration": 0.2,
+      "returnDistance": 800,
+      "chaseSpeedMultiplier": 1,
+      "hurtDuration": 0.5,
+      "deathDuration": 3,
+      "idleWaitTime": 1.8,
+      "aggroDecayTime": 10
+  },
+  "ent_test_mega_boss": {
+      "id": "ent_test_mega_boss",
+      "name": "超巨型测试树精",
+      "category": 2,
+      "plistUrl": "monster/ent",
+      "assetNamePrefix": "Ent3",
+      "nodeScale": 24,
+      "baseHealth": 32000,
+      "baseAttack": 320,
+      "baseDefense": 160,
+      "moveSpeed": 16,
+      "attackRange": 320,
+      "attackInterval": 1.2,
+      "animationSpeed": 16,
+      "ai": 0,
+      "detectionRange": 3000,
+      "pursuitRange": 4000,
+      "colliderSize": {
+          "width": 320,
+          "height": 480
+      },
+      "skills": [
+          {
+              "id": "stomp",
+              "level": 3,
+              "cooldown": 6,
+              "chance": 1
+          },
+          {
+              "id": "summon_minions",
+              "level": 3,
+              "cooldown": 12,
+              "chance": 1
+          }
+      ],
+      "expReward": 2000,
+      "stunDuration": 0.1,
+      "damageFlashDuration": 0.15,
+      "returnDistance": 1000,
+      "chaseSpeedMultiplier": 0.6,
+      "hurtDuration": 0.3,
+      "deathDuration": 4,
+      "idleWaitTime": 3,
+      "aggroDecayTime": 15
+  }
+}

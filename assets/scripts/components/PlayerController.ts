@@ -22,7 +22,7 @@ export class PlayerController extends Component {
     public boundaryPadding: number = 50; // 边界内边距
 
     // 组件引用
-    private characterStats: CharacterStats;
+    private characterStats: CharacterStats | null = null;
     
     // 移动相关
     private currentPosition: Vec3 = new Vec3();

@@ -7,7 +7,7 @@
       "mapSize": { "width": 2000, "height": 1200 },
       "playerSpawn": { "x": 0, "y": 0 },
       
-      // 怪物生成配置
+      
       "monsterSpawners": [
         {
           "id": "spawner_1",
@@ -43,7 +43,7 @@
         }
       ],
       
-      // 关卡目标
+      
       "objectives": [
         {
           "type": "survive",
