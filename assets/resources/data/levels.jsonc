@@ -1,0 +1,96 @@
+{
+  "levels": [
+    {
+      "id": 1,
+      "name": "森林边缘",
+      "backgroundImage": "textures/backgrounds/forest",
+      "mapSize": { "width": 2000, "height": 1200 },
+      "playerSpawn": { "x": 0, "y": 0 },
+      
+      // 怪物生成配置
+      "monsterSpawners": [
+        {
+          "id": "spawner_1",
+          "position": { "x": 400, "y": 200 },
+          "spawnRadius": 100,
+          "spawnType": "circle",
+          "enemies": [
+            {
+              "type": "ent_normal",
+              "count": 2,
+              "spawnInterval": 3.0,
+              "maxAlive": 3,
+              "spawnDelay": 2.0,
+              "respawnOnDeath": true
+            }
+          ]
+        },
+        {
+          "id": "spawner_2", 
+          "position": { "x": -300, "y": -200 },
+          "spawnRadius": 80,
+          "spawnType": "circle",
+          "enemies": [
+            {
+              "type": "ent_normal",
+              "count": 1,
+              "spawnInterval": 4.0,
+              "maxAlive": 2,
+              "spawnDelay": 5.0,
+              "respawnOnDeath": true
+            }
+          ]
+        }
+      ],
+      
+      // 关卡目标
+      "objectives": [
+        {
+          "type": "survive",
+          "duration": 60
+        }
+      ],
+      
+      "duration": 60,
+      "description": "新手训练区域"
+    },
+    {
+      "id": 2,
+      "name": "暗黑洞穴",
+      "backgroundImage": "textures/backgrounds/cave",
+      "enemies": [
+        {
+          "type": "skeleton",
+          "spawnCount": 8,
+          "spawnInterval": 2.5
+        },
+        {
+          "type": "orc",
+          "spawnCount": 2,
+          "spawnInterval": 8
+        }
+      ],
+      "duration": 90,
+      "description": "危险的地下洞穴"
+    },
+    {
+      "id": 3,
+      "name": "兽人要塞",
+      "backgroundImage": "textures/backgrounds/fortress",
+      "enemies": [
+        {
+          "type": "orc",
+          "spawnCount": 10,
+          "spawnInterval": 3
+        },
+        {
+          "type": "goblin",
+          "spawnCount": 15,
+          "spawnInterval": 1.5
+        }
+      ],
+      "duration": 120,
+      "description": "兽人的主要据点"
+    }
+  ]
+} 

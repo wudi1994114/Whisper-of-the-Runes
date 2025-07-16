@@ -8,6 +8,31 @@ temp/
 local/
 build/
 
+#//////////////////////////
+# Meta 文件处理
+#//////////////////////////
+# 排除大部分自动生成的 meta 文件
+**/*.meta
+
+# 但保留重要的 meta 文件
+!assets/scenes/*.meta
+!assets/prefabs/*.meta
+!assets/scripts.meta
+!assets/resources.meta
+!assets/textures.meta
+!assets/audio.meta
+!assets/animations.meta
+
+# 保留文件夹组织结构的 meta
+!assets/prefabs/effects.meta
+!assets/prefabs/enemies.meta
+!assets/prefabs/items.meta
+!assets/prefabs/player.meta
+!assets/prefabs/weapons.meta
+!assets/textures/backgrounds.meta
+!assets/textures/sprites.meta
+!assets/textures/ui.meta
+
 # Library目录 - 但保留重要的配置文件
 library/
 !library/startup.json
@@ -54,6 +79,25 @@ yarn-error.log*
 
 # Creator编辑器生成的文件
 .creator/
+
+#//////////////////////////
+# 开发和调试文件
+#//////////////////////////
+# TypeScript 编译缓存
+*.tsbuildinfo
+
+# 测试覆盖率报告
+coverage/
+.nyc_output/
+
+# 调试文件
+*.map
+*.orig
+
+# 备份文件
+*.bak
+*.backup
+*~
 
 #//////////////////////////
 # 系统文件
