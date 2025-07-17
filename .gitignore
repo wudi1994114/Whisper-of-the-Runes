@@ -9,7 +9,7 @@ local/
 build/
 
 #//////////////////////////
-# Meta 文件处理
+# Meta 文件处理 - 改进版
 #//////////////////////////
 # 排除大部分自动生成的 meta 文件
 **/*.meta
@@ -23,12 +23,16 @@ build/
 !assets/audio.meta
 !assets/animations.meta
 
+# 🔥 重要：确保所有脚本的 meta 文件被跟踪
+!assets/scripts/**/*.meta
+
 # 保留文件夹组织结构的 meta
 !assets/prefabs/effects.meta
 !assets/prefabs/enemies.meta
 !assets/prefabs/items.meta
 !assets/prefabs/player.meta
 !assets/prefabs/weapons.meta
+!assets/prefabs/ui.meta
 !assets/textures/backgrounds.meta
 !assets/textures/sprites.meta
 !assets/textures/ui.meta
@@ -112,35 +116,3 @@ desktop.ini
 dist/
 out/
 bin/
-
-#//////////////////////////
-# 平台特定文件
-#//////////////////////////
-# iOS
-*.pbxuser
-*.mode1v3
-*.mode2v3
-*.perspectivev3
-xcuserdata/
-*.xccheckout
-*.moved-aside
-DerivedData
-*.hmap
-*.ipa
-*.xcuserstate
-
-# Android
-*.apk
-*.ap_
-*.dex
-*.class
-bin/
-gen/
-.gradle/
-local.properties
-
-# Windows
-*.suo
-*.user
-*.userosscache
-*.sln.docstates

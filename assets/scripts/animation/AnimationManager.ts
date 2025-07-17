@@ -274,13 +274,10 @@ export class AnimationManager {
         if (!animationComponent) {
             animationComponent = node.addComponent(Animation);
         }
-
-        // 清空现有剪辑
-        animationComponent.clips = [];
         
         // 添加新剪辑
-        clips.forEach((clip, name) => {
-            animationComponent.clips.push(clip);
+        clips.forEach((clip) => {
+            animationComponent.addClip(clip);
         });
 
         console.log(`Animation component setup complete with ${clips.size} clips`);

@@ -2,7 +2,7 @@
 
 import { _decorator, JsonAsset } from 'cc';
 import { EnemyData, EnemyCategory, AiBehavior } from '../configs/EnemyConfig';
-import { handleError, ErrorType, ErrorSeverity, safeAsync } from './ErrorHandler';
+import { handleError, ErrorType, ErrorSeverity } from './ErrorHandler';
 import { resourceManager } from './ResourceManager';
 import { LevelData } from './LevelManager';
 
@@ -35,27 +35,23 @@ export class DataManager {
             return;
         }
 
-        const result = await safeAsync(
-            async () => {
-                // 加载敌人数据
-                await this.loadEnemyData();
-                
-                // 如果还有其他需要动态加载的数据，可以在这里添加
-                // await this.loadSkillData();
-                await this.loadLevelData();
-                
-                this._isLoaded = true;
-                console.log(`DataManager: 成功加载 ${Object.keys(this._enemyDatabase).length} 个敌人配置`);
-            },
-            ErrorType.DATA_LOADING,
-            "DataManager: 加载游戏数据失败"
-        );
-
-        if (!result) {
+        try {
+            // 加载敌人数据
+            await this.loadEnemyData();
+            
+            // 如果还有其他需要动态加载的数据，可以在这里添加
+            // await this.loadSkillData();
+            await this.loadLevelData();
+            
+            this._isLoaded = true;
+            console.log(`DataManager: 成功加载 ${Object.keys(this._enemyDatabase).length} 个敌人配置`);
+        } catch (error) {
             handleError(
                 ErrorType.DATA_LOADING,
                 ErrorSeverity.CRITICAL,
-                "DataManager: 无法加载游戏数据，游戏可能无法正常运行"
+                "DataManager: 无法加载游戏数据，游戏可能无法正常运行",
+                { error: error },
+                error as Error
             );
             throw new Error("Failed to load game data");
         }
