@@ -1,6 +1,6 @@
 // assets/scripts/game/FireballController.ts
 
-import { _decorator, Component, Node, Sprite, Animation, AnimationClip, animation, SpriteFrame, SpriteAtlas, resources, Vec3, Vec2, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, js, assetManager } from 'cc';
+import { _decorator, Component, Node, Sprite, Animation, AnimationClip, animation, SpriteFrame, SpriteAtlas, resources, Vec3, Vec2, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, js, assetManager, UITransform } from 'cc';
 import { eventManager } from '../core/EventManager';
 import { GameEvents } from '../core/GameEvents';
 
@@ -97,6 +97,13 @@ export class FireballController extends Component {
         this.animationComponent = this.getComponent(Animation);
         if (!this.animationComponent) {
             this.animationComponent = this.addComponent(Animation);
+        }
+        
+        // 设置火球节点的锚点，防止旋转时位置偏移
+        const uiTransform = this.getComponent(UITransform);
+        if (uiTransform) {
+            uiTransform.setAnchorPoint(0.5, 0.6); // 设置锚点为(0.5, 0.6)
+            console.log('FireballController: 已设置锚点为 (0.5, 0.6)');
         }
         
         // 获取碰撞体组件

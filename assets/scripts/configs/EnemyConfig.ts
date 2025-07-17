@@ -3,6 +3,26 @@
 import { AnimationDirection } from '../animation/AnimationConfig';
 
 /**
+ * 发射点偏移配置接口
+ * 定义相对于角色锚点的发射点位置偏移
+ */
+export interface ProjectileOffset {
+    x: number;  // X轴偏移（像素）
+    y: number;  // Y轴偏移（像素）
+}
+
+/**
+ * 发射点配置接口
+ * 为不同朝向定义发射点偏移
+ */
+export interface ProjectileOffsets {
+    [AnimationDirection.FRONT]: ProjectileOffset;   // 朝前时的发射点
+    [AnimationDirection.BACK]: ProjectileOffset;    // 朝后时的发射点
+    [AnimationDirection.LEFT]: ProjectileOffset;    // 朝左时的发射点
+    [AnimationDirection.RIGHT]: ProjectileOffset;   // 朝右时的发射点
+}
+
+/**
  * 敌人类别枚举
  * 定义敌人稀有度/类型，用于逻辑区分（如Boss血条、精英怪物词缀等）
  */
@@ -110,4 +130,9 @@ export interface EnemyData {
     // ===============================
     stunDuration?: number;          // 受击硬直时间 (秒)，敌人受伤后的无法行动时间
     damageFlashDuration?: number;   // 受伤闪烁持续时间 (秒)，敌人受伤时的视觉反馈时长
+    
+    // ===============================
+    // 投射物发射配置 (可选)
+    // ===============================
+    projectileOffsets?: ProjectileOffsets; // 不同方向的发射点偏移配置，用于远程攻击类敌人
 } 

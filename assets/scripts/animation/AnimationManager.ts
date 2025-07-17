@@ -68,7 +68,9 @@ export class AnimationManager {
         
         // 打印前10个帧名称作为示例
         spriteFrames.slice(0, 10).forEach((frame, index) => {
-            console.log(`Frame ${index}: ${frame.name}`);
+            if (frame) {
+                console.log(`Frame ${index}: ${frame.name}`);
+            }
         });
         
         console.log('=== End atlas frames debug ===');
@@ -182,8 +184,8 @@ export class AnimationManager {
             const [channel] = track.channels();
             
             // 创建关键帧数据
-            const keyframes: [number, SpriteFrame][] = spriteFrames.map((frame, time) => [
-                time,
+            const keyframes: [number, SpriteFrame][] = spriteFrames.map((frame, index) => [
+                times[index], // 使用正确的时间值
                 frame // 直接使用 spriteFrame 对象
             ]);
             
@@ -294,7 +296,7 @@ export class AnimationManager {
      */
     public playAnimation(animationComponent: Animation, state: AnimationState, direction: AnimationDirection): boolean {
         const animationName = `${state}_${direction}`;
-        const hasClip = animationComponent.clips.some(c => c.name === animationName);
+        const hasClip = animationComponent.clips.some(c => c && c.name === animationName);
         
         if (!hasClip) {
             console.warn(`Animation not found: ${animationName}`);
@@ -317,13 +319,13 @@ export class AnimationManager {
         console.log(`Playing animation: ${animationName}`);
         console.log(`Sprite component found: ${spriteComponent.spriteFrame ? 'has spriteFrame' : 'no spriteFrame'}`);
         
-        // 检查动画状态
+        // 检查动画状态 - 使用下一帧检查
         setTimeout(() => {
             const state = animationComponent.getState(animationName);
             if (state) {
                 console.log(`Animation state: playing=${state.isPlaying}, time=${state.time}, duration=${state.duration}`);
             }
-        }, 100);
+        }, 16); // 约1帧的时间
         
         return true;
     }

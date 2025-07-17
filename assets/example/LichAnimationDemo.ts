@@ -388,52 +388,93 @@ export class LichAnimationDemo extends Component {
             // 找到最新创建的火球节点
             const fireballNode = this.findLatestFireball();
             if (fireballNode) {
-                // 设置火球节点的旋转角度
+                // 确保火球锚点，防止旋转时位置偏移
+                const uiTransform = fireballNode.getComponent(UITransform);
+                if (uiTransform) {
+                    uiTransform.setAnchorPoint(0.5, 0.6);
+                }
+                
+                // 先调整火球发射位置到巫妖的锚点(0.5, 1)位置
+                this.adjustFireballStartPosition(fireballNode);
+                
+                // 然后设置火球的视觉角度
+                // 火球图片默认朝向右方（0度），直接使用发射角度
                 const visualAngle = launchAngle;
                 fireballNode.angle = visualAngle;
                 
-                // 调整火球发射位置到巫妖的锚点(0.5, 1)位置
-                this.adjustFireballStartPosition(fireballNode);
-                
-                console.log(`[LichAnimationDemo] 设置火球视觉角度: ${visualAngle}°，发射位置已调整到锚点(0.5,1)`);
+                console.log(`[LichAnimationDemo] 设置火球锚点为(0.5, 0.6)，视觉角度: ${visualAngle}°，发射位置已调整`);
+                console.log(`[LichAnimationDemo] 发射角度映射: ${launchAngle}° -> 视觉角度: ${visualAngle}°`);
             }
-        }, 10); // 延迟10毫秒确保火球已经创建
+        }, 30); // 延迟30毫秒确保火球已经完全创建并初始化完成
     }
 
     /**
-     * 调整火球发射起始位置到巫妖的锚点(0.5, 1)位置
+     * 调整火球发射起始位置，使用敌人配置中的方向性发射点偏移
      * @param fireballNode 火球节点
      */
     private adjustFireballStartPosition(fireballNode: Node): void {
-        // 获取巫妖节点的 UITransform 组件
-        const lichTransform = this.node.getComponent(UITransform);
-        if (!lichTransform) {
-            console.warn('[LichAnimationDemo] 无法获取巫妖的 UITransform 组件');
+        if (!this.enemyData) {
+            console.warn('[LichAnimationDemo] 无敌人配置数据');
             return;
         }
 
-        // 计算巫妖图片的锚点(0.5, 1)位置 - 顶部中央
+        // 获取巫妖的基准位置
         const lichPos = this.node.position;
-        const lichHeight = lichTransform.height;
         
-        // 计算锚点(0.5, 1)的世界坐标
-        // 0.5 = 水平居中，不需要x偏移
-        // 1 = 垂直顶部，需要向上偏移半个高度
-        const anchorOffset = new Vec3(
-            0,                // 水平居中，无偏移
-            lichHeight / 10,   // 向上偏移半个高度到顶部
-            0
+        // 获取当前方向的发射点偏移配置
+        const projectileOffsets = this.enemyData.projectileOffsets;
+        if (!projectileOffsets) {
+            console.warn('[LichAnimationDemo] 敌人配置中没有发射点偏移配置，使用默认位置');
+            fireballNode.position = lichPos;
+            return;
+        }
+        
+        // 将复合方向映射到基本方向
+        let mappedDirection: string;
+        switch (this.currentDirection) {
+            case AnimationDirection.FRONT:
+                mappedDirection = 'front';
+                break;
+            case AnimationDirection.BACK:
+                mappedDirection = 'back';
+                break;
+            case AnimationDirection.LEFT:
+            case AnimationDirection.FRONT_LEFT:
+            case AnimationDirection.BACK_LEFT:
+                mappedDirection = 'left';
+                break;
+            case AnimationDirection.RIGHT:
+            case AnimationDirection.FRONT_RIGHT:
+            case AnimationDirection.BACK_RIGHT:
+                mappedDirection = 'right';
+                break;
+            default:
+                mappedDirection = 'front';
+        }
+        
+        // 根据映射后的方向获取偏移量
+        const currentOffset = (projectileOffsets as any)[mappedDirection];
+        if (!currentOffset) {
+            console.warn(`[LichAnimationDemo] 方向 ${mappedDirection} 没有配置发射点偏移，使用默认位置`);
+            fireballNode.position = lichPos;
+            return;
+        }
+        
+        // 应用偏移量计算最终发射位置
+        const fireballStartPos = new Vec3(
+            lichPos.x + currentOffset.x,
+            lichPos.y + currentOffset.y,
+            lichPos.z
         );
-        
-        // 计算最终的发射位置
-        const fireballStartPos = new Vec3();
-        Vec3.add(fireballStartPos, lichPos, anchorOffset);
         
         // 设置火球的起始位置
         fireballNode.position = fireballStartPos;
         
-        console.log(`[LichAnimationDemo] 火球发射位置设置为锚点(0.5,1): (${fireballStartPos.x.toFixed(2)}, ${fireballStartPos.y.toFixed(2)})`);
+        console.log(`[LichAnimationDemo] 火球发射位置设置为方向 ${this.currentDirection} (映射到 ${mappedDirection}) 偏移: (${currentOffset.x}, ${currentOffset.y})`);
+        console.log(`[LichAnimationDemo] 最终发射位置: (${fireballStartPos.x.toFixed(2)}, ${fireballStartPos.y.toFixed(2)})`);
     }
+
+
 
     /**
      * 查找最新创建的火球节点
@@ -589,13 +630,18 @@ export class LichAnimationDemo extends Component {
             
             console.log(`[LichAnimationDemo] 播放攻击动画: ${AnimationState.ATTACK}_${this.currentDirection}`);
             
+            // 在第5帧触发火球（Lich攻击动画总共8帧，帧率12FPS，第5帧约在4/12=0.333秒）
+            const fireballTriggerTime = (4 / 12) * 1000; // 转换为毫秒
+            setTimeout(() => {
+                console.log(`[LichAnimationDemo] 第5帧触发火球发射`);
+                this.launchFireball();
+            }, fireballTriggerTime);
+            
             // 设置攻击动画结束回调
             this.animationComponent.once(Animation.EventType.FINISHED, () => {
                 console.log(`[LichAnimationDemo] 攻击动画结束: ${AnimationState.ATTACK}_${this.currentDirection}`);
                 // 根据当前按键状态决定进入的状态
                 this.determineStateAfterAttack();
-                // 在攻击动画结束后发射火球
-                this.launchFireball();
             });
         } else {
             console.warn(`[LichAnimationDemo] 攻击动画播放失败: ${AnimationState.ATTACK}_${this.currentDirection}`);

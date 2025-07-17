@@ -1,6 +1,6 @@
 // assets/scripts/game/FireballLauncher.ts
 
-import { _decorator, Component, Node, Prefab, Vec3, instantiate, input, Input, EventMouse } from 'cc';
+import { _decorator, Component, Node, Prefab, Vec3, instantiate, input, Input, EventMouse, Camera, Canvas, view, UITransform } from 'cc';
 import { FireballController } from './FireballController';
 
 const { ccclass, property } = _decorator;
@@ -40,15 +40,33 @@ export class FireballLauncher extends Component {
      * 鼠标点击事件处理
      */
     private onMouseDown = (event: EventMouse): void => {
-        // 简化处理：根据点击位置计算方向
-        const screenPos = new Vec3(event.getLocationX(), event.getLocationY(), 0);
+        // 获取鼠标在屏幕上的位置
+        const mouseX = event.getLocationX();
+        const mouseY = event.getLocationY();
         
-        // 假设屏幕中心为发射起点，计算方向
-        const screenCenter = new Vec3(960, 540, 0); // 1920x1080的一半
-        const direction = new Vec3();
-        Vec3.subtract(direction, screenPos, screenCenter);
-        direction.z = 0;
+        // 获取屏幕尺寸
+        const visibleSize = view.getVisibleSize();
+        
+        // 将屏幕坐标转换为相对于屏幕中心的坐标
+        // 屏幕中心为(0,0)，右上为正方向
+        const centerX = visibleSize.width / 2;
+        const centerY = visibleSize.height / 2;
+        
+        // 计算相对于中心的偏移量
+        const offsetX = mouseX - centerX;
+        const offsetY = centerY - mouseY; // Y轴需要翻转，因为屏幕Y向下，世界Y向上
+        
+        // 创建方向向量并归一化
+        const direction = new Vec3(offsetX, offsetY, 0);
         direction.normalize();
+        
+        // 计算角度（用于调试）
+        const angle = Math.atan2(offsetY, offsetX) * 180 / Math.PI;
+        
+        console.log(`FireballLauncher: 鼠标点击屏幕坐标 (${mouseX.toFixed(2)}, ${mouseY.toFixed(2)})`);
+        console.log(`FireballLauncher: 相对中心偏移 (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)})`);
+        console.log(`FireballLauncher: 计算方向向量 (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)})`);
+        console.log(`FireballLauncher: 发射角度 ${angle.toFixed(2)}°`);
         
         // 发射火球
         this.launchFireballInDirection(direction);
@@ -168,6 +186,13 @@ export class FireballLauncher extends Component {
         
         // 实例化火球预制体
         const fireballNode = instantiate(this.fireballPrefab);
+        
+        // 确保火球节点的锚点，防止旋转时位置偏移
+        const uiTransform = fireballNode.getComponent(UITransform);
+        if (uiTransform) {
+            uiTransform.setAnchorPoint(0.5, 0.6); // 设置锚点为(0.5, 0.6)
+            console.log('FireballLauncher: 已为火球设置锚点为 (0.5, 0.6)');
+        }
         
         // 添加到场景
         this.node.parent?.addChild(fireballNode);

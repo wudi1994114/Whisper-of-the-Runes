@@ -118,6 +118,12 @@
       "hurtDuration": 0.4,
       "deathDuration": 2.5,
       "idleWaitTime": 1.5,
-      "aggroDecayTime": 8
+      "aggroDecayTime": 8,
+      "projectileOffsets": {
+          "front": { "x": 8.5, "y": -4 },
+          "back": { "x": -10, "y": 25 },
+          "left": { "x": -25, "y": 14},
+          "right": { "x": 25, "y": 9 }
+      }
   }
 }
