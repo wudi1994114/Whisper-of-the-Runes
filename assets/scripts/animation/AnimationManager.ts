@@ -1,7 +1,7 @@
 // assets/scripts/animation/AnimationManager.ts
 
 import { _decorator, resources, SpriteAtlas, SpriteFrame, AnimationClip, Animation, Node, animation, Sprite, js } from 'cc';
-import { EnemyAnimationConfig, AnimationState, AnimationDirection, AnimationFrameData, getAnimationConfigByPrefix } from './AnimationConfig';
+import { AnimationState, AnimationDirection, AnimationFrameData, getAnimationConfigByPrefix } from './AnimationConfig';
 import { EnemyData } from '../configs/EnemyConfig';
 import { dataManager } from '../core/DataManager';
 
@@ -182,9 +182,10 @@ export class AnimationManager {
             const [channel] = track.channels();
             
             // 创建关键帧数据
-            const keyframes: [number, { value: SpriteFrame }][] = times.map((time, index) => 
-                [time, { value: spriteFrames[index] }] as [number, { value: SpriteFrame }]
-            );
+            const keyframes: [number, SpriteFrame][] = spriteFrames.map((frame, time) => [
+                time,
+                frame // 直接使用 spriteFrame 对象
+            ]);
             
             // 设置曲线数据
             channel.curve.assignSorted(keyframes);

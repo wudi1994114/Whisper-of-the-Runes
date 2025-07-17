@@ -1,9 +1,8 @@
 // assets/scripts/core/DataManager.ts
 
-import { _decorator, JsonAsset } from 'cc';
+import { _decorator, JsonAsset, assetManager } from 'cc';
 import { EnemyData, EnemyCategory, AiBehavior } from '../configs/EnemyConfig';
 import { handleError, ErrorType, ErrorSeverity } from './ErrorHandler';
-import { resourceManager } from './ResourceManager';
 import { LevelData } from './LevelManager';
 
 const { ccclass } = _decorator;
@@ -61,7 +60,7 @@ export class DataManager {
      * 从JSON文件加载敌人数据
      */
     private async loadEnemyData(): Promise<void> {
-        const jsonAsset = await resourceManager.loadResource('data/enemies', JsonAsset);
+        const jsonAsset = await this.loadJsonFromBundle('data/enemies');
         
         if (!jsonAsset) {
             throw new Error("Failed to load enemy data");
@@ -94,6 +93,47 @@ export class DataManager {
             console.error("DataManager: 解析敌人数据失败", parseError);
             throw parseError;
         }
+    }
+
+    /**
+     * 使用 assetManager.loadBundle 和 bundle.load 加载JSON资源
+     * @param resourcePath 资源路径
+     * @returns Promise<JsonAsset | null>
+     */
+    private loadJsonFromBundle(resourcePath: string): Promise<JsonAsset | null> {
+        return new Promise((resolve, reject) => {
+            // 获取 resources bundle，如果不存在则加载
+            const bundle = assetManager.getBundle('resources');
+            if (bundle) {
+                // 直接从已加载的 resources bundle 中加载
+                bundle.load(resourcePath, JsonAsset, (err, jsonAsset) => {
+                    if (err) {
+                        console.error(`DataManager: 加载资源失败 ${resourcePath}`, err);
+                        reject(err);
+                        return;
+                    }
+                    resolve(jsonAsset);
+                });
+            } else {
+                // 如果 resources bundle 未加载，先加载 bundle
+                assetManager.loadBundle('resources', (err, bundle) => {
+                    if (err) {
+                        console.error('DataManager: 加载 resources bundle 失败', err);
+                        reject(err);
+                        return;
+                    }
+                    
+                    bundle.load(resourcePath, JsonAsset, (err, jsonAsset) => {
+                        if (err) {
+                            console.error(`DataManager: 加载资源失败 ${resourcePath}`, err);
+                            reject(err);
+                            return;
+                        }
+                        resolve(jsonAsset);
+                    });
+                });
+            }
+        });
     }
 
     /**
@@ -273,7 +313,7 @@ export class DataManager {
     public async loadLevelData(): Promise<void> {
         console.log("DataManager: 加载关卡数据...");
         
-        const jsonAsset = await resourceManager.loadResource('data/levels', JsonAsset);
+        const jsonAsset = await this.loadJsonFromBundle('data/levels');
         
         if (!jsonAsset) {
             throw new Error("Failed to load level data");

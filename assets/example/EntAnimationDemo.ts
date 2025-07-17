@@ -9,10 +9,11 @@
  * 🔧 从敌人配置读取小树精数据，使用状态机管理角色行为，动画直接在当前节点的Sprite组件上播放
  */
 
-import { _decorator, Component, Animation, AnimationClip, Node, Sprite, resources, SpriteAtlas, SpriteFrame, animation, js, UITransform, Vec2, Vec3, input, Input, EventKeyboard, KeyCode } from 'cc';
+import { _decorator, Component, Animation, Node, Sprite, UITransform, Vec2, Vec3, input, Input, EventKeyboard, KeyCode } from 'cc';
 import { dataManager } from '../scripts/core/DataManager';
 import { EnemyData } from '../scripts/configs/EnemyConfig';
 import { AnimationState, AnimationDirection } from '../scripts/animation/AnimationConfig';
+import { animationManager } from '../scripts/animation/AnimationManager';
 
 const { ccclass, property } = _decorator;
 
@@ -184,7 +185,6 @@ export class EntAnimationDemo extends Component {
 
     // 核心组件
     private animationComponent: Animation | null = null;
-    private spriteAtlas: SpriteAtlas | null = null;
     private spriteComponent: Sprite | null = null;
     
     // 敌人配置数据
@@ -216,11 +216,8 @@ export class EntAnimationDemo extends Component {
         // 设置输入系统
         this.setupInput();
         
-        // 加载资源
-        await this.loadSpriteAtlas();
-        
-        // 创建所有动画
-        this.createAllAnimations();
+        // 使用 AnimationManager 加载资源和创建动画
+        await this.setupAnimationsWithManager();
         
         // 初始化状态机
         this.stateMachine = new StateMachine(this);
@@ -230,7 +227,32 @@ export class EntAnimationDemo extends Component {
         console.log('🎮 控制说明：WSAD移动，J键攻击（攻击时无法移动）');
     }
 
+    /**
+     * 使用 AnimationManager 设置动画
+     */
+    private async setupAnimationsWithManager(): Promise<void> {
+        if (!this.enemyData) {
+            console.error('[EntAnimationDemo] 无敌人配置数据，无法设置动画');
+            return;
+        }
 
+        try {
+            // 使用 AnimationManager 创建所有动画剪辑
+            const animationClips = await animationManager.createAllAnimationClips(this.enemyData);
+            
+            if (animationClips.size === 0) {
+                console.warn('[EntAnimationDemo] 没有创建任何动画剪辑');
+                return;
+            }
+
+            // 使用 AnimationManager 设置动画组件
+            this.animationComponent = animationManager.setupAnimationComponent(this.node, animationClips);
+            
+            console.log(`[EntAnimationDemo] 通过 AnimationManager 成功创建 ${animationClips.size} 个动画剪辑`);
+        } catch (error) {
+            console.error('[EntAnimationDemo] 动画设置失败:', error);
+        }
+    }
 
     /**
      * 等待数据管理器加载完成
@@ -377,13 +399,18 @@ export class EntAnimationDemo extends Component {
      * 播放当前方向的指定动画
      */
     public playCurrentAnimation(state: AnimationState): void {
-        const animName = `${state}_${this.currentDirection}`;
+        if (!this.animationComponent) {
+            console.warn('[EntAnimationDemo] 动画组件未初始化');
+            return;
+        }
+
+        // 使用 AnimationManager 播放动画
+        const success = animationManager.playAnimation(this.animationComponent, state, this.currentDirection);
         
-        if (this.animationComponent && this.hasAnimation(animName)) {
-            this.animationComponent.play(animName);
-            console.log(`[EntAnimationDemo] 播放动画: ${animName}`);
+        if (success) {
+            console.log(`[EntAnimationDemo] 播放动画: ${state}_${this.currentDirection}`);
         } else {
-            console.warn(`[EntAnimationDemo] 动画不存在: ${animName}`);
+            console.warn(`[EntAnimationDemo] 动画播放失败: ${state}_${this.currentDirection}`);
         }
     }
 
@@ -391,24 +418,30 @@ export class EntAnimationDemo extends Component {
      * 播放攻击动画并处理结束回调
      */
     public playAttackAnimation(): void {
-        const animName = `${AnimationState.ATTACK}_${this.currentDirection}`;
+        if (!this.animationComponent) {
+            console.warn('[EntAnimationDemo] 动画组件未初始化');
+            this.determineStateAfterAttack();
+            return;
+        }
+
+        // 使用 AnimationManager 播放攻击动画
+        const success = animationManager.playAnimation(this.animationComponent, AnimationState.ATTACK, this.currentDirection);
         
-        if (this.animationComponent && this.hasAnimation(animName)) {
+        if (success) {
             // 清除之前的监听器
             this.animationComponent.off(Animation.EventType.FINISHED);
             
-            this.animationComponent.play(animName);
-            console.log(`[EntAnimationDemo] 播放攻击动画: ${animName}`);
+            console.log(`[EntAnimationDemo] 播放攻击动画: ${AnimationState.ATTACK}_${this.currentDirection}`);
             
             // 设置攻击动画结束回调
             this.animationComponent.once(Animation.EventType.FINISHED, () => {
-                console.log(`[EntAnimationDemo] 攻击动画结束: ${animName}`);
+                console.log(`[EntAnimationDemo] 攻击动画结束: ${AnimationState.ATTACK}_${this.currentDirection}`);
                 // 根据当前按键状态决定进入的状态
                 this.determineStateAfterAttack();
             });
         } else {
-            console.warn(`[EntAnimationDemo] 攻击动画不存在: ${animName}`);
-            // 如果动画不存在，也根据当前按键状态决定状态
+            console.warn(`[EntAnimationDemo] 攻击动画播放失败: ${AnimationState.ATTACK}_${this.currentDirection}`);
+            // 如果动画播放失败，也根据当前按键状态决定状态
             this.determineStateAfterAttack();
         }
     }
@@ -439,13 +472,6 @@ export class EntAnimationDemo extends Component {
      */
     public transitionToState(state: CharacterState): void {
         this.stateMachine?.transitionTo(state);
-    }
-
-    /**
-     * 检查动画是否存在
-     */
-    private hasAnimation(animName: string): boolean {
-        return this.animationComponent?.clips.some(clip => clip && clip.name === animName) || false;
     }
 
     /**
@@ -481,114 +507,6 @@ export class EntAnimationDemo extends Component {
         
         // 应用新位置
         this.node.position = newPos;
-    }
-
-    private async loadSpriteAtlas(): Promise<void> {
-        if (!this.enemyData) {
-            console.error('[EntAnimationDemo] 缺少敌人配置数据');
-            return;
-        }
-        
-        return new Promise((resolve, reject) => {
-            resources.load(this.enemyData!.plistUrl, SpriteAtlas, (err, atlas) => {
-                if (err || !atlas) {
-                    console.error('[EntAnimationDemo] 加载图集失败:', err);
-                    return reject(err);
-                }
-                this.spriteAtlas = atlas;
-                console.log('[EntAnimationDemo] 图集加载成功');
-                resolve();
-            });
-        });
-    }
-
-    private getSpriteFrame(frameName: string): SpriteFrame | null {
-        if (!this.spriteAtlas) return null;
-        return this.spriteAtlas.getSpriteFrame(frameName) || this.spriteAtlas.getSpriteFrame(frameName + '.png');
-    }
-
-    /**
-     * 创建所有动画（idle, walk, attack）
-     */
-    private createAllAnimations(): void {
-        if (!this.enemyData) {
-            console.error('[EntAnimationDemo] 无敌人配置数据，无法创建动画');
-            return;
-        }
-        
-        console.log('[EntAnimationDemo] 开始创建所有动画...');
-        
-        const states = [
-            { state: AnimationState.IDLE, frames: 4, rate: 8, loop: true },
-            { state: AnimationState.WALK, frames: 6, rate: 10, loop: true },
-            { state: AnimationState.ATTACK, frames: 7, rate: 12, loop: false }
-        ];
-        
-        const directions = [AnimationDirection.FRONT, AnimationDirection.BACK, AnimationDirection.LEFT, AnimationDirection.RIGHT];
-        
-        for (const stateConfig of states) {
-            for (const direction of directions) {
-                const clip = this.createAnimationClip(stateConfig.state, direction, stateConfig.frames, stateConfig.rate, stateConfig.loop);
-                if (clip && this.animationComponent) {
-                    this.animationComponent.addClip(clip);
-                }
-            }
-        }
-        
-        console.log(`[EntAnimationDemo] 动画创建完成，共 ${this.animationComponent?.clips.length || 0} 个剪辑`);
-    }
-
-    /**
-     * 创建单个动画剪辑
-     */
-    private createAnimationClip(state: AnimationState, direction: AnimationDirection, frameCount: number, frameRate: number, loop: boolean): AnimationClip | null {
-        if (!this.spriteComponent || !this.enemyData) return null;
-
-        const animationName = `${state}_${direction}`;
-        const framePrefix = `${this.enemyData.assetNamePrefix}_${state}_${direction}`;
-
-        // 收集动画帧
-        const spriteFrames: SpriteFrame[] = [];
-        for (let i = 0; i < frameCount; i++) {
-            const frameIndex = i < 10 ? `0${i}` : `${i}`;
-            const frameName = `${framePrefix}${frameIndex}`;
-            const spriteFrame = this.getSpriteFrame(frameName);
-            if (spriteFrame) {
-                spriteFrames.push(spriteFrame);
-            }
-        }
-
-        if (spriteFrames.length === 0) {
-            console.warn(`[EntAnimationDemo] 没有为 ${animationName} 找到任何有效的帧`);
-            return null;
-        }
-
-        // 创建动画剪辑
-        const clip = new AnimationClip();
-        clip.name = animationName;
-        clip.duration = spriteFrames.length / frameRate;
-        clip.wrapMode = loop ? AnimationClip.WrapMode.Loop : AnimationClip.WrapMode.Normal;
-
-        // 创建轨道 - 直接指向当前节点的Sprite组件
-        const path = new animation.TrackPath()
-            .toComponent(js.getClassName(this.spriteComponent))
-            .toProperty('spriteFrame');
-
-        const track = new animation.ObjectTrack();
-        track.path = path;
-        
-        const [channel] = track.channels();
-        if (!channel) {
-            console.error(`[EntAnimationDemo] 无法为剪辑 ${animationName} 创建动画通道`);
-            return null;
-        }
-        
-        const keyframes: [number, SpriteFrame][] = spriteFrames.map((sf, i) => [i / frameRate, sf]);
-        channel.curve.assignSorted(keyframes);
-        clip.addTrack(track);
-
-        console.log(`[EntAnimationDemo] 成功创建剪辑: ${animationName} (${spriteFrames.length} 帧)`);
-        return clip;
     }
 
     onDestroy() {
