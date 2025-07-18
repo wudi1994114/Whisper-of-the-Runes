@@ -1,31 +1,39 @@
 {
-  "skills": [
-    {
-      "id": 1,
-      "name": "火球术",
-      "type": "攻击",
+  "projectiles": {
+    "fireball": {
+      "id": "fireball",
+      "name": "火球",
+      "type": "projectile",
+      "category": "magic",
       "damage": 50,
-      "manaCost": 20,
-      "cooldown": 3,
-      "description": "发射一个火球，造成范围伤害"
-    },
-    {
-      "id": 2,
-      "name": "治疗术",
-      "type": "治疗",
-      "healAmount": 40,
-      "manaCost": 15,
-      "cooldown": 2,
-      "description": "恢复生命值"
-    },
-    {
-      "id": 3,
-      "name": "冰锥术",
-      "type": "攻击",
-      "damage": 35,
-      "manaCost": 18,
-      "cooldown": 2.5,
-      "description": "发射冰锥，减缓敌人速度"
+      "moveSpeed": 5,
+      "lifeTime": 5.0,
+      "frameRate": 12,
+      "animationFrames": {
+        "spawn": [0],
+        "flying": [1, 2, 3],
+        "explode": [4, 5, 6, 7]
+      },
+      "resources": {
+        "atlas": "skill/fire",
+        "framePrefix": "Fire_right",
+        "prefab": "effects/fire"
+      },
+      "poolConfig": {
+        "maxSize": 30,
+        "preloadCount": 5,
+        "poolName": "fireball"
+      },
+      "physics": {
+        "anchor": { "x": 0.5, "y": 0.6 },
+        "collisionEnabled": true
+      },
+      "visual": {
+        "scale": 1.0,
+        "rotation": 0,
+        "alpha": 1.0
+      },
+      "description": "基础火球投射物，可造成魔法伤害并在命中时爆炸"
     }
-  ]
+  }
 } 

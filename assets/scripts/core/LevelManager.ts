@@ -5,6 +5,7 @@ import { dataManager } from './DataManager';
 import { animationManager } from '../animation/AnimationManager';
 import { eventManager } from './EventManager';
 import { GameEvents } from './GameEvents';
+import { resourceManager } from './ResourceManager';
 
 const { ccclass } = _decorator;
 
@@ -110,6 +111,9 @@ export class LevelManager {
             this._currentLevelId = levelId;
             this._isLevelActive = true;
 
+            // 加载关卡所需的敌人预制体
+            await this.loadLevelEnemyPrefabs(levelData);
+
             // 预加载关卡所需的动画资源
             await this.preloadLevelAnimations(levelData);
 
@@ -180,6 +184,61 @@ export class LevelManager {
         await animationManager.createLevelAnimationCache(levelData.id, enemyTypes);
         
         console.log('LevelManager: Level animations preloaded successfully');
+    }
+
+    /**
+     * 加载关卡所需的敌人预制体
+     * @param levelData 关卡数据
+     */
+    private async loadLevelEnemyPrefabs(levelData: LevelData): Promise<void> {
+        console.log(`LevelManager: 开始加载关卡 ${levelData.id} 的敌人预制体...`);
+        
+        try {
+            // 从DataManager获取该关卡需要的敌人预制体配置
+            const enemyConfigs = dataManager.getEnemyPrefabConfigsForLevel(levelData.id);
+            
+            if (enemyConfigs.length === 0) {
+                console.log(`LevelManager: 关卡 ${levelData.id} 不需要额外的敌人预制体`);
+                return;
+            }
+
+            // 批量初始化敌人预制体
+            const batchConfig = {
+                category: `level_${levelData.id}_enemies`,
+                prefabs: enemyConfigs,
+                loadConcurrency: 2,  // 关卡加载时并发数较小，避免阻塞
+                retryCount: 1,       // 关卡加载重试次数较少
+                onProgress: (loaded: number, total: number) => {
+                    console.log(`LevelManager: 关卡 ${levelData.id} 敌人预制体加载进度: ${loaded}/${total}`);
+                },
+                onItemComplete: (result: any) => {
+                    if (result.success) {
+                        console.log(`LevelManager: 敌人预制体 ${result.name} 加载成功，策略: ${result.strategy}`);
+                    } else {
+                        console.warn(`LevelManager: 敌人预制体 ${result.name} 加载失败: ${result.error}`);
+                    }
+                }
+            };
+
+            const results = await resourceManager.initializePrefabBatch(batchConfig);
+            
+            // 统计加载结果
+            const successCount = results.filter(r => r.success).length;
+            const failCount = results.length - successCount;
+            
+            console.log(`LevelManager: 关卡 ${levelData.id} 敌人预制体加载完成`);
+            console.log(`  - 成功: ${successCount} 个`);
+            console.log(`  - 失败: ${failCount} 个`);
+            
+            // 即使有失败也不阻塞关卡启动，因为可能有备用方案
+            if (failCount > 0) {
+                console.warn(`LevelManager: 部分敌人预制体加载失败，将尝试使用备用方案`);
+            }
+
+        } catch (error) {
+            console.error(`LevelManager: 关卡 ${levelData.id} 敌人预制体加载异常`, error);
+            // 不抛出错误，让关卡继续启动
+        }
     }
 
     /**

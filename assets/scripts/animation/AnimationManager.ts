@@ -1,9 +1,10 @@
 // assets/scripts/animation/AnimationManager.ts
 
-import { _decorator, resources, SpriteAtlas, SpriteFrame, AnimationClip, Animation, Node, animation, Sprite, js } from 'cc';
+import { _decorator, SpriteAtlas, SpriteFrame, AnimationClip, Animation, Node, animation, Sprite, js } from 'cc';
 import { AnimationState, AnimationDirection, AnimationFrameData, getAnimationConfigByPrefix } from './AnimationConfig';
 import { EnemyData } from '../configs/EnemyConfig';
 import { dataManager } from '../core/DataManager';
+import { resourceManager } from '../core/ResourceManager';
 
 const { ccclass } = _decorator;
 
@@ -42,19 +43,19 @@ export class AnimationManager {
             return this.spriteAtlasCache.get(atlasPath)!;
         }
 
-        return new Promise((resolve, reject) => {
-            resources.load(atlasPath, SpriteAtlas, (err, atlas) => {
-                if (err) {
-                    console.error(`Failed to load sprite atlas: ${atlasPath}`, err);
-                    reject(err);
-                    return;
-                }
-
+        try {
+            const atlas = await resourceManager.loadResource(atlasPath, SpriteAtlas);
+            if (atlas) {
                 this.spriteAtlasCache.set(atlasPath, atlas);
-                console.log(`Sprite atlas loaded: ${atlasPath}`);
-                resolve(atlas);
-            });
-        });
+                console.log(`AnimationManager: 图集加载成功 ${atlasPath}`);
+                return atlas;
+            } else {
+                throw new Error(`Failed to load sprite atlas: ${atlasPath}`);
+            }
+        } catch (error) {
+            console.error(`AnimationManager: 图集加载失败 ${atlasPath}`, error);
+            throw error;
+        }
     }
 
     /**

@@ -40,6 +40,22 @@
               "respawnOnDeath": true
             }
           ]
+        },
+        {
+          "id": "spawner_3",
+          "position": { "x": 600, "y": -100 },
+          "spawnRadius": 60,
+          "spawnType": "circle",
+          "enemies": [
+            {
+              "type": "lich_normal",
+              "count": 1,
+              "spawnInterval": 8.0,
+              "maxAlive": 1,
+              "spawnDelay": 10.0,
+              "respawnOnDeath": true
+            }
+          ]
         }
       ],
       

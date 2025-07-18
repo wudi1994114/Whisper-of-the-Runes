@@ -1,6 +1,6 @@
 // assets/scripts/core/GameManager.ts
 
-import { _decorator, Component, Node, director, Enum, KeyCode, Vec2 } from 'cc';
+import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Prefab } from 'cc';
 import { dataManager } from './DataManager';
 import { eventManager } from './EventManager';
 import { inputManager } from './InputManager';
@@ -37,6 +37,28 @@ export class GameManager extends Component {
         tooltip: "游戏模式：正常模式或测试模式"
     })
     public gameMode: GameMode = GameMode.Normal;
+
+    // ===== 预制体挂载区域 =====
+    @property({
+        type: Prefab,
+        displayName: "小树精预制体",
+        tooltip: "ent敌人预制体，用于所有非lich敌人类型"
+    })
+    public entPrefab: Prefab | null = null;
+
+    @property({
+        type: Prefab,
+        displayName: "巫妖预制体", 
+        tooltip: "lich敌人预制体，用于所有lich系列敌人"
+    })
+    public lichPrefab: Prefab | null = null;
+
+    @property({
+        type: Prefab,
+        displayName: "火球预制体",
+        tooltip: "火球技能预制体，用于火球术"
+    })
+    public firePrefab: Prefab | null = null;
 
     private _gameState: GameState = GameState.MainMenu;
 
@@ -384,7 +406,7 @@ export class GameManager extends Component {
         resourceManager.setPreloadConfig({
             data: ['data/enemies', 'data/levels', 'data/skills'], // skills.json 确实存在
             textures: [], // 暂时移除所有纹理预加载，避免路径问题
-            prefabs: [] // 移除不存在的预制体
+            prefabs: [] // 预制体将通过新的批量加载系统管理
         });
 
         // 执行资源预加载
@@ -395,6 +417,12 @@ export class GameManager extends Component {
 
         // 初始化关卡管理器
         await levelManager.initialize();
+
+        // 注册挂载的预制体到对象池
+        this.registerMountedPrefabs();
+
+        // 启动默认关卡，加载敌人预制体到对象池
+        await this.startDefaultLevelForInit();
 
         // 数据加载完成后，可以通知其他模块进行初始化
         eventManager.emit(GameEvents.GAME_DATA_LOADED);
@@ -420,6 +448,98 @@ export class GameManager extends Component {
 
         // 可以在这里启动默认关卡
         this.startDefaultLevel();
+    }
+
+    /**
+     * 注册挂载的预制体到对象池
+     */
+    private registerMountedPrefabs(): void {
+        console.log('GameManager: 开始注册挂载的预制体到对象池...');
+        
+        let successCount = 0;
+        let totalCount = 0;
+
+        // 注册小树精预制体
+        if (this.entPrefab) {
+            totalCount++;
+            const success = resourceManager.registerMountedPrefabToPool(
+                'ent_normal',
+                this.entPrefab,
+                {
+                    poolName: 'ent_normal',
+                    maxSize: 30,
+                    preloadCount: 5
+                }
+            );
+            if (success) {
+                successCount++;
+                console.log('✅ GameManager: 小树精预制体注册成功');
+            } else {
+                console.error('❌ GameManager: 小树精预制体注册失败');
+            }
+        } else {
+            console.warn('⚠️ GameManager: 未挂载小树精预制体');
+        }
+
+        // 注册巫妖预制体
+        if (this.lichPrefab) {
+            totalCount++;
+            const success = resourceManager.registerMountedPrefabToPool(
+                'lich_normal',
+                this.lichPrefab,
+                {
+                    poolName: 'lich_normal',
+                    maxSize: 20,
+                    preloadCount: 3
+                }
+            );
+            if (success) {
+                successCount++;
+                console.log('✅ GameManager: 巫妖预制体注册成功');
+            } else {
+                console.error('❌ GameManager: 巫妖预制体注册失败');
+            }
+        } else {
+            console.warn('⚠️ GameManager: 未挂载巫妖预制体');
+        }
+
+        // 注册火球预制体
+        if (this.firePrefab) {
+            totalCount++;
+            const success = resourceManager.registerMountedPrefabToPool(
+                'fireball',
+                this.firePrefab,
+                {
+                    poolName: 'fireball',
+                    maxSize: 30,
+                    preloadCount: 5
+                }
+            );
+            if (success) {
+                successCount++;
+                console.log('✅ GameManager: 火球预制体注册成功');
+            } else {
+                console.error('❌ GameManager: 火球预制体注册失败');
+            }
+        } else {
+            console.warn('⚠️ GameManager: 未挂载火球预制体');
+        }
+
+        console.log(`🎯 GameManager: 预制体注册完成 - 成功: ${successCount}/${totalCount}`);
+    }
+
+    /**
+     * 启动默认关卡（用于初始化时加载敌人预制体到对象池）
+     */
+    private async startDefaultLevelForInit() {
+        try {
+            console.log('GameManager: 启动默认关卡进行初始化，加载敌人预制体到对象池...');
+            await levelManager.startLevel(1); // 启动第一个关卡，触发敌人预制体加载
+            console.log('GameManager: 默认关卡初始化完成，敌人预制体已加载到对象池');
+        } catch (error) {
+            console.error('GameManager: 初始化时启动默认关卡失败', error);
+            console.warn('GameManager: 敌人预制体可能未完全加载到对象池，游戏可能需要动态创建敌人');
+        }
     }
 
     /**

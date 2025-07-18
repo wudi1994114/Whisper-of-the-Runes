@@ -1,8 +1,11 @@
 // assets/scripts/game/FireballController.ts
 
-import { _decorator, Component, Node, Sprite, Animation, AnimationClip, animation, SpriteFrame, SpriteAtlas, resources, Vec3, Vec2, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, js, assetManager, UITransform } from 'cc';
+import { _decorator, Component, Node, Sprite, Animation, AnimationClip, animation, SpriteFrame, SpriteAtlas, Vec3, Vec2, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, js, UITransform } from 'cc';
 import { eventManager } from '../core/EventManager';
 import { GameEvents } from '../core/GameEvents';
+import { poolManager } from '../core/PoolManager';
+import { dataManager } from '../core/DataManager';
+import { resourceManager } from '../core/ResourceManager';
 
 const { ccclass, property } = _decorator;
 
@@ -18,6 +21,7 @@ export enum FireballState {
 /**
  * 火球控制器
  * 负责管理火球的三阶段动画：生成、飞行、爆炸
+ * 支持对象池管理
  */
 @ccclass('FireballController')
 export class FireballController extends Component {
@@ -58,8 +62,13 @@ export class FireballController extends Component {
     private flyingClip: AnimationClip | null = null;
     private explodeClip: AnimationClip | null = null;
     
+    // 对象池相关
+    private isFromPool: boolean = false;
+    private poolName: string = 'fireball';
+    
     protected onLoad() {
         this.setupComponents();
+        this.loadConfigFromDataManager();
         this.loadResources();
     }
     
@@ -138,46 +147,19 @@ export class FireballController extends Component {
     /**
      * 加载火球图集
      */
-    private loadFireAtlas(): Promise<void> {
-        return new Promise((resolve, reject) => {
-            // 获取 resources bundle，然后加载资源
-            const bundle = assetManager.getBundle('resources');
-            if (bundle) {
-                // 直接从已加载的 resources bundle 中加载
-                bundle.load('skill/fire', SpriteAtlas, (err, atlas) => {
-                    if (err) {
-                        console.error('FireballController: 加载火球图集失败', err);
-                        reject(err);
-                        return;
-                    }
-                    
-                    this.spriteAtlas = atlas;
-                    console.log('FireballController: 火球图集加载成功');
-                    resolve();
-                });
+    private async loadFireAtlas(): Promise<void> {
+        try {
+            const atlas = await resourceManager.loadResource('skill/fire', SpriteAtlas);
+            if (atlas) {
+                this.spriteAtlas = atlas;
+                console.log('FireballController: 火球图集加载成功');
             } else {
-                // 如果 resources bundle 未加载，先加载 bundle
-                assetManager.loadBundle('resources', (err, bundle) => {
-                    if (err) {
-                        console.error('FireballController: 加载 resources bundle 失败', err);
-                        reject(err);
-                        return;
-                    }
-                    
-                    bundle.load('skill/fire', SpriteAtlas, (err, atlas) => {
-                        if (err) {
-                            console.error('FireballController: 加载火球图集失败', err);
-                            reject(err);
-                            return;
-                        }
-                        
-                        this.spriteAtlas = atlas;
-                        console.log('FireballController: 火球图集加载成功');
-                        resolve();
-                    });
-                });
+                throw new Error('Failed to load fire atlas');
             }
-        });
+        } catch (error) {
+            console.error('FireballController: 加载火球图集失败', error);
+            throw error;
+        }
     }
     
     /**
@@ -391,16 +373,34 @@ export class FireballController extends Component {
     }
     
     /**
-     * 销毁火球
+     * 销毁火球 - 修改为支持对象池
      */
     private destroyFireball(): void {
         // 发送火球销毁事件
         eventManager.emit('FIREBALL_DESTROYED', this.node);
         
-        // 销毁节点
-        this.node.destroy();
+        // 尝试回收到对象池，失败则直接销毁
+        this.returnToPool();
     }
-    
+
+    /**
+     * 回收火球到对象池，如果失败则直接销毁
+     */
+    public returnToPool(): void {
+        try {
+            // 清理状态
+            this.onRecycleToPool();
+            
+            // 尝试回收到对象池
+            poolManager.put(this.node);
+            console.log('FireballController: 火球已回收到对象池');
+        } catch (error) {
+            // 对象池回收失败，直接销毁节点
+            console.warn('FireballController: 对象池回收失败，直接销毁节点', error);
+            this.node.destroy();
+        }
+    }
+
     /**
      * 更新移动
      */
@@ -413,7 +413,7 @@ export class FireballController extends Component {
         // 设置刚体的线性速度
         this.rigidBody.linearVelocity = velocity;
     }
-    
+
     /**
      * 设置火球移动方向
      * @param direction 移动方向（已归一化）
@@ -421,8 +421,53 @@ export class FireballController extends Component {
     public setMoveDirection(direction: Vec3): void {
         this.moveDirection = direction.clone();
         this.moveDirection.normalize();
+        
+        // 根据移动方向自动计算并设置视觉角度
+        this.updateVisualAngleFromDirection();
     }
     
+    /**
+     * 根据移动方向更新视觉角度
+     */
+    private updateVisualAngleFromDirection(): void {
+        if (this.moveDirection.length() > 0) {
+            // 计算角度（弧度转度），Y轴翻转以修正上下镜像问题
+            const angleRadians = Math.atan2(-this.moveDirection.y, this.moveDirection.x);
+            const angleDegrees = -angleRadians * 180 / Math.PI;
+            
+            // 更新角度属性
+            this.launchAngle = angleDegrees;
+            
+            // 设置节点的视觉旋转角度
+            this.node.angle = angleDegrees;
+            
+            // 强制让运动方向与动画方向保持一致：从视觉角度重新计算运动方向
+            this.alignMovementWithVisualDirection(angleDegrees);
+            
+            console.log(`FireballController: 根据移动方向更新视觉角度 ${angleDegrees.toFixed(1)}°，运动方向已同步`);
+        }
+    }
+
+    /**
+     * 让运动方向与视觉动画方向保持一致
+     * @param visualAngleDegrees 视觉角度（度）
+     */
+    private alignMovementWithVisualDirection(visualAngleDegrees: number): void {
+        // 从视觉角度重新计算运动方向（不翻转Y轴）
+        const angleRadians = visualAngleDegrees * Math.PI / 180;
+        const correctedDirection = new Vec3(
+            Math.cos(angleRadians),
+            Math.sin(angleRadians),
+            0
+        );
+        correctedDirection.normalize();
+        
+        // 直接更新运动方向，绕过 setMoveDirection 避免循环调用
+        this.moveDirection = correctedDirection;
+        
+        console.log(`FireballController: 运动方向已对齐至视觉方向 (${correctedDirection.x.toFixed(3)}, ${correctedDirection.y.toFixed(3)})`);
+    }
+
     /**
      * 设置火球发射角度
      * @param angleDegrees 角度（度），0=水平向右，90=向上，-90=向下，180=向左
@@ -442,9 +487,13 @@ export class FireballController extends Component {
         
         this.setMoveDirection(direction);
         
-        console.log(`FireballController: 设置发射角度 ${angleDegrees}°, 方向 (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})`);
+        // 设置火球节点的视觉旋转角度，让动画朝向与发射方向一致
+        // 注意：如果火球朝向与期望相反，可能需要加上180度或调整角度
+        this.node.angle = angleDegrees;
+        
+        console.log(`FireballController: 设置发射角度 ${angleDegrees}°, 方向 (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})，节点旋转 ${angleDegrees}°`);
     }
-    
+
     /**
      * 设置火球目标位置（自动计算方向）
      * @param targetPos 目标位置
@@ -458,6 +507,194 @@ export class FireballController extends Component {
         
         // 同时更新角度属性
         this.launchAngle = Math.atan2(direction.y, direction.x) * 180 / Math.PI;
+    }
+
+    /**
+     * 运行时设置火球属性
+     * @param damage 伤害值
+     * @param lifeTime 生命时间
+     */
+    public setFireballParams(damage?: number, lifeTime?: number): void {
+        if (damage !== undefined) {
+            this.damage = damage;
+        }
+        if (lifeTime !== undefined) {
+            this.lifeTime = lifeTime;
+        }
+        
+        console.log(`FireballController: 更新火球参数 - 伤害: ${this.damage}, 速度: ${this.moveSpeed}, 生命时间: ${this.lifeTime}`);
+    }
+
+    // =================== 对象池管理方法 ===================
+
+    /**
+     * 设置对象池属性
+     * @param isFromPool 是否来自对象池
+     * @param poolName 对象池名称
+     */
+    public setPoolingProperties(isFromPool: boolean, poolName: string = 'fireball'): void {
+        this.isFromPool = isFromPool;
+        this.poolName = poolName;
+    }
+
+    /**
+     * 从对象池重用火球时的重置方法
+     */
+    public onReuseFromPool(): void {
+        console.log('FireballController: 从对象池重用火球');
+        
+        // 从DataManager加载默认配置
+        this.loadConfigFromDataManager();
+        
+        // 重置所有状态
+        this.resetFireballState();
+        
+        // 重新设置碰撞检测
+        this.setupCollisionDetection();
+        
+        // 激活节点
+        this.node.active = true;
+        
+        // 如果资源已加载完成，直接开始生成动画
+        if (this.isInitialized) {
+            this.startSpawnAnimation();
+        }
+    }
+
+    /**
+     * 回收到对象池时的清理方法
+     */
+    public onRecycleToPool(): void {
+        console.log('FireballController: 回收火球到对象池');
+        
+        // 停止所有动画
+        if (this.animationComponent) {
+            this.animationComponent.stop();
+            this.animationComponent.off(Animation.EventType.FINISHED);
+        }
+        
+        // 停止移动
+        if (this.rigidBody) {
+            this.rigidBody.linearVelocity = new Vec2(0, 0);
+        }
+        
+        // 清理碰撞监听
+        if (this.colliderComponent) {
+            this.colliderComponent.off(Contact2DType.BEGIN_CONTACT, this.onCollisionEnter, this);
+        }
+        
+        // 重置状态
+        this.resetFireballState();
+    }
+    
+    /**
+     * 从DataManager加载火球配置
+     */
+    private loadConfigFromDataManager(): void {
+        try {
+            const fireballConfig = dataManager.getProjectileData('fireball');
+            if (fireballConfig) {
+                // 应用配置中的属性
+                this.damage = fireballConfig.damage || this.damage;
+                this.moveSpeed = fireballConfig.moveSpeed || this.moveSpeed;
+                this.lifeTime = fireballConfig.lifeTime || this.lifeTime;
+                this.frameRate = fireballConfig.frameRate || this.frameRate;
+                
+                console.log('FireballController: 已从DataManager加载配置', {
+                    damage: this.damage,
+                    moveSpeed: this.moveSpeed,
+                    lifeTime: this.lifeTime,
+                    frameRate: this.frameRate
+                });
+            }
+        } catch (error) {
+            console.warn('FireballController: 从DataManager加载配置失败，使用默认值', error);
+        }
+    }
+
+    /**
+     * 重置火球状态
+     */
+    private resetFireballState(): void {
+        // 重置状态变量
+        this.currentState = FireballState.SPAWN;
+        this.isDestroying = false;
+        this.currentLifeTime = 0;
+        this.moveDirection = new Vec3(1, 0, 0);
+        this.launchAngle = 0;
+        
+        // 重置节点状态
+        this.node.setPosition(0, 0, 0);
+        this.node.setRotation(0, 0, 0, 1);
+        this.node.angle = 0;  // 重置角度
+        this.node.setScale(1, 1, 1);
+        this.node.active = false;
+        
+        // 重置精灵帧
+        if (this.spriteComponent && this.spriteAtlas) {
+            const firstFrame = this.spriteAtlas.getSpriteFrame('Fire_right00');
+            if (firstFrame) {
+                this.spriteComponent.spriteFrame = firstFrame;
+            }
+        }
+    }
+    
+    /**
+     * 静态方法：从对象池创建火球
+     * @param poolName 对象池名称
+     * @returns 火球控制器实例
+     */
+    public static createFromPool(poolName: string = 'fireball'): FireballController | null {
+        // 检查对象池状态
+        const poolStats = poolManager.getStats(poolName) as any;
+        console.log(`FireballController: 尝试从对象池 ${poolName} 获取火球，当前池状态:`, poolStats);
+        
+        const fireballNode = poolManager.get(poolName);
+        if (!fireballNode) {
+            console.error(`FireballController: 无法从对象池 ${poolName} 获取火球节点`);
+            
+            // 输出详细的池状态信息
+            if (poolStats) {
+                console.error(`对象池详情 - 大小: ${poolStats.size}, 最大: ${poolStats.maxSize}, 获取次数: ${poolStats.getCount}, 创建次数: ${poolStats.createCount}`);
+            } else {
+                console.error(`对象池 ${poolName} 不存在或未初始化`);
+            }
+            return null;
+        }
+        
+        const fireballController = fireballNode.getComponent(FireballController);
+        if (!fireballController) {
+            console.error('FireballController: 火球节点缺少 FireballController 组件');
+            poolManager.put(fireballNode);
+            return null;
+        }
+        
+        // 设置对象池属性
+        fireballController.setPoolingProperties(true, poolName);
+        
+        // 调用重用回调
+        fireballController.onReuseFromPool();
+        
+        return fireballController;
+    }
+    
+    /**
+     * 静态方法：注册火球预制体到对象池
+     * @param fireballPrefab 火球预制体
+     * @param poolName 对象池名称
+     * @param config 对象池配置
+     */
+    public static registerToPool(
+        fireballPrefab: any, 
+        poolName: string = 'fireball',
+        config: { maxSize?: number; preloadCount?: number } = {}
+    ): void {
+        poolManager.registerPrefab(poolName, fireballPrefab, {
+            maxSize: config.maxSize || 30,
+            preloadCount: config.preloadCount || 5
+        });
+        
+        console.log(`FireballController: 已注册火球预制体到对象池 ${poolName}`);
     }
     
     protected onDestroy(): void {
