@@ -9,23 +9,16 @@
  * 🔧 从敌人配置读取精英巫妖数据，继承BaseCharacterDemo的所有功能，支持对象池管理，具有火球攻击能力
  */
 
-import { _decorator, Prefab, Node, UITransform, Vec3 } from 'cc';
+import { _decorator, Node, UITransform, Vec3 } from 'cc';
 import { BaseCharacterDemo } from '../scripts/animation/BaseCharacterDemo';
 import { AnimationDirection } from '../scripts/animation/AnimationConfig';
 import { FireballLauncher } from '../scripts/launcher/FireballLauncher';
+import { animationManager } from '../scripts/animation/AnimationManager';
 
 const { ccclass, property } = _decorator;
 
 @ccclass('LichAnimationDemo')
 export class LichAnimationDemo extends BaseCharacterDemo {
-
-    // 移除火球预制体属性 - 现在由对象池和DataManager统一管理
-    // @property({
-    //     type: Prefab,
-    //     displayName: "火球预制体", 
-    //     tooltip: "火球预制体"
-    // })
-    // public fireballPrefab: Prefab | null = null;
 
     @property({
         displayName: "火球伤害",
@@ -84,38 +77,47 @@ export class LichAnimationDemo extends BaseCharacterDemo {
     }
 
     /**
-     * 初始化火球发射器
+     * 初始化火球发射器 - 依赖对象池
      */
     private setupFireballLauncher(): void {
-        // 优先获取预制体中已有的FireballLauncher组件（带有挂载的预制体）
+        // 获取或创建FireballLauncher组件
         this.fireballLauncher = this.getComponent(FireballLauncher);
         
         if (this.fireballLauncher) {
             console.log('[LichAnimationDemo] 使用预制体中已有的FireballLauncher组件');
-            
-            // 检查预制体是否已挂载
-            if (this.fireballLauncher.fireballPrefab) {
-                console.log('[LichAnimationDemo] 检测到挂载的火球预制体，将用于对象池注册');
-            } else {
-                console.warn('[LichAnimationDemo] FireballLauncher组件未挂载火球预制体');
-            }
         } else {
-            // 如果没有现有组件，创建新的（这种情况下需要手动挂载预制体）
+            // 创建新的FireballLauncher组件
             this.fireballLauncher = this.addComponent(FireballLauncher);
-            console.warn('[LichAnimationDemo] 创建了新的FireballLauncher组件，需要手动挂载火球预制体');
+            console.log('[LichAnimationDemo] 创建了新的FireballLauncher组件');
         }
         
-        // 配置火球发射器行为参数
-        if (this.fireballLauncher) {
-            this.fireballLauncher.launchCooldown = 0.8; // 冷却时间固定为0.8秒
-            this.fireballLauncher.enableMouseLaunch = false; // 禁用鼠标发射，只通过攻击触发
-        }
+        // 从怪物配置中读取参数
+        this.configureFireballLauncherFromEnemyData();
         
-        console.log('[LichAnimationDemo] 火球发射器已初始化');
+        console.log('[LichAnimationDemo] 火球发射器已初始化，完全依赖对象池');
     }
 
     /**
-     * 发射火球
+     * 从敌人配置数据中配置火球发射器参数
+     */
+    private configureFireballLauncherFromEnemyData(): void {
+        if (!this.fireballLauncher || !this.enemyData) {
+            console.warn('[LichAnimationDemo] 无法配置火球发射器：组件或敌人数据缺失');
+            return;
+        }
+
+        // 设置基础攻击间隔作为发射冷却时间
+        this.fireballLauncher.launchCooldown = this.enemyData.attackInterval;
+        
+        // 查找火球技能配置
+        const fireballSkill = this.enemyData.skills?.find(skill => skill.id === 'fireball');
+        if (fireballSkill) {
+            this.fireballLauncher.launchCooldown = Math.min(this.enemyData.attackInterval, fireballSkill.cooldown);
+        }
+    }
+
+    /**
+     * 【修复】发射火球 - 支持动态瞄准（AI模式瞄准当前目标，手动模式瞄准最近敌人）
      */
     public launchFireball(): void {
         if (!this.fireballLauncher) {
@@ -129,17 +131,38 @@ export class LichAnimationDemo extends BaseCharacterDemo {
             return;
         }
 
-        // 计算发射角度（基础角度 + 偏移）
-        const baseAngle = this.getFireballAngleByDirection();
-        const finalAngle = baseAngle + this.fireballAngleOffset;
+        let targetToAim: any = null;
+
+        // 根据控制模式选择目标
+        if ((this as any).controlMode === 1) { // ControlMode.AI
+            // AI模式：瞄准当前AI目标
+            targetToAim = this.getAICurrentTarget?.() || (this as any).currentTarget;
+        } else if ((this as any).controlMode === 0) { // ControlMode.MANUAL
+            // 手动模式：智能瞄准最近的敌人
+            targetToAim = (this as any).findNearestEnemy?.();
+        }
         
-        // 计算实际发射位置（基础位置 + 方向偏移）
-        const adjustedPosition = this.calculateFireballStartPosition();
+        if (targetToAim && targetToAim.isValid) {
+            // 直接朝目标位置发射火球（精确瞄准）
+            const targetPos = targetToAim.position;
+            const mode = (this as any).controlMode === 1 ? 'AI' : '手动';
+            console.log(`[LichAnimationDemo] 🎯 ${mode}模式精确瞄准目标 ${targetToAim.name} 位置: (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)})`);
+            this.fireballLauncher.launchFireballToPosition(targetPos, this.fireballDamage);
+        } else {
+            // 【备用方案】没有目标时使用原有的位置偏移逻辑
+            const baseAngle = this.getFireballAngleByDirection();
+            const finalAngle = baseAngle + this.fireballAngleOffset;
+            
+            // 计算实际发射位置（基础位置 + 方向偏移）
+            const adjustedPosition = this.calculateFireballStartPosition();
+            
+            // 使用改进的发射方法，直接设置正确的位置
+            this.launchFireballWithPosition(finalAngle, adjustedPosition);
+            
+            console.log(`[LichAnimationDemo] 📐 无目标，按朝向发射火球: ${finalAngle.toFixed(1)}°`);
+        }
         
-        // 使用改进的发射方法，直接设置正确的位置
-        this.launchFireballWithPosition(finalAngle, adjustedPosition);
-        
-        console.log(`[LichAnimationDemo] 发射火球，角度: ${finalAngle.toFixed(1)}°，伤害: ${this.fireballDamage}`);
+        console.log(`[LichAnimationDemo] 🔥 火球发射完成！伤害: ${this.fireballDamage}`);
     }
 
     /**

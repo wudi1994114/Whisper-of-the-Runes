@@ -1,7 +1,7 @@
 // assets/scripts/animation/AnimationManager.ts
 
 import { _decorator, SpriteAtlas, SpriteFrame, AnimationClip, Animation, Node, animation, Sprite, js } from 'cc';
-import { AnimationState, AnimationDirection, AnimationFrameData, getAnimationConfigByPrefix } from './AnimationConfig';
+import { AnimationState, AnimationDirection, AnimationFrameData, getAnimationConfigByPrefix, animationConfigDatabase } from './AnimationConfig';
 import { EnemyData } from '../configs/EnemyConfig';
 import { dataManager } from '../core/DataManager';
 import { resourceManager } from '../core/ResourceManager';
@@ -56,25 +56,6 @@ export class AnimationManager {
             console.error(`AnimationManager: 图集加载失败 ${atlasPath}`, error);
             throw error;
         }
-    }
-
-    /**
-     * 调试：打印atlas中的所有帧名称
-     * @param atlas 精灵图集
-     */
-    public debugAtlasFrames(atlas: SpriteAtlas): void {
-        console.log('=== Atlas frames debug ===');
-        const spriteFrames = atlas.getSpriteFrames();
-        console.log(`Total frames in atlas: ${spriteFrames.length}`);
-        
-        // 打印前10个帧名称作为示例
-        spriteFrames.slice(0, 10).forEach((frame, index) => {
-            if (frame) {
-                console.log(`Frame ${index}: ${frame.name}`);
-            }
-        });
-        
-        console.log('=== End atlas frames debug ===');
     }
 
     /**
@@ -148,7 +129,8 @@ export class AnimationManager {
      * @returns AnimationClip
      */
     public createAnimationClip(animationName: string, frames: AnimationFrameData[], loop: boolean): AnimationClip {
-        const cacheKey = `${animationName}_${loop}`;
+        // 使用动画名称本身作为缓存键，因为它现在是唯一的
+        const cacheKey = animationName;
         
         // 检查缓存
         if (this.animationClipCache.has(cacheKey)) {
@@ -204,7 +186,6 @@ export class AnimationManager {
         // 缓存剪辑
         this.animationClipCache.set(cacheKey, clip);
         
-        console.log(`Animation clip created: ${animationName}, duration: ${clip.duration}s`);
         return clip;
     }
 
@@ -218,17 +199,21 @@ export class AnimationManager {
         
         try {
             // 获取动画配置
+            console.log(`AnimationManager: 查找动画配置，前缀: ${enemyData.assetNamePrefix}`);
             const animationConfig = getAnimationConfigByPrefix(enemyData.assetNamePrefix);
             if (!animationConfig) {
                 console.error(`Animation config not found for prefix: ${enemyData.assetNamePrefix}`);
+                console.log(`Available prefixes:`, Object.keys(animationConfigDatabase));
                 return clips;
             }
             
+            console.log(`AnimationManager: 找到动画配置`, {
+                plistUrl: animationConfig.plistUrl,
+                assetNamePrefix: animationConfig.assetNamePrefix
+            });
+            
             // 加载精灵图集
             const atlas = await this.loadSpriteAtlas(animationConfig.plistUrl);
-            
-            // 调试：打印atlas中的帧名称
-            this.debugAtlasFrames(atlas);
             
             // 遍历所有动画状态
             for (const stateName in animationConfig.animations) {
@@ -249,9 +234,13 @@ export class AnimationManager {
                     );
                     
                     if (frames.length > 0) {
-                        // 创建动画剪辑
-                        const animationName = `${stateName}_${directionName}`;
-                        const clip = this.createAnimationClip(animationName, frames, directionConfig.loop);
+                        // 创建动画剪辑，名称中包含前缀
+                        const animationName = `${enemyData.assetNamePrefix}_${stateName}_${directionName}`;
+                        const clip = this.createAnimationClip(
+                            animationName, 
+                            frames, 
+                            directionConfig.loop
+                        );
                         clips.set(animationName, clip);
                     }
                 }
@@ -291,12 +280,10 @@ export class AnimationManager {
     /**
      * 播放动画
      * @param animationComponent 动画组件
-     * @param state 动画状态
-     * @param direction 动画方向
+     * @param animationName 要播放的动画的完整名称
      * @returns boolean 是否成功播放
      */
-    public playAnimation(animationComponent: Animation, state: AnimationState, direction: AnimationDirection): boolean {
-        const animationName = `${state}_${direction}`;
+    public playAnimation(animationComponent: Animation, animationName: string): boolean {
         const hasClip = animationComponent.clips.some(c => c && c.name === animationName);
         
         if (!hasClip) {
@@ -497,6 +484,7 @@ export class AnimationManager {
         
         return info;
     }
+
 }
 
 export const animationManager = AnimationManager.instance; 

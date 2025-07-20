@@ -1,7 +1,13 @@
 // assets/scripts/core/PoolManager.ts
 
-import { _decorator, Node, Prefab, instantiate, NodePool, Component } from 'cc';
+import { _decorator, Node, Prefab, instantiate, NodePool, Component, Label, UITransform, Color } from 'cc';
 import { handleError, ErrorType, ErrorSeverity } from './ErrorHandler';
+import { systemConfigManager, DamageTextPoolConfig } from './SystemConfig';
+import { animationManager } from '../animation/AnimationManager';
+import { getAnimationConfigByPrefix, AnimationState, AnimationDirection } from '../animation/AnimationConfig';
+import { CharacterStats } from '../components/CharacterStats';
+import { HealthBarComponent } from '../components/HealthBarComponent';
+import { MonsterAnimationController } from '../animation/MonsterAnimationController';
 
 const { ccclass } = _decorator;
 
@@ -45,6 +51,10 @@ class PoolManager {
     private _prefabs: Map<string, Prefab> = new Map();
     private _lastCleanTime: number = 0;
     private _cleanInterval: number = 30000; // 30秒清理一次
+    
+    // 伤害文字池系统
+    private _damageTextPools: Map<number, Node[]> = new Map();
+    private _damageTextPoolInitialized: boolean = false;
 
     public static get instance(): PoolManager {
         if (!this._instance) {
@@ -175,6 +185,292 @@ class PoolManager {
     }
 
     /**
+     * 从对象池获取敌人实例并初始化（专用于敌人角色）
+     * @param poolName 对象池名称 (通常是敌人ID，如 'ent_normal', 'lich_elite')
+     * @param enemyData 敌人数据配置（可选，如果提供则会自动设置CharacterStats和血条）
+     * @returns 初始化完成的敌人节点
+     */
+    public getEnemyInstance(poolName: string, enemyData?: any): Node | null {
+        const node = this.get(poolName);
+        if (!node) {
+            return null;
+        }
+
+        // 【关键修复】强制激活节点
+        node.active = true;
+
+        // 如果提供了敌人数据，进行统一初始化
+        if (enemyData) {
+            this.initializeEnemyInstance(node, enemyData);
+        }
+
+        // 【关键修复】调用BaseCharacterDemo的重用回调（如果存在）
+        const characterDemo = node.getComponent('BaseCharacterDemo');
+        if (characterDemo && (characterDemo as any).onReuseFromPool) {
+            try {
+                (characterDemo as any).onReuseFromPool();
+                console.log(`PoolManager: 已调用BaseCharacterDemo的onReuseFromPool回调`);
+            } catch (error) {
+                console.warn(`PoolManager: 调用BaseCharacterDemo重用回调失败`, error);
+            }
+        }
+
+        console.log(`PoolManager: 获取敌人实例完成 - ${poolName}, 节点已激活: ${node.active}`);
+        return node;
+    }
+
+    /**
+     * 确保预制体实例上挂载了必要的组件
+     */
+    private ensureEssentialComponents(node: Node): void {
+        // 1. 确保有 CharacterStats 组件
+        let stats = node.getComponent(CharacterStats);
+        if (!stats) {
+            stats = node.addComponent(CharacterStats);
+            console.warn(`PoolManager: 节点 ${node.name} 缺少 CharacterStats 组件，已自动添加。`);
+        }
+
+        // 2. 确保有 HealthBarComponent 组件
+        let healthBar = node.getComponent(HealthBarComponent);
+        if (!healthBar) {
+            healthBar = node.addComponent(HealthBarComponent);
+            console.warn(`PoolManager: 节点 ${node.name} 缺少 HealthBarComponent 组件，已自动添加。`);
+        }
+
+        // 3. 确保有 MonsterAnimationController 组件
+        let animController = node.getComponent(MonsterAnimationController);
+        if (!animController) {
+            animController = node.addComponent(MonsterAnimationController);
+            console.warn(`PoolManager: 节点 ${node.name} 缺少 MonsterAnimationController 组件，已自动添加。`);
+        }
+    }
+
+    /**
+     * 初始化敌人实例的统一方法
+     */
+    private initializeEnemyInstance(node: Node, enemyData: any): void {
+        if (!enemyData) {
+            console.warn('PoolManager: 缺少敌人数据，跳过初始化');
+            return;
+        }
+
+        try {
+            // 【关键修复】设置UniversalCharacterDemo的敌人类型
+            const universalDemo = node.getComponent('UniversalCharacterDemo');
+            if (universalDemo && (universalDemo as any).setEnemyType) {
+                (universalDemo as any).setEnemyType(enemyData.id);
+                console.log(`PoolManager: 已为UniversalCharacterDemo设置敌人类型: ${enemyData.id}`);
+            }
+
+            // 初始化CharacterStats组件
+            const characterStats = node.getComponent('CharacterStats');
+            if (characterStats && (characterStats as any).initWithEnemyData) {
+                (characterStats as any).initWithEnemyData(enemyData);
+                console.log(`PoolManager: CharacterStats已使用敌人数据初始化`);
+            }
+
+            // 初始化血条组件
+            const healthBarComponent = node.getComponent('HealthBarComponent');
+            if (healthBarComponent && (healthBarComponent as any).initializeWithEnemyData) {
+                (healthBarComponent as any).initializeWithEnemyData(enemyData);
+                console.log(`PoolManager: HealthBarComponent已初始化`);
+            }
+
+            console.log(`PoolManager: 敌人实例 ${enemyData.id} 初始化完成`);
+        } catch (error) {
+            console.error(`PoolManager: 初始化敌人实例失败`, error);
+        }
+    }
+
+    /**
+     * 初始化敌人动画系统
+     * @param node 敌人节点
+     * @param enemyData 敌人数据配置
+     */
+    private async initializeAnimationSystem(node: Node, enemyData: any): Promise<void> {
+        if (!enemyData || !enemyData.assetNamePrefix) {
+            console.warn('PoolManager: 敌人数据缺少动画资源前缀，跳过动画初始化');
+            return;
+        }
+
+        try {
+            console.log(`PoolManager: 开始初始化 ${enemyData.name} 的动画系统 (前缀: ${enemyData.assetNamePrefix})`);
+            
+            // 使用AnimationManager创建动画剪辑
+            const animationClips = await animationManager.createAllAnimationClips(enemyData);
+            
+            if (animationClips.size === 0) {
+                console.warn(`PoolManager: ${enemyData.name} 没有创建任何动画剪辑`);
+                return;
+            }
+            
+            // 使用AnimationManager设置动画组件
+            const animationComponent = animationManager.setupAnimationComponent(node, animationClips);
+            
+            // 重要：设置Sprite组件的初始图像
+            await this.setupInitialSpriteFrame(node, enemyData);
+            
+            // 设置节点缩放
+            if (enemyData.nodeScale && enemyData.nodeScale !== 1) {
+                node.setScale(enemyData.nodeScale, enemyData.nodeScale, 1);
+            }
+            
+            console.log(`PoolManager: ${enemyData.name} 动画系统初始化成功，创建了 ${animationClips.size} 个动画剪辑`);
+            
+            // 播放默认待机动画
+            this.playDefaultIdleAnimation(animationComponent, enemyData);
+            
+        } catch (error) {
+            console.error(`PoolManager: ${enemyData.name} 动画系统初始化失败`, error);
+        }
+    }
+
+    /**
+     * 设置Sprite组件的初始图像
+     * @param node 敌人节点
+     * @param enemyData 敌人数据配置
+     */
+    private async setupInitialSpriteFrame(node: Node, enemyData: any): Promise<void> {
+        const spriteComponent = node.getComponent('cc.Sprite') as any;
+        if (!spriteComponent) {
+            console.warn('PoolManager: 节点没有Sprite组件，跳过初始图像设置');
+            return;
+        }
+
+        try {
+            // 加载敌人的图集
+            const atlas = await animationManager.loadSpriteAtlas(enemyData.plistUrl);
+            if (!atlas) {
+                console.error(`PoolManager: 无法加载图集 ${enemyData.plistUrl}`);
+                return;
+            }
+
+            // 获取第一个Idle动画的第一帧作为初始图像
+            let idleFrameName = `${enemyData.assetNamePrefix}_Idle_front00`;
+            let initialFrame = atlas.getSpriteFrame(idleFrameName);
+            
+            if (!initialFrame) {
+                // 尝试使用AnimationConfig中定义的正确framePrefix
+                const animConfig = getAnimationConfigByPrefix(enemyData.assetNamePrefix);
+                if (animConfig && animConfig.animations[AnimationState.IDLE] && animConfig.animations[AnimationState.IDLE][AnimationDirection.FRONT]) {
+                    const idleConfig = animConfig.animations[AnimationState.IDLE][AnimationDirection.FRONT];
+                    idleFrameName = `${idleConfig.framePrefix}00`;
+                    initialFrame = atlas.getSpriteFrame(idleFrameName);
+                    if (initialFrame) {
+                        console.log(`PoolManager: 使用AnimationConfig中的正确帧名称: ${idleFrameName}`);
+                    }
+                }
+                
+                if (!initialFrame) {
+                    // 如果仍然找不到，尝试其他可能的格式
+                    const alternativeNames = [
+                        `${enemyData.assetNamePrefix}_Idle_front_00`,
+                        `${enemyData.assetNamePrefix}_idle_front00`,
+                        `${enemyData.assetNamePrefix}_idle_front_00`,
+                        `${enemyData.assetNamePrefix}_front_idle00`
+                    ];
+                    
+                    for (const altName of alternativeNames) {
+                        initialFrame = atlas.getSpriteFrame(altName);
+                        if (initialFrame) {
+                            console.log(`PoolManager: 使用替代帧名称: ${altName}`);
+                            idleFrameName = altName;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (initialFrame) {
+                spriteComponent.spriteFrame = initialFrame;
+                console.log(`PoolManager: 已设置初始图像 ${idleFrameName} 为 ${enemyData.name}`);
+            } else {
+                console.warn(`PoolManager: 无法找到初始图像帧 ${idleFrameName}`);
+                // 调试：打印图集中可用的帧
+                this.debugAvailableFrames(atlas, enemyData.assetNamePrefix);
+            }
+
+        } catch (error) {
+            console.error(`PoolManager: 设置初始图像失败`, error);
+        }
+    }
+
+    /**
+     * 调试：打印图集中可用的帧
+     * @param atlas 图集
+     * @param prefix 资源前缀
+     */
+    private debugAvailableFrames(atlas: any, prefix: string): void {
+        console.log(`PoolManager: 调试 - 图集中包含的 ${prefix} 相关帧:`);
+        const spriteFrameNames = atlas.getSpriteFrames();
+        const relatedFrames = Object.keys(spriteFrameNames).filter(name => 
+            name.toLowerCase().includes(prefix.toLowerCase())
+        );
+        
+        if (relatedFrames.length > 0) {
+            console.log('找到的相关帧:', relatedFrames.slice(0, 10)); // 只显示前10个
+        } else {
+            console.log('没有找到相关帧，图集中的帧数量:', Object.keys(spriteFrameNames).length);
+        }
+    }
+
+    /**
+     * 播放默认待机动画
+     * @param animationComponent 动画组件
+     * @param enemyData 敌人数据
+     */
+    private playDefaultIdleAnimation(animationComponent: any, enemyData: any): void {
+        if (!animationComponent || !enemyData) {
+            return;
+        }
+
+        try {
+            // 构建正确的待机动画名称：assetNamePrefix_Idle_front
+            const idleAnimationName = `${enemyData.assetNamePrefix}_Idle_front`;
+            const hasIdleClip = animationComponent.clips.some((c: any) => c && c.name === idleAnimationName);
+            
+            if (hasIdleClip) {
+                animationComponent.play(idleAnimationName);
+                console.log(`PoolManager: 开始播放默认待机动画: ${idleAnimationName}`);
+            } else {
+                // 如果没有找到具体的 Idle_front，尝试播放任何包含 Idle 的动画
+                const idleClip = animationComponent.clips.find((c: any) => c && c.name && c.name.includes('Idle'));
+                
+                if (idleClip) {
+                    animationComponent.play(idleClip.name);
+                    console.log(`PoolManager: 开始播放找到的待机动画: ${idleClip.name}`);
+                } else {
+                    // 如果还是没有找到，尝试播放第一个可用的动画
+                    const firstClip = animationComponent.clips.find((c: any) => c && c.name);
+                    if (firstClip) {
+                        animationComponent.play(firstClip.name);
+                        console.log(`PoolManager: 开始播放第一个可用动画: ${firstClip.name}`);
+                    } else {
+                        console.warn('PoolManager: 没有找到可播放的动画剪辑');
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('PoolManager: 播放默认动画失败', error);
+        }
+    }
+
+    /**
+     * 根据敌人ID获取角色类型（用于血条配置）
+     * @param enemyId 敌人ID
+     * @returns 角色类型
+     */
+    private getCharacterTypeFromEnemyId(enemyId: string): string {
+        if (enemyId.startsWith('ent_')) {
+            return 'ent';
+        } else if (enemyId.startsWith('lich_')) {
+            return 'lich';
+        } else {
+            return 'default';
+        }
+    }
+
+    /**
      * 将节点放回对象池
      * @param node 要回收的节点
      */
@@ -232,6 +528,34 @@ class PoolManager {
             const node = instantiate(prefab);
             const poolObject = node.addComponent(PoolObject);
             poolObject.poolName = name;
+            
+            // 【关键修复】连接BaseCharacterDemo的回调到PoolObject
+            const characterDemo = node.getComponent('BaseCharacterDemo');
+            if (characterDemo) {
+                // 设置PoolObject的回调指向BaseCharacterDemo的方法
+                poolObject.onReuse = () => {
+                    try {
+                        if ((characterDemo as any).onReuseFromPool) {
+                            (characterDemo as any).onReuseFromPool();
+                        }
+                    } catch (error) {
+                        console.warn(`PoolManager: BaseCharacterDemo重用回调失败`, error);
+                    }
+                };
+                
+                poolObject.onRecycle = () => {
+                    try {
+                        if ((characterDemo as any).onRecycleToPool) {
+                            (characterDemo as any).onRecycleToPool();
+                        }
+                    } catch (error) {
+                        console.warn(`PoolManager: BaseCharacterDemo回收回调失败`, error);
+                    }
+                };
+                
+                console.log(`PoolManager: 已为节点 ${node.name} 连接BaseCharacterDemo回调`);
+            }
+            
             return node;
         } catch (error) {
             handleError(
@@ -336,11 +660,280 @@ class PoolManager {
         console.log('=====================');
     }
 
+    // =================== 伤害文字池管理 ===================
+
+    /**
+     * 初始化伤害文字池系统
+     */
+    public initializeDamageTextPool(): void {
+        if (this._damageTextPoolInitialized) {
+            console.log('PoolManager: 伤害文字池已初始化，跳过');
+            return;
+        }
+
+        const config = systemConfigManager.getDamageTextPoolConfig();
+        console.log('PoolManager: 开始初始化伤害文字池系统', config);
+
+        if (config.enableBatchLoading) {
+            this.initializeDamageTextPoolBatched(config);
+        } else {
+            this.initializeDamageTextPoolFull(config);
+        }
+
+        this._damageTextPoolInitialized = true;
+        console.log('PoolManager: 伤害文字池系统初始化完成');
+    }
+
+    /**
+     * 分批初始化伤害文字池
+     */
+    private initializeDamageTextPoolBatched(config: DamageTextPoolConfig): void {
+        console.log('PoolManager: 使用分批加载模式初始化伤害文字池');
+        console.log(`- 伤害范围: ${config.minDamage}-${config.maxDamage}`);
+        console.log(`- 预加载范围: ${config.preloadRangeStart}-${config.preloadRangeEnd}`);
+        console.log(`- 每个数值节点数: ${config.nodesPerDamage}`);
+
+        // 预加载常用范围
+        this.createDamageNodesForRange(config.preloadRangeStart, config.preloadRangeEnd, config.nodesPerDamage);
+        console.log(`PoolManager: 常用伤害值（${config.preloadRangeStart}-${config.preloadRangeEnd}）预加载完成`);
+    }
+
+    /**
+     * 全量初始化伤害文字池
+     */
+    private initializeDamageTextPoolFull(config: DamageTextPoolConfig): void {
+        console.log('PoolManager: 开始全量初始化伤害文字池');
+        
+        const totalNodes = (config.maxDamage - config.minDamage + 1) * config.nodesPerDamage;
+        console.log(`PoolManager: 预计创建节点数: ${totalNodes}`);
+
+        this.createDamageNodesForRange(config.minDamage, config.maxDamage, config.nodesPerDamage);
+        
+        console.log('PoolManager: 伤害文字池全量初始化完成');
+        console.log(`- 总节点数: ${this._damageTextPools.size * config.nodesPerDamage}`);
+    }
+
+    /**
+     * 为指定范围创建伤害节点
+     */
+    private createDamageNodesForRange(startDamage: number, endDamage: number, nodesPerDamage: number): void {
+        const rangeSize = endDamage - startDamage + 1;
+        console.log(`PoolManager: 创建伤害节点范围 ${startDamage}-${endDamage} (${rangeSize}个数值)`);
+        
+        for (let damage = startDamage; damage <= endDamage; damage++) {
+            // 检查是否已存在该伤害值的池
+            let nodesForThisDamage = this._damageTextPools.get(damage);
+            
+            if (!nodesForThisDamage) {
+                // 不存在则创建新池
+                nodesForThisDamage = [];
+                this._damageTextPools.set(damage, nodesForThisDamage);
+            }
+
+            // 创建指定数量的节点并添加到池中
+            for (let i = 0; i < nodesPerDamage; i++) {
+                const damageNode = this.createDamageTextNode(damage);
+                nodesForThisDamage.push(damageNode);
+            }
+        }
+        
+        const totalCreated = rangeSize * nodesPerDamage;
+        console.log(`PoolManager: 范围创建完成，共 ${totalCreated} 个节点`);
+    }
+
+    /**
+     * 创建伤害文字节点（池化节点，不设置父节点）
+     */
+    private createDamageTextNode(damage: number): Node {
+        const damageNode = new Node(`DamageText_${damage}`);
+
+        // 检查并添加 UITransform（避免重复添加）
+        let transform = damageNode.getComponent(UITransform);
+        if (!transform) {
+            transform = damageNode.addComponent(UITransform);
+        }
+        transform.setContentSize(60, 30);
+
+        // 检查并添加 Label 组件（避免重复添加）
+        let label = damageNode.getComponent(Label);
+        if (!label) {
+            label = damageNode.addComponent(Label);
+        }
+        label.string = `-${damage}`;
+        label.fontSize = 24;
+        label.color = new Color(255, 100, 100, 255);
+
+        // 重置位置和缩放（池化节点的标准状态）
+        damageNode.setPosition(0, 0, 0);
+        damageNode.setScale(1, 1, 1);
+        damageNode.active = false; // 池化节点默认非激活
+
+        return damageNode;
+    }
+
+    /**
+     * 获取伤害文字节点
+     */
+    public getDamageTextNode(damage: number): Node | null {
+        const config = systemConfigManager.getDamageTextPoolConfig();
+        
+        // 检查伤害值是否在有效范围内
+        if (damage < config.minDamage || damage > config.maxDamage) {
+            console.warn(`PoolManager: 伤害值 ${damage} 超出预设范围 ${config.minDamage}-${config.maxDamage}`);
+            return null;
+        }
+
+        let nodesForDamage = this._damageTextPools.get(damage);
+
+        // 如果该伤害值的节点还未创建（延迟加载）
+        if (!nodesForDamage) {
+            // 快速创建单个伤害值的节点池，不输出详细日志避免影响性能
+            nodesForDamage = [];
+            for (let i = 0; i < config.nodesPerDamage; i++) {
+                const damageNode = this.createDamageTextNode(damage);
+                nodesForDamage.push(damageNode);
+            }
+            this._damageTextPools.set(damage, nodesForDamage);
+        }
+
+        // 尝试找到一个非激活的节点
+        for (const node of nodesForDamage) {
+            if (!node.active) {
+                return node;
+            }
+        }
+
+        // 如果所有节点都在使用中，创建新节点并添加到池中，然后获取
+        console.log(`PoolManager: 伤害值 ${damage} 的所有节点都在使用中，扩展池容量`);
+        const newNode = this.createDamageTextNode(damage);
+        newNode.active = false; // 确保新创建的节点是非激活状态
+        nodesForDamage.push(newNode); // 添加到池中
+        
+        console.log(`PoolManager: 伤害值 ${damage} 的节点池已扩展，当前大小: ${nodesForDamage.length}`);
+        
+        // 从池中获取这个新节点（保证一致性）
+        return newNode;
+    }
+
+    /**
+     * 归还伤害文字节点
+     */
+    public returnDamageTextNode(node: Node): void {
+        if (!node || !node.isValid) {
+            console.warn('PoolManager: 尝试归还无效的伤害文字节点');
+            return;
+        }
+        
+        // 获取伤害值（从节点名称中提取）
+        const damageValue = node.name.replace('DamageText_', '');
+        
+        node.active = false;
+        
+        // 从场景树中移除（重要！避免内存泄漏）
+        if (node.parent) {
+            node.removeFromParent();
+        }
+        
+        // 重置位置和缩放
+        node.setPosition(0, 0, 0);
+        node.setScale(1, 1, 1);
+        
+        // 重置Label颜色和透明度
+        const label = node.getComponent(Label);
+        if (label) {
+            label.color = new Color(255, 100, 100, 255); // 重置为默认颜色
+        }
+        
+        console.log(`PoolManager: 伤害文字节点已回收 (伤害值: ${damageValue})`);
+    }
+
+    /**
+     * 获取伤害文字池统计信息
+     */
+    public getDamageTextPoolStats(): { 
+        totalPools: number; 
+        totalNodes: number; 
+        activeNodes: number; 
+        config: DamageTextPoolConfig;
+    } {
+        const config = systemConfigManager.getDamageTextPoolConfig();
+        let totalNodes = 0;
+        let activeNodes = 0;
+
+        this._damageTextPools.forEach(nodes => {
+            totalNodes += nodes.length;
+            activeNodes += nodes.filter(node => node.active).length;
+        });
+
+        return {
+            totalPools: this._damageTextPools.size,
+            totalNodes,
+            activeNodes,
+            config
+        };
+    }
+
+    /**
+     * 清理伤害文字池
+     */
+    public clearDamageTextPool(): void {
+        this._damageTextPools.forEach(nodes => {
+            nodes.forEach(node => {
+                if (node && node.isValid) {
+                    node.destroy();
+                }
+            });
+        });
+        this._damageTextPools.clear();
+        this._damageTextPoolInitialized = false;
+        console.log('PoolManager: 伤害文字池已清理');
+    }
+
+    /**
+     * 检查并清理伤害文字池中的无效节点
+     */
+    public cleanupInvalidDamageTextNodes(): void {
+        let cleanedCount = 0;
+        let totalCount = 0;
+
+        this._damageTextPools.forEach((nodes, damage) => {
+            const validNodes = nodes.filter(node => {
+                totalCount++;
+                if (node && node.isValid) {
+                    return true;
+                } else {
+                    cleanedCount++;
+                    return false;
+                }
+            });
+
+            // 如果有节点被清理，更新池
+            if (validNodes.length !== nodes.length) {
+                this._damageTextPools.set(damage, validNodes);
+            }
+        });
+
+        console.log(`PoolManager: 伤害文字池清理完成，清理了 ${cleanedCount}/${totalCount} 个无效节点`);
+    }
+
+    /**
+     * 预热伤害文字池（创建指定范围的节点）
+     */
+    public warmupDamageTextPool(startDamage: number, endDamage: number, nodesPerDamage?: number): void {
+        const config = systemConfigManager.getDamageTextPoolConfig();
+        const actualNodesPerDamage = nodesPerDamage || config.nodesPerDamage;
+
+        console.log(`PoolManager: 开始预热伤害文字池，范围: ${startDamage}-${endDamage}`);
+        this.createDamageNodesForRange(startDamage, endDamage, actualNodesPerDamage);
+        console.log(`PoolManager: 伤害文字池预热完成`);
+    }
+
     /**
      * 销毁对象池管理器
      */
     public destroy(): void {
         this.clear();
+        this.clearDamageTextPool();
         this._pools.clear();
         this._configs.clear();
         this._stats.clear();

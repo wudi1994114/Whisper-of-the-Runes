@@ -624,10 +624,10 @@ export class DataManager {
             'golem_boss': 'ent',
             'golem': 'ent', // 兼容旧配置
             
-            // 巫妖系列 - 使用lich.prefab
-            'lich_normal': 'lich',
-            'lich_elite': 'lich',
-            'lich_boss': 'lich'
+            // 巫妖系列 - 现在也使用ent.prefab（UniversalCharacterDemo会动态配置）
+            'lich_normal': 'ent',
+            'lich_elite': 'ent',
+            'lich_boss': 'ent'
         };
         
         // 从映射表获取预制体文件名

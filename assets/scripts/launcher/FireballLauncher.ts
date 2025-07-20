@@ -27,16 +27,10 @@ export enum FireballState {
  */
 @ccclass('FireballLauncher')
 export class FireballLauncher extends Component implements IProjectileController {
-    
-    // === 发射器配置 ===
-    @property({ type: Prefab, tooltip: "火球预制体" })
-    public fireballPrefab: Prefab | null = null;
+
     
     @property({ tooltip: "发射冷却时间（秒）" })
     public launchCooldown: number = 0.5;
-    
-    @property({ tooltip: "是否启用鼠标点击发射" })
-    public enableMouseLaunch: boolean = true;
     
     @property({ tooltip: "默认发射角度（度），0=水平向右，90=向上，-90=向下" })
     public defaultAngle: number = 0;
@@ -96,18 +90,6 @@ export class FireballLauncher extends Component implements IProjectileController
     
     protected start() {
         if (this.isLauncher) {
-            // 发射器初始化
-            if (this.enableMouseLaunch) {
-                input.on(Input.EventType.MOUSE_DOWN, this.onMouseDown, this);
-            }
-            
-            // 如果有挂载的预制体，注册到对象池
-            this.registerFireballPrefabToPool();
-            
-            // 延迟测试对象池功能
-            setTimeout(() => {
-                this.testFireballPool();
-            }, 200);
             
             console.log('FireballLauncher: 发射器初始化完成');
         } else {
@@ -121,43 +103,6 @@ export class FireballLauncher extends Component implements IProjectileController
             // 火球控制器更新逻辑
             this.updateFireballLogic(deltaTime);
         }
-    }
-    
-    // =================== 发射器方法 ===================
-    
-    /**
-     * 鼠标点击事件处理
-     */
-    private onMouseDown = (event: EventMouse): void => {
-        // 获取鼠标在屏幕上的位置
-        const mouseX = event.getLocationX();
-        const mouseY = event.getLocationY();
-        
-        // 获取屏幕尺寸
-        const visibleSize = view.getVisibleSize();
-        
-        // 将屏幕坐标转换为相对于屏幕中心的坐标
-        const centerX = visibleSize.width / 2;
-        const centerY = visibleSize.height / 2;
-        
-        // 计算相对于中心的偏移量
-        const offsetX = mouseX - centerX;
-        const offsetY = centerY - mouseY; // Y轴坐标转换：点击上方时offsetY为正（向上），点击下方时offsetY为负（向下）
-        
-        // 创建方向向量并归一化
-        const direction = new Vec3(offsetX, offsetY, 0);
-        direction.normalize();
-        
-        // 计算角度
-        const angle = Math.atan2(offsetY, offsetX) * 180 / Math.PI;
-        
-        console.log(`FireballLauncher: 鼠标点击屏幕坐标 (${mouseX.toFixed(2)}, ${mouseY.toFixed(2)})`);
-        console.log(`FireballLauncher: 相对中心偏移 (${offsetX.toFixed(2)}, ${offsetY.toFixed(2)})`);
-        console.log(`FireballLauncher: 计算方向向量 (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)})`);
-        console.log(`FireballLauncher: 发射角度 ${angle.toFixed(2)}°`);
-        
-        // 计算带位置偏移的发射
-        this.launchFireballWithDirectionOffset(direction, angle);
     }
     
     /**
@@ -240,20 +185,16 @@ export class FireballLauncher extends Component implements IProjectileController
      * 检查是否可以发射
      */
     private canLaunch(): boolean {
-        if (!this.fireballPrefab) {
-            console.error('FireballLauncher: 火球预制体未设置');
-            return false;
-        }
-        
+        // 检查冷却时间
         const currentTime = Date.now() / 1000;
         return (currentTime - this.lastLaunchTime) >= this.launchCooldown;
     }
     
     /**
-     * 创建火球实例 - 优先使用对象池，支持挂载预制体备用方案
+     * 创建火球实例 - 完全依赖对象池
      */
     private createFireball(): FireballController | null {
-        // 首先尝试从对象池创建火球
+        // 从对象池创建火球
         const poolFireball = FireballController.createFromPool('fireball');
         if (poolFireball) {
             console.log('FireballLauncher: 从对象池创建火球成功');
@@ -276,48 +217,11 @@ export class FireballLauncher extends Component implements IProjectileController
             return poolFireball;
         }
         
-        // 对象池不可用，检查是否有挂载的预制体作为备用方案
-        if (!this.fireballPrefab) {
-            console.error('FireballLauncher: 对象池不可用且未挂载火球预制体，无法创建火球');
-            console.warn('FireballLauncher: 建议确保对象池已正确初始化，或在编辑器中挂载火球预制体作为备用方案');
-            return null;
-        }
-        
-        console.warn('FireballLauncher: 对象池不可用，降级使用挂载的预制体创建火球');
-        
-        // 使用挂载的预制体实例化火球
-        const fireballNode = instantiate(this.fireballPrefab);
-        if (!fireballNode) {
-            console.error('FireballLauncher: 实例化挂载的火球预制体失败');
-            return null;
-        }
-        
-        // 获取FireballController组件
-        let fireballController = fireballNode.getComponent(FireballController);
-        if (!fireballController) {
-            // 如果预制体没有FireballController组件，添加一个
-            fireballController = fireballNode.addComponent(FireballController);
-        }
-        
-        // 确保火球节点的锚点
-        const uiTransform = fireballNode.getComponent(UITransform);
-        if (uiTransform) {
-            uiTransform.setAnchorPoint(0.5, 0.6);
-        }
-        
-        // 添加到场景
-        this.node.parent?.addChild(fireballNode);
-        
-        // 配置火球属性（不覆盖 moveSpeed，让火球使用配置文件中的速度）
-        fireballController.damage = this.damage;
-        fireballController.lifeTime = this.lifeTime;
-        fireballController.frameRate = this.frameRate;
-        fireballController.launchAngle = this.launchAngle;
-        
-        // 标记为非池化对象
-        fireballController.setPoolingProperties(false, '');
-        
-        return fireballController;
+        // 对象池不可用
+        console.error('FireballLauncher: 对象池不可用，无法创建火球');
+        console.error('FireballLauncher: 请确保火球预制体已正确注册到对象池');
+        console.error('FireballLauncher: 检查 GameManager 中的预制体挂载和 DataManager 中的技能配置');
+        return null;
     }
     
     /**
@@ -541,11 +445,37 @@ export class FireballLauncher extends Component implements IProjectileController
         // 检查碰撞对象类型
         console.log(`FireballLauncher: 检测到碰撞，对象: ${otherCollider.node.name}`);
         
+        // 【修复】直接对目标造成伤害，而不是发送事件
+        this.dealDamageToTarget(otherCollider.node, this.damage);
+        
         // 触发爆炸
         this.explode();
-        
-        // 发送碰撞事件
-        eventManager.emit(GameEvents.CHARACTER_DAMAGED, otherCollider.node, this.damage);
+    }
+
+    /**
+     * 对目标造成伤害
+     */
+    private dealDamageToTarget(target: Node, damage: number): void {
+        if (!target || !target.isValid) {
+            console.warn(`FireballLauncher: 无效的攻击目标`);
+            return;
+        }
+
+        // 获取目标的BaseCharacterDemo组件来造成伤害
+        const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
+        if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
+            (targetCharacterDemo as any).takeDamage(damage);
+            console.log(`%c[FIREBALL] 火球对 ${target.name} 造成 ${damage} 点伤害`, 'color: orange; font-weight: bold');
+        } else {
+            // 如果没有BaseCharacterDemo，尝试CharacterStats组件
+            const targetStats = target.getComponent('CharacterStats');
+            if (targetStats && (targetStats as any).takeDamage) {
+                (targetStats as any).takeDamage(damage);
+                console.log(`%c[FIREBALL] 火球对 ${target.name} 造成 ${damage} 点伤害 (直接命中CharacterStats)`, 'color: orange; font-weight: bold');
+            } else {
+                console.warn(`FireballLauncher: 目标 ${target.name} 没有可攻击的组件`);
+            }
+        }
     }
     
     /**
@@ -747,137 +677,17 @@ export class FireballLauncher extends Component implements IProjectileController
     }
     
     protected onDestroy(): void {
-        if (this.isLauncher) {
-            // 清理发射器事件监听
-            if (this.enableMouseLaunch) {
-                input.off(Input.EventType.MOUSE_DOWN, this.onMouseDown, this);
-            }
-            console.log('FireballLauncher: 发射器组件已销毁');
-        } else {
-            // 清理火球事件监听
-            if (this.colliderComponent) {
-                this.colliderComponent.off(Contact2DType.BEGIN_CONTACT, this.onCollisionEnter, this);
-            }
-            
-            if (this.animationComponent) {
-                this.animationComponent.off(Animation.EventType.FINISHED);
-            }
-            
-            console.log('FireballLauncher: 火球控制器组件已销毁');
+        // 清理火球事件监听
+        if (this.colliderComponent) {
+            this.colliderComponent.off(Contact2DType.BEGIN_CONTACT, this.onCollisionEnter, this);
         }
-    }
-
-    /**
-     * 注册火球预制体到对象池
-     */
-    private registerFireballPrefabToPool(): void {
-        // 优先尝试从DataManager自动注册火球预制体
-        if (this.registerFireballFromDataManager()) {
-            console.log('FireballLauncher: 火球预制体已通过DataManager自动注册到对象池');
-            return;
-        }
-
-        // 如果DataManager注册失败，尝试使用挂载的预制体
-        if (this.fireballPrefab) {
-            console.warn('FireballLauncher: DataManager注册失败，降级使用挂载的预制体注册到对象池');
-            
-            const success = resourceManager.registerMountedPrefabToPool(
-                'fireball',           // 预制体名称
-                this.fireballPrefab,  // 挂载的预制体
-                {
-                    poolName: 'fireball',  // 对象池名称
-                    maxSize: 30,           // 最大池大小
-                    preloadCount: 5        // 预加载数量
-                }
-            );
-
-            if (success) {
-                console.log('FireballLauncher: 挂载的火球预制体对象池注册成功');
-                
-                // 验证对象池状态
-                setTimeout(() => {
-                    const poolStats = poolManager.getStats('fireball') as any;
-                    if (poolStats) {
-                        console.log(`FireballLauncher: 火球对象池状态 - 大小: ${poolStats.size}, 最大: ${poolStats.maxSize}, 创建次数: ${poolStats.createCount}`);
-                    } else {
-                        console.error('FireballLauncher: 无法获取火球对象池状态');
-                    }
-                }, 100);
-            } else {
-                console.warn('FireballLauncher: 挂载的火球预制体对象池注册失败');
-            }
-        } else {
-            console.warn('FireballLauncher: DataManager注册失败且未挂载预制体，火球将在需要时动态创建');
-        }
-    }
-
-    /**
-     * 从DataManager注册火球预制体
-     * @returns 是否注册成功
-     */
-    private async registerFireballFromDataManager(): Promise<boolean> {
-        try {
-            // 从DataManager获取火球投射物配置
-            const fireballConfig = dataManager.getProjectileData('fireball');
-            if (!fireballConfig || !fireballConfig.resources?.prefab) {
-                console.log('FireballLauncher: DataManager中未找到火球预制体配置');
-                return false;
-            }
-
-            console.log(`FireballLauncher: 找到火球配置，预制体路径: ${fireballConfig.resources.prefab}`);
-            
-            // 创建预制体配置
-            const prefabConfig = {
-                name: 'fireball',
-                resourcePath: fireballConfig.resources.prefab,
-                loadStrategy: 'pool' as const,
-                poolConfig: {
-                    poolName: fireballConfig.poolConfig?.poolName || 'fireball',
-                    maxSize: fireballConfig.poolConfig?.maxSize || 30,
-                    preloadCount: fireballConfig.poolConfig?.preloadCount || 5
-                },
-                priority: 100
-            };
-
-            // 通过ResourceManager初始化预制体
-            console.log('FireballLauncher: 开始通过ResourceManager动态加载火球预制体...');
-            const result = await resourceManager.initializePrefab('fireball', prefabConfig);
-            
-            if (result.success) {
-                console.log(`✅ FireballLauncher: 火球预制体动态加载成功，策略: ${result.strategy}`);
-                return true;
-            } else {
-                console.warn(`❌ FireballLauncher: 火球预制体动态加载失败: ${result.error}`);
-                return false;
-            }
-            
-        } catch (error) {
-            console.warn('FireballLauncher: 从DataManager注册火球预制体失败', error);
-            return false;
-        }
-    }
-
-    /**
-     * 测试火球对象池功能
-     */
-    private testFireballPool(): void {
-        console.log('FireballLauncher: 开始测试火球对象池...');
         
-        // 尝试从对象池获取一个火球进行测试
-        const testFireball = FireballController.createFromPool('fireball');
-        if (testFireball) {
-            console.log('✅ FireballLauncher: 对象池测试成功，火球可以正常创建');
-            
-            // 立即回收测试火球
-            testFireball.returnToPool();
-            console.log('✅ FireballLauncher: 测试火球已回收到对象池');
-        } else {
-            console.error('❌ FireballLauncher: 对象池测试失败，无法创建火球');
-            console.error('❌ 建议检查：1) 预制体是否正确挂载 2) 对象池是否正确注册 3) 预加载是否成功');
+        if (this.animationComponent) {
+            this.animationComponent.off(Animation.EventType.FINISHED);
         }
+        
+        console.log('FireballLauncher: 火球控制器组件已销毁');
     }
-
-    // =================== 位置偏移相关方法 ===================
 
     /**
      * 带位置偏移的方向发射火球
@@ -900,8 +710,6 @@ export class FireballLauncher extends Component implements IProjectileController
         
         // 恢复发射器原始位置
         this.node.position = originalPosition;
-        
-        console.log(`FireballLauncher: 按角度 ${angleDegrees.toFixed(1)}° 从偏移位置 (${adjustedPosition.x.toFixed(1)}, ${adjustedPosition.y.toFixed(1)}) 发射火球`);
     }
 
     /**

@@ -157,7 +157,7 @@
     "fileId": "4b55UNY8RIQKWAKbqe7ZmE"
   },
   {
-    "__type__": "94913ENtP5Gmr8i4LCtyEfG",
+    "__type__": "bd5b9+AKp5OSotcbX6Pmgsc",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -168,12 +168,16 @@
     "__prefab": {
       "__id__": 9
     },
-    "moveSpeed": 200,
+    "moveSpeed": 10,
+    "characterId": "",
+    "enablePooling": false,
+    "enemyTypeId": "ent_normal",
+    "displayNameSuffix": "",
     "_id": ""
   },
   {
     "__type__": "cc.CompPrefabInfo",
-    "fileId": "2e3STFjhhMeIfKe23LscGp"
+    "fileId": "d3/4622uxMtrTthPtwfxtu"
   },
   {
     "__type__": "cc.PrefabInfo",

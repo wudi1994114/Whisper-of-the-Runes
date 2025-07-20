@@ -6,6 +6,10 @@
       "plistUrl": "monster/ent",
       "assetNamePrefix": "Ent1",
       "nodeScale": 0.8,
+      "prefabSize": {
+          "width": 128,
+          "height": 128
+      },
       "baseHealth": 100,
       "baseAttack": 10,
       "baseDefense": 5,
@@ -39,6 +43,10 @@
       "plistUrl": "monster/ent",
       "assetNamePrefix": "Ent2",
       "nodeScale": 1.0,
+      "prefabSize": {
+          "width": 128,
+          "height": 128
+      },
       "baseHealth": 300,
       "baseAttack": 25,
       "baseDefense": 15,
@@ -54,6 +62,11 @@
           "height": 20,
           "xoffset": 0,
           "yoffset": 50
+      },
+      "healthBar": {
+          "width": 40,
+          "height": 2,
+          "offsetY": 40
       },
       "expReward": 35,
       "stunDuration": 0.3,
@@ -88,6 +101,11 @@
           "xoffset": 0,
           "yoffset": -20
       },
+      "healthBar": {
+          "width": 32,
+          "height": 2,
+          "offsetY": 32
+      },
       "skills": [
           {
               "id": "stomp",
@@ -119,12 +137,17 @@
       "plistUrl": "monster/lich",
       "assetNamePrefix": "Lich2",
       "nodeScale": 1,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 500,
       "baseAttack": 25,
       "baseDefense": 10,
       "moveSpeed": 2.5,
       "attackRange": 300,
       "attackInterval": 2,
+      "projectileId": "fireball",
       "animationSpeed": 10,
       "ai": 1,
       "detectionRange": 1200,
@@ -166,12 +189,17 @@
       "plistUrl": "monster/lich",
       "assetNamePrefix": "Lich1",
       "nodeScale": 0.9,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 200,
       "baseAttack": 15,
       "baseDefense": 8,
       "moveSpeed": 2,
       "attackRange": 250,
       "attackInterval": 2.5,
+      "projectileId": "fireball",
       "animationSpeed": 8,
       "ai": 1,
       "detectionRange": 1000,
@@ -213,12 +241,17 @@
       "plistUrl": "monster/lich",
       "assetNamePrefix": "Lich3",
       "nodeScale": 1.3,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 1500,
       "baseAttack": 60,
       "baseDefense": 25,
       "moveSpeed": 3,
       "attackRange": 400,
       "attackInterval": 1.5,
+      "projectileId": "fireball",
       "animationSpeed": 12,
       "ai": 1,
       "detectionRange": 1500,
@@ -266,6 +299,10 @@
       "plistUrl": "monster/skeleton",
       "assetNamePrefix": "Skeleton1",
       "nodeScale": 0.9,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 80,
       "baseAttack": 12,
       "baseDefense": 3,
@@ -299,6 +336,10 @@
       "plistUrl": "monster/skeleton",
       "assetNamePrefix": "Skeleton2",
       "nodeScale": 1.1,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 250,
       "baseAttack": 30,
       "baseDefense": 12,
@@ -332,6 +373,10 @@
       "plistUrl": "monster/skeleton",
       "assetNamePrefix": "Skeleton3",
       "nodeScale": 1.4,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 1200,
       "baseAttack": 70,
       "baseDefense": 30,
@@ -379,6 +424,10 @@
       "plistUrl": "monster/orc",
       "assetNamePrefix": "Orc1",
       "nodeScale": 0.95,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 120,
       "baseAttack": 15,
       "baseDefense": 8,
@@ -412,6 +461,10 @@
       "plistUrl": "monster/orc",
       "assetNamePrefix": "Orc2",
       "nodeScale": 1.15,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 350,
       "baseAttack": 35,
       "baseDefense": 18,
@@ -445,6 +498,10 @@
       "plistUrl": "monster/orc",
       "assetNamePrefix": "Orc3",
       "nodeScale": 1.5,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 1800,
       "baseAttack": 85,
       "baseDefense": 35,
@@ -492,6 +549,10 @@
       "plistUrl": "monster/goblin",
       "assetNamePrefix": "Goblin1",
       "nodeScale": 0.7,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 60,
       "baseAttack": 8,
       "baseDefense": 2,
@@ -525,6 +586,10 @@
       "plistUrl": "monster/goblin",
       "assetNamePrefix": "Goblin2",
       "nodeScale": 0.9,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 180,
       "baseAttack": 22,
       "baseDefense": 8,
@@ -558,6 +623,10 @@
       "plistUrl": "monster/goblin",
       "assetNamePrefix": "Goblin3",
       "nodeScale": 1.2,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 800,
       "baseAttack": 55,
       "baseDefense": 20,
@@ -605,6 +674,10 @@
       "plistUrl": "monster/slime1",
       "assetNamePrefix": "normal",
       "nodeScale": 0.8,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 50,
       "baseAttack": 6,
       "baseDefense": 1,
@@ -704,6 +777,10 @@
       "plistUrl": "monster/slime2",
       "assetNamePrefix": "fire",
       "nodeScale": 0.9,
+      "prefabSize": {
+          "width": 64,
+          "height": 64
+      },
       "baseHealth": 120,
       "baseAttack": 20,
       "baseDefense": 6,
@@ -924,6 +1001,10 @@
       "plistUrl": "monster/golem",
       "assetNamePrefix": "Golem1",
       "nodeScale": 1.0,
+      "prefabSize": {
+          "width": 128,
+          "height": 128
+      },
       "baseHealth": 200,
       "baseAttack": 20,
       "baseDefense": 15,
@@ -957,6 +1038,10 @@
       "plistUrl": "monster/golem",
       "assetNamePrefix": "Golem2",
       "nodeScale": 1.3,
+      "prefabSize": {
+          "width": 128,
+          "height": 128
+      },
       "baseHealth": 600,
       "baseAttack": 50,
       "baseDefense": 30,
@@ -990,6 +1075,10 @@
       "plistUrl": "monster/golem",
       "assetNamePrefix": "Golem3",
       "nodeScale": 1.8,
+      "prefabSize": {
+          "width": 128,
+          "height": 128
+      },
       "baseHealth": 3000,
       "baseAttack": 120,
       "baseDefense": 60,

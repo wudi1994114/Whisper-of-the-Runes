@@ -1,9 +1,12 @@
 // assets/scripts/core/MonsterSpawner.ts
 
-import { _decorator, Component, Node, Prefab, instantiate, Vec3, director } from 'cc';
+import { _decorator, Component, Node, director, Vec3, instantiate, Prefab } from 'cc';
+import { Faction, AIConfig, AIBehaviorType } from './MonsterAI';
 import { dataManager } from './DataManager';
+import { poolManager } from './PoolManager';
 import { eventManager } from './EventManager';
 import { GameEvents } from './GameEvents';
+import { GameManager } from './GameManager';
 
 const { ccclass, property } = _decorator;
 
@@ -53,6 +56,9 @@ export class MonsterSpawner extends Component {
     // 是否已初始化
     private isInitialized: boolean = false;
     
+    // AI配置
+    private spawnerFaction: Faction = Faction.ENEMY_LEFT;
+    
     protected onLoad(): void {
         // 监听怪物死亡事件
         eventManager.on(GameEvents.MONSTER_DEATH_ANIMATION_FINISHED, this.onMonsterDeath.bind(this));
@@ -83,6 +89,9 @@ export class MonsterSpawner extends Component {
         this.spawnerConfig = config;
         this.node.setPosition(config.position.x, config.position.y);
         
+        // 根据位置确定阵营
+        this.spawnerFaction = config.position.x < 0 ? Faction.ENEMY_LEFT : Faction.ENEMY_RIGHT;
+        
         // 初始化存活怪物映射
         config.enemies.forEach(enemyConfig => {
             this.aliveMonsters.set(enemyConfig.type, []);
@@ -94,7 +103,7 @@ export class MonsterSpawner extends Component {
         // 开始生成怪物
         this.startSpawning();
         
-        console.log(`MonsterSpawner initialized: ${config.id}`);
+        console.log(`MonsterSpawner initialized: ${config.id}, 阵营: ${this.spawnerFaction}`);
     }
     
     /**
@@ -211,18 +220,76 @@ export class MonsterSpawner extends Component {
     }
     
     /**
-     * 创建怪物
+     * 创建怪物 - 使用对象池和统一初始化
      */
     private createMonster(enemyType: string, position: Vec3): Node | null {
-        if (!this.monsterPrefab) {
-            console.error('MonsterSpawner: Monster prefab not set');
-            return null;
-        }
-        
         try {
-            const monster = instantiate(this.monsterPrefab);
+            // 1. 获取敌人配置数据
+            const enemyData = dataManager.getEnemyData(enemyType);
+            if (!enemyData) {
+                console.error(`MonsterSpawner: 未找到敌人类型 ${enemyType} 的配置数据`);
+                return null;
+            }
+
+            // 2. 尝试从对象池获取敌人实例（使用统一初始化）
+            let monster = poolManager.getEnemyInstance(enemyType, enemyData);
+            if (monster) {
+                // 从对象池成功获取
+                monster.setPosition(position);
+                
+                // 激活节点
+                monster.active = true;
+                
+                // 添加AI组件
+                this.addAIController(monster, enemyType, enemyData);
+                
+                // 添加到场景
+                const scene = director.getScene();
+                if (scene) {
+                    scene.addChild(monster);
+                }
+                
+                console.log(`MonsterSpawner: 从对象池创建怪物 ${enemyType} 成功`);
+                return monster;
+            }
+
+            // 3. 对象池不可用，回退到传统实例化方式
+            console.warn(`MonsterSpawner: 对象池 ${enemyType} 不可用，使用传统实例化`);
+            
+            if (!this.monsterPrefab) {
+                console.error('MonsterSpawner: Monster prefab not set');
+                return null;
+            }
+            
+            monster = instantiate(this.monsterPrefab);
             monster.setPosition(position);
             
+            // 手动初始化组件
+            this.initializeMonsterComponents(monster, enemyType, enemyData);
+            
+            // 添加AI组件
+            this.addAIController(monster, enemyType, enemyData);
+            
+            // 添加到场景
+            const scene = director.getScene();
+            if (scene) {
+                scene.addChild(monster);
+            }
+            
+            console.log(`MonsterSpawner: 使用传统方式创建怪物 ${enemyType} 成功`);
+            return monster;
+            
+        } catch (error) {
+            console.error('MonsterSpawner: Failed to create monster', error);
+            return null;
+        }
+    }
+
+    /**
+     * 手动初始化怪物组件（传统实例化的备用方案）
+     */
+    private initializeMonsterComponents(monster: Node, enemyType: string, enemyData: any): void {
+        try {
             // 设置怪物类型
             const enemyComponent = monster.getComponent('NormalEnemy');
             if (enemyComponent) {
@@ -234,20 +301,110 @@ export class MonsterSpawner extends Component {
                 // 设置出生位置
                 const setSpawnPositionMethod = (enemyComponent as any).setSpawnPosition;
                 if (setSpawnPositionMethod && typeof setSpawnPositionMethod === 'function') {
-                    setSpawnPositionMethod.call(enemyComponent, position);
+                    setSpawnPositionMethod.call(enemyComponent, monster.position);
                 }
             }
-            
-            // 添加到场景
-            const scene = director.getScene();
-            if (scene) {
-                scene.addChild(monster);
+
+            // 手动初始化CharacterStats组件
+            const characterStats = monster.getComponent('CharacterStats') as any;
+            if (characterStats && characterStats.initWithEnemyData) {
+                characterStats.initWithEnemyData(enemyData).catch((error: any) => {
+                    console.error('MonsterSpawner: CharacterStats初始化失败', error);
+                });
             }
+
+            // 手动初始化血条组件
+            const healthBarComponent = monster.getComponent('HealthBarComponent') as any;
+            if (healthBarComponent) {
+                if (characterStats) {
+                    healthBarComponent.bindCharacterStats(characterStats);
+                } else {
+                    healthBarComponent.setHealthData(enemyData.baseHealth || 100);
+                }
+                
+                const characterType = enemyType.startsWith('ent_') ? 'ent' : 'lich';
+                healthBarComponent.setCharacterType(characterType);
+            }
+
+            console.log(`MonsterSpawner: 手动初始化怪物组件完成 - ${enemyType}`);
             
-            return monster;
         } catch (error) {
-            console.error('MonsterSpawner: Failed to create monster', error);
-            return null;
+            console.error('MonsterSpawner: 手动初始化怪物组件失败', error);
+        }
+    }
+    
+    /**
+     * 为怪物设置AI控制
+     */
+    private addAIController(monster: Node, enemyType: string, enemyData: any): void {
+        try {
+            // 获取BaseCharacterDemo组件
+            const characterDemo = monster.getComponent('BaseCharacterDemo');
+            if (!characterDemo) {
+                console.warn(`MonsterSpawner: ${monster.name} 没有BaseCharacterDemo组件，无法设置AI`);
+                return;
+            }
+
+            // 【关键修复】确保MonsterSpawner只在正常模式下设置AI，不干扰其他模式
+            // 检查当前是否为正常模式（正常模式下通过关卡生成的怪物需要设置AI）
+            const gameManager = GameManager?.instance;
+            if (gameManager && gameManager.normalMode) {
+                // 正常模式：设置为AI模式
+                (characterDemo as any).controlMode = 1; // ControlMode.AI
+                (characterDemo as any).aiFaction = this.factionToString(this.spawnerFaction);
+                (characterDemo as any).aiBehaviorType = this.determineAIBehaviorType(enemyType) === AIBehaviorType.RANGED ? 'ranged' : 'melee';
+
+                // 创建AI配置
+                const aiConfig: AIConfig = {
+                    detectionRange: enemyData.detectionRange || 200,
+                    attackRange: enemyData.attackRange || 60,
+                    pursuitRange: enemyData.pursuitRange || 300,
+                    moveSpeed: enemyData.moveSpeed * 100 || 100, // 转换为像素/秒
+                    attackInterval: enemyData.attackInterval || 2,
+                    behaviorType: this.determineAIBehaviorType(enemyType),
+                    faction: this.spawnerFaction,
+                    returnDistance: enemyData.returnDistance || 200,
+                    patrolRadius: 50,
+                    maxIdleTime: enemyData.idleWaitTime || 2
+                };
+
+                // 初始化AI
+                if ((characterDemo as any).initializeAI) {
+                    (characterDemo as any).initializeAI(enemyData, aiConfig);
+                    console.log(`MonsterSpawner: [正常模式] AI配置已设置到BaseCharacterDemo - ${enemyType}, 阵营: ${this.spawnerFaction}`);
+                } else {
+                    console.warn(`MonsterSpawner: BaseCharacterDemo组件不支持initializeAI方法`);
+                }
+            } else {
+                console.log(`MonsterSpawner: 跳过AI设置 - 当前不是正常模式，让其他逻辑处理控制模式`);
+            }
+        } catch (error) {
+            console.error(`MonsterSpawner: 设置BaseCharacterDemo AI失败 - ${enemyType}`, error);
+        }
+    }
+
+    /**
+     * 根据敌人类型确定AI行为类型
+     */
+    private determineAIBehaviorType(enemyType: string): AIBehaviorType {
+        // 巫妖系列为远程攻击
+        if (enemyType.includes('lich')) {
+            return AIBehaviorType.RANGED;
+        }
+        
+        // 其他为近战攻击
+        return AIBehaviorType.MELEE;
+    }
+    
+    /**
+     * 将Faction枚举转换为字符串
+     */
+    private factionToString(faction: Faction): string {
+        switch (faction) {
+            case Faction.ENEMY_LEFT: return 'enemy_left';
+            case Faction.ENEMY_RIGHT: return 'enemy_right';
+            case Faction.PLAYER: return 'player';
+            default: return 'enemy_left';
         }
     }
     

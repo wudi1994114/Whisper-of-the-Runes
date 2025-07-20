@@ -288,11 +288,37 @@ export class FireballController extends Component {
         // 检查碰撞对象类型（可以根据需要添加标签过滤）
         console.log(`FireballController: 检测到碰撞，对象: ${otherCollider.node.name}`);
         
+        // 【修复】直接对目标造成伤害，而不是发送事件
+        this.dealDamageToTarget(otherCollider.node, this.damage);
+        
         // 触发爆炸
         this.explode();
-        
-        // 发送碰撞事件（可用于造成伤害等）
-        eventManager.emit(GameEvents.CHARACTER_DAMAGED, otherCollider.node, this.damage);
+    }
+
+    /**
+     * 对目标造成伤害
+     */
+    private dealDamageToTarget(target: Node, damage: number): void {
+        if (!target || !target.isValid) {
+            console.warn(`FireballController: 无效的攻击目标`);
+            return;
+        }
+
+        // 获取目标的BaseCharacterDemo组件来造成伤害
+        const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
+        if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
+            (targetCharacterDemo as any).takeDamage(damage);
+            console.log(`%c[FIREBALL] 火球对 ${target.name} 造成 ${damage} 点伤害`, 'color: orange; font-weight: bold');
+        } else {
+            // 如果没有BaseCharacterDemo，尝试CharacterStats组件
+            const targetStats = target.getComponent('CharacterStats');
+            if (targetStats && (targetStats as any).takeDamage) {
+                (targetStats as any).takeDamage(damage);
+                console.log(`%c[FIREBALL] 火球对 ${target.name} 造成 ${damage} 点伤害 (直接命中CharacterStats)`, 'color: orange; font-weight: bold');
+            } else {
+                console.warn(`FireballController: 目标 ${target.name} 没有可攻击的组件`);
+            }
+        }
     }
     
     /**

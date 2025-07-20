@@ -152,6 +152,9 @@ export class CharacterStats extends Component {
         this._currentHealth -= actualDamage;
         this._currentHealth = Math.max(0, this._currentHealth);
 
+        // 发送血量变化事件（用于血条组件）
+        this.node.emit('health-changed', this._currentHealth, this._maxHealth);
+        
         eventManager.emit(GameEvents.CHARACTER_DAMAGED, this, actualDamage);
 
         if (this._currentHealth <= 0) {
@@ -174,6 +177,9 @@ export class CharacterStats extends Component {
         this._currentHealth += healAmount;
         this._currentHealth = Math.min(this._maxHealth, this._currentHealth);
 
+        // 发送血量变化事件（用于血条组件）
+        this.node.emit('health-changed', this._currentHealth, this._maxHealth);
+        
         eventManager.emit(GameEvents.CHARACTER_HEALED, this, healAmount);
     }
 
@@ -286,7 +292,7 @@ export class CharacterStats extends Component {
      * 检查是否可以执行动作
      */
     public canPerformAction(): boolean {
-        return this.isAlive && this._animationController && this._animationController.isReady();
+        return this.isAlive && !!this._animationController && !!this._animationController.isReady();
     }
     
     /**
