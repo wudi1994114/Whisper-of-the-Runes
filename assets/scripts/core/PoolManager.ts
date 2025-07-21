@@ -255,12 +255,8 @@ class PoolManager {
         }
 
         try {
-            // 【关键修复】设置UniversalCharacterDemo的敌人类型
-            const universalDemo = node.getComponent('UniversalCharacterDemo');
-            if (universalDemo && (universalDemo as any).setEnemyType) {
-                (universalDemo as any).setEnemyType(enemyData.id);
-                console.log(`PoolManager: 已为UniversalCharacterDemo设置敌人类型: ${enemyData.id}`);
-            }
+            // 注意：UniversalCharacterDemo的敌人类型设置交给调用方（GameManager或MonsterSpawner）处理
+            // 避免重复调用 setEnemyType() 导致的冲突
 
             // 初始化CharacterStats组件
             const characterStats = node.getComponent('CharacterStats');

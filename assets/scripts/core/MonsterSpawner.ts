@@ -19,7 +19,6 @@ interface SpawnerConfig {
     position: { x: number, y: number };
     spawnRadius: number;
     spawnType: string;
-    faction?: string;
     size?: { width: number, height: number };
     enemies: EnemySpawnConfig[];
 }
@@ -59,8 +58,7 @@ export class MonsterSpawner extends Component {
     // 是否已初始化
     private isInitialized: boolean = false;
     
-    // AI配置
-    private spawnerFaction: Faction = Faction.FACTION_RED;
+    // 移除spawnerFaction，每个敌人按照自己的配置设置阵营
     
     protected onLoad(): void {
         // 监听怪物死亡事件
@@ -92,13 +90,8 @@ export class MonsterSpawner extends Component {
         this.spawnerConfig = config;
         this.node.setPosition(config.position.x, config.position.y);
         
-        // 从配置中读取阵营信息
-        if (config.faction) {
-            this.spawnerFaction = FactionUtils.stringToFaction(config.faction);
-        } else {
-            // 回退到默认阵营
-            this.spawnerFaction = Faction.FACTION_RED;
-        }
+        // 不再设置生成器默认阵营，每个敌人按照自己的配置设置阵营
+        console.log(`MonsterSpawner: 初始化生成器 ${config.id}，将根据每个敌人的配置单独设置阵营`);
         
         // 初始化存活怪物映射
         config.enemies.forEach(enemyConfig => {
@@ -111,7 +104,7 @@ export class MonsterSpawner extends Component {
         // 开始生成怪物
         this.startSpawning();
         
-        console.log(`MonsterSpawner initialized: ${config.id}, 阵营: ${this.spawnerFaction}`);
+        console.log(`MonsterSpawner initialized: ${config.id}`);
     }
     
     /**
@@ -249,6 +242,15 @@ export class MonsterSpawner extends Component {
                 // 激活节点
                 monster.active = true;
                 
+                // 【关键修复】设置敌人类型到UniversalCharacterDemo
+                const universalDemo = monster.getComponent('UniversalCharacterDemo');
+                if (universalDemo && (universalDemo as any).setEnemyType) {
+                    (universalDemo as any).setEnemyType(enemyType);
+                    console.log(`MonsterSpawner: ✅ 已设置敌人类型: ${enemyType}`);
+                } else {
+                    console.warn(`MonsterSpawner: ⚠️ 未找到UniversalCharacterDemo组件或setEnemyType方法`);
+                }
+                
                 // 添加AI组件
                 this.addAIController(monster, enemyType, enemyData, enemyConfig);
                 
@@ -272,6 +274,15 @@ export class MonsterSpawner extends Component {
             
             // 手动初始化组件
             this.initializeMonsterComponents(monster, enemyType, enemyData);
+            
+            // 【关键修复】设置敌人类型到UniversalCharacterDemo（传统实例化方式）
+            const universalDemo = monster.getComponent('UniversalCharacterDemo');
+            if (universalDemo && (universalDemo as any).setEnemyType) {
+                (universalDemo as any).setEnemyType(enemyType);
+                console.log(`MonsterSpawner: ✅ 已设置敌人类型（传统方式）: ${enemyType}`);
+            } else {
+                console.warn(`MonsterSpawner: ⚠️ 未找到UniversalCharacterDemo组件或setEnemyType方法（传统方式）`);
+            }
             
             // 添加AI组件
             this.addAIController(monster, enemyType, enemyData, enemyConfig);
@@ -372,14 +383,14 @@ export class MonsterSpawner extends Component {
             // 检查当前是否为正常模式（正常模式下通过关卡生成的怪物需要设置AI）
             const gameManager = GameManager?.instance;
             if (gameManager && gameManager.normalMode) {
-                // 【新增功能】支持每个敌人独立的阵营设置
-                let targetFaction = this.spawnerFaction;
-                if (enemyConfig && enemyConfig.faction) {
-                    targetFaction = FactionUtils.stringToFaction(enemyConfig.faction);
-                    console.log(`MonsterSpawner: 使用敌人独立阵营: ${enemyConfig.faction} -> ${targetFaction}`);
-                } else {
-                    console.log(`MonsterSpawner: 使用生成器默认阵营: ${targetFaction}`);
+                // 【重构】每个敌人必须有自己的阵营配置
+                if (!enemyConfig || !enemyConfig.faction) {
+                    console.error(`MonsterSpawner: 敌人 ${enemyType} 缺少阵营配置，无法设置AI`);
+                    return;
                 }
+                
+                const targetFaction = FactionUtils.stringToFaction(enemyConfig.faction);
+                console.log(`MonsterSpawner: 设置敌人阵营: ${enemyConfig.faction} -> ${targetFaction}`);
                 
                 console.log(`MonsterSpawner: 开始设置 ${enemyType} 的阵营和AI - 目标阵营: ${targetFaction}`);
                 

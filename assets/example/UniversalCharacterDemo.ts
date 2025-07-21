@@ -16,28 +16,57 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
     private fireballLauncher: FireballLauncher | null = null;
     private isRangedAttacker: boolean = false;
     private hasRangedSkills: boolean = false;
+    
+    // 显式设置的敌人类型（用于正常模式下MonsterSpawner设置）
+    private explicitEnemyType: string | null = null;
 
     /**
-     * 获取敌人配置ID - 完全从GameManager获取
+     * 设置敌人类型 - 供MonsterSpawner等外部调用
+     * @param enemyType 敌人类型ID，如 'lich_normal', 'ent_elite' 等
+     */
+    public setEnemyType(enemyType: string): void {
+        console.log(`[UniversalCharacterDemo] 🔧 设置敌人类型: ${enemyType}`);
+        this.explicitEnemyType = enemyType;
+        
+        // 如果已经初始化，立即重新加载配置
+        if (this.enemyData) {
+            this.reloadEnemyConfiguration();
+        }
+    }
+
+    /**
+     * 获取敌人配置ID - 支持多种模式
      */
     protected getEnemyConfigId(): string {
+        // 优先级1：显式设置的类型（正常模式下由MonsterSpawner设置）
+        if (this.explicitEnemyType) {
+            return this.explicitEnemyType;
+        }
+        
+        // 优先级2：从GameManager获取（手动测试模式）
         if (!GameManager.instance) {
             console.warn('[UniversalCharacterDemo] GameManager.instance 不存在，使用默认敌人类型');
             return 'ent_normal';
         }
 
-        // 从 GameManager 获取当前配置的敌人类型
-        const availableTypes = GameManager.instance.getAvailableEnemyTypes();
-        const currentIndex = GameManager.instance.testEnemyType;
-        
-        if (currentIndex >= 0 && currentIndex < availableTypes.length) {
-            const enemyType = availableTypes[currentIndex];
-            console.log(`[UniversalCharacterDemo] 从 GameManager 获取敌人类型: ${enemyType} (索引: ${currentIndex})`);
-            return enemyType;
-        } else {
-            console.warn(`[UniversalCharacterDemo] GameManager 中的敌人类型索引 ${currentIndex} 无效，使用默认类型`);
-            return 'ent_normal';
+        // 检查是否为手动测试模式
+        if (GameManager.instance.manualTestMode) {
+            const availableTypes = GameManager.instance.getAvailableEnemyTypes();
+            const currentIndex = GameManager.instance.testEnemyType;
+            
+            if (currentIndex >= 0 && currentIndex < availableTypes.length) {
+                const enemyType = availableTypes[currentIndex];
+                console.log(`[UniversalCharacterDemo] 🎮 手动测试模式，从 GameManager 获取敌人类型: ${enemyType} (索引: ${currentIndex})`);
+                return enemyType;
+            } else {
+                console.warn(`[UniversalCharacterDemo] GameManager 中的敌人类型索引 ${currentIndex} 无效，使用默认类型`);
+                return 'ent_normal';
+            }
         }
+        
+        // 优先级3：正常模式但没有显式设置类型时的默认处理
+        console.log(`[UniversalCharacterDemo] ⚠️ 正常模式但未设置敌人类型，使用默认类型 (建议通过 setEnemyType 设置)`);
+        return 'ent_normal';
     }
 
     /**
@@ -322,7 +351,7 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
                 // 手动测试模式：设置为手动控制
                 this.controlMode = 0; // ControlMode.MANUAL
                 console.log('[UniversalCharacterDemo] 手动测试模式：设置为手动控制（键盘操作）');
-            } else if (GameManager.instance.testMode || GameManager.instance.normalMode) {
+            } else if (GameManager.instance.normalMode) {
                 // AI测试模式 + 正常模式：都设置为AI控制
                 this.controlMode = 1; // ControlMode.AI
                 const mode = GameManager.instance.testMode ? 'AI测试模式' : '正常模式';

@@ -255,23 +255,11 @@ export class GameManager extends Component {
             return;
         }
 
-        // 添加调试按键
-        if (keyCode === KeyCode.KEY_L) {
-            this.testLevelSystem();
-            return;
-        }
-
         if (keyCode === KeyCode.KEY_C) {
             this.showCacheInfo();
             return;
         }
 
-        // 添加对象池调试按键
-        if (keyCode === KeyCode.KEY_P) {
-            this.debugPoolStatus();
-            return;
-        }
-        
 
 
         // 根据测试模式分发输入
@@ -848,46 +836,6 @@ export class GameManager extends Component {
     }
 
     /**
-     * 测试关卡系统
-     */
-    private async testLevelSystem() {
-        console.log('\n=== Level System Test ===');
-        // 这个函数现在只是重新加载当前选择的关卡
-        await this.startSelectedLevel();
-    }
-
-    /**
-     * 调试：打印对象池状态
-     */
-    public debugPoolStatus(): void {
-        console.log('\n=== 对象池状态调试 ===');
-        
-        // 获取当前关卡需要的敌人类型
-        const requiredEnemyTypes = this.getRequiredEnemyTypesForLevel(this.selectedLevelId);
-        console.log(`当前关卡 ${this.selectedLevelId} 需要的敌人类型:`, requiredEnemyTypes);
-        
-        // 检查每个敌人类型的对象池状态
-        for (const enemyType of requiredEnemyTypes) {
-            const poolStats = poolManager.getStats(enemyType) as any;
-            if (poolStats && poolStats.size >= 0) {
-                console.log(`✅ ${enemyType}: 池大小=${poolStats.size}/${poolStats.maxSize}, 获取=${poolStats.getCount}, 创建=${poolStats.createCount}`);
-            } else {
-                console.error(`❌ ${enemyType}: 对象池不存在或未初始化`);
-            }
-        }
-        
-        // 检查火球对象池
-        const fireballStats = poolManager.getStats('fireball') as any;
-        if (fireballStats && fireballStats.size >= 0) {
-            console.log(`✅ fireball: 池大小=${fireballStats.size}/${fireballStats.maxSize}, 获取=${fireballStats.getCount}, 创建=${fireballStats.createCount}`);
-        } else {
-            console.error(`❌ fireball: 对象池不存在或未初始化`);
-        }
-        
-        console.log('=== 对象池状态调试完成 ===\n');
-    }
-
-    /**
      * 显示缓存信息
      */
     private showCacheInfo() {
@@ -1098,43 +1046,12 @@ export class GameManager extends Component {
             
             entNode.destroy();
         }
-        
-        // 巫妖预制体已移除，现在使用通用预制体 + 动态组件
-        console.log('ℹ️ 巫妖现在使用通用敌人预制体 + UniversalCharacterDemo 智能配置');
-        console.log('✅ 巫妖相关组件将在运行时通过 UniversalCharacterDemo 动态添加');
-        
-        console.log('\n=== 组件检查完成 ===');
-        console.log('📝 如果发现缺少组件，请在编辑器中手动为预制体添加：');
-        console.log('   1. CharacterStats 组件');
-        console.log('   2. HealthBarComponent 组件');
-        console.log('   3. 确保组件在预制体保存时被包含');
     }
-
-    // ===== 测试模式相关方法 =====
 
     /**
      * 初始化测试模式
      */
     private initTestMode(): void {
-        console.log('=== 🧪 测试模式已启用 ===');
-        console.log('📌 测试模式特点:');
-        console.log('  • 所有敌人类型已预注册到对象池');
-        console.log('  • 可以直接生成任意敌人类型进行测试');
-        console.log('  • 不依赖关卡配置');
-        console.log('');
-        console.log('🎮 对比正常模式:');
-        console.log('  • 正常模式只注册基础敌人类型');
-        console.log('  • 其他敌人类型由LevelManager按需动态加载');
-        console.log('');
-        console.log('💡 可用命令:');
-        console.log('  - spawnTestEnemy(enemyType): 生成测试怪物');
-        console.log('  - clearTestEnemy(): 清除当前测试怪物');
-        console.log('  - switchTestEnemy(enemyType): 切换怪物类型');
-        console.log('  - damageTestEnemy(damage): 对测试怪物造成伤害');
-        console.log('  - printPoolStatus(): 打印对象池状态');
-        console.log('  - testAllEnemyTypes(): 测试生成所有敌人类型');
-        console.log('');
-        console.log('🐾 可用怪物类型:', this.availableEnemyTypes.join(', '));
         
         // 打印对象池状态
         this.printPoolStatus();
@@ -1167,19 +1084,14 @@ export class GameManager extends Component {
             return;
         }
         
-        // 【关键修复】确保手动测试模式下的控制模式设置
+        // 【关键修复】只在手动测试模式下设置控制模式
         const characterDemo = enemyInstance.getComponent('BaseCharacterDemo');
-        if (characterDemo) {
-            if (this.manualTestMode) {
-                // 手动测试模式：确保设置为手动控制
-                (characterDemo as any).controlMode = 0; // ControlMode.MANUAL
-                console.log(`🎮 [手动测试模式] 怪物 ${enemyInstance.name} 设置为手动控制`);
-            } else {
-                // 其他模式：设置为AI控制
-                (characterDemo as any).controlMode = 1; // ControlMode.AI
-                console.log(`🤖 [AI模式] 怪物 ${enemyInstance.name} 设置为AI控制`);
-            }
+        if (characterDemo && this.manualTestMode) {
+            // 只有手动测试模式才设置为手动控制
+            (characterDemo as any).controlMode = 0; // ControlMode.MANUAL
+            console.log(`🎮 [手动测试模式] 怪物 ${enemyInstance.name} 设置为手动控制`);
         }
+        // 注意：正常模式下不在这里设置控制模式，交给 MonsterSpawner 处理
 
         // 【关键修复】确保UniversalCharacterDemo使用正确的敌人类型
         const universalDemo = enemyInstance.getComponent('UniversalCharacterDemo');

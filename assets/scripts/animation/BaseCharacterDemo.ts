@@ -803,7 +803,6 @@ export abstract class BaseCharacterDemo extends Component {
         if (currentTime - this.lastTargetSearchTime < this.targetSearchInterval) {
             return;
         }
-
         this.lastTargetSearchTime = currentTime;
 
         const selector = TargetSelector.getInstance();
@@ -811,7 +810,6 @@ export abstract class BaseCharacterDemo extends Component {
             console.warn(`[${this.getCharacterDisplayName()}] 全局TargetSelector未初始化`);
             return;
         }
-
         // 【关键修复】使用CharacterStats中的实际阵营，而不是aiConfig.faction
         const myFaction = this.characterStats ? this.characterStats.faction : this.aiConfig.faction;
         
@@ -824,7 +822,7 @@ export abstract class BaseCharacterDemo extends Component {
 
         // 【调试输出】
         if (!bestTarget) {
-            // console.log(`%c[AI DEBUG] ${this.getCharacterDisplayName()} 未找到目标 - 我的阵营: ${myFaction}, 探测范围: ${this.aiConfig.detectionRange}`, 'color: yellow');
+            console.log(`%c[AI DEBUG] ${this.getCharacterDisplayName()} 未找到目标 - 我的阵营: ${myFaction}, 探测范围: ${this.aiConfig.detectionRange}`, 'color: yellow');
         }
 
         // 更新目标
@@ -1557,15 +1555,20 @@ export abstract class BaseCharacterDemo extends Component {
             return;
         }
 
-        // 检查是否已经设置了阵营（非默认值）
-        if (this.characterStats.faction !== Faction.PLAYER || this.controlMode === ControlMode.AI) {
-            console.log(`[${this.getCharacterDisplayName()}] 阵营已设置为: ${this.characterStats.faction}`);
+        // 【修复】AI模式下不设置默认阵营，等待MonsterSpawner或其他系统设置
+        if (this.controlMode === ControlMode.AI) {
+            console.log(`[${this.getCharacterDisplayName()}] AI模式，跳过默认阵营设置，等待外部系统设置阵营`);
             return;
         }
 
-        // 对于手动控制的角色，默认设置为玩家阵营
+        // 对于手动控制的角色，设置为玩家阵营（只有在还是默认PLAYER阵营时才设置）
         if (this.controlMode === ControlMode.MANUAL) {
-            this.setFaction(Faction.PLAYER);
+            if (this.characterStats.faction === Faction.PLAYER) {
+                this.setFaction(Faction.PLAYER);
+                console.log(`[${this.getCharacterDisplayName()}] 手动模式，设置默认玩家阵营`);
+            } else {
+                console.log(`[${this.getCharacterDisplayName()}] 手动模式，但阵营已设置为: ${this.characterStats.faction}`);
+            }
         }
     }
 

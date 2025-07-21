@@ -1,11 +1,11 @@
 // assets/scripts/components/CharacterStats.ts
 
-import { _decorator, Component, Node, Sprite, Vec3 } from 'cc';
+import { _decorator, Component, Sprite } from 'cc';
 import { MonsterAnimationController } from '../animation/MonsterAnimationController';
 import { EnemyData } from '../configs/EnemyConfig';
 import { eventManager } from '../core/EventManager';
 import { GameEvents } from '../core/GameEvents';
-import { Faction, FactionUtils } from '../configs/FactionConfig';
+import { Faction } from '../configs/FactionConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -23,7 +23,7 @@ export class CharacterStats extends Component {
     private _baseDefense: number = 5;
     private _moveSpeed: number = 1.0;
     private _expReward: number = 0;
-    private _faction: Faction = Faction.PLAYER;
+    private _faction: Faction = Faction.PLAYER; // 默认值，AI模式下会被MonsterSpawner重新设置
     
     // 组件引用
     private _spriteComponent: Sprite | null = null;

@@ -37,7 +37,6 @@ export interface MonsterSpawnerData {
     position: { x: number; y: number };
     spawnRadius: number;
     spawnType: string;
-    faction?: string;
     enemies: {
         type: string;
         count: number;
@@ -45,6 +44,7 @@ export interface MonsterSpawnerData {
         maxAlive: number;
         spawnDelay: number;
         respawnOnDeath: boolean;
+        faction: string; // 每个敌人必须有自己的阵营
     }[];
 }
 
