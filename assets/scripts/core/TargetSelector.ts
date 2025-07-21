@@ -1,7 +1,9 @@
 // assets/scripts/core/TargetSelector.ts
 
 import { _decorator, Component, Node, Vec3, director } from 'cc';
-import { ITargetSelector, TargetInfo, Faction } from './MonsterAI';
+import { ITargetSelector, TargetInfo } from './MonsterAI';
+import { Faction } from '../configs/FactionConfig';
+import { factionManager } from './FactionManager';
 import { CharacterStats } from '../components/CharacterStats';
 
 const { ccclass, property } = _decorator;
@@ -138,23 +140,37 @@ export class TargetSelector extends Component implements ITargetSelector {
         const scene = director.getScene();
         if (!scene) return;
         
+        console.log(`%c[TARGET CACHE] 开始更新缓存...`, 'color: blue');
+        
         const allNodes = scene.children;
+        let totalProcessed = 0;
         
         for (const node of allNodes) {
+            totalProcessed++;
             const faction = this.determineFaction(node);
             if (faction) {
                 if (!this.targetCache.has(faction)) {
                     this.targetCache.set(faction, []);
                 }
                 this.targetCache.get(faction)!.push(node);
+                console.log(`%c[TARGET CACHE] ✅ 添加目标: ${node.name} → ${faction}`, 'color: blue');
+            } else {
+                // 【调试】输出未识别阵营的节点
+                const hasCharacterStats = !!node.getComponent('CharacterStats');
+                const hasBaseCharacterDemo = !!node.getComponent('BaseCharacterDemo');
+                if (hasCharacterStats || hasBaseCharacterDemo) {
+                    console.log(`%c[TARGET CACHE] ⚠️ 跳过节点: ${node.name} (未识别阵营) - CharacterStats:${hasCharacterStats}, BaseCharacterDemo:${hasBaseCharacterDemo}`, 'color: orange');
+                }
             }
             
             // 递归检查子节点
             this.checkChildrenForTargets(node, this.targetCache);
         }
         
+        console.log(`%c[TARGET CACHE] 缓存更新完成！处理了 ${totalProcessed} 个顶级节点`, 'color: blue');
         for (const [faction, targets] of this.targetCache.entries()) {
-            targets.forEach(target => console.log(`    · ${target.name} 位置: (${target.position.x.toFixed(0)}, ${target.position.y.toFixed(0)})`));
+            console.log(`%c[TARGET CACHE]   ${faction}: ${targets.length} 个目标`, 'color: blue');
+            targets.forEach(target => console.log(`%c[TARGET CACHE]     · ${target.name} 位置: (${target.position.x.toFixed(0)}, ${target.position.y.toFixed(0)})`, 'color: lightblue'));
         }
     }
     
@@ -206,14 +222,31 @@ export class TargetSelector extends Component implements ITargetSelector {
                     // AI模式下，通过阵营属性直接获取阵营
                     const aiFaction = (characterDemo as any).aiFaction;
                     
+                    // 使用CharacterStats组件中的阵营信息
+                    const characterStats = node.getComponent('CharacterStats');
+                    if (characterStats) {
+                        const faction = (characterStats as any).faction;
+                        if (faction) {
+                            return faction;
+                        }
+                    }
+                    
+                    // 阵营字符串转换：只支持颜色阵营
                     switch (aiFaction) {
-                        case 'enemy_left': return Faction.ENEMY_LEFT;
-                        case 'enemy_right': return Faction.ENEMY_RIGHT;
-                        case 'player': return Faction.PLAYER;
+                        case 'red':
+                            return Faction.FACTION_RED;
+                        case 'blue':
+                            return Faction.FACTION_BLUE;
+                        case 'green':
+                            return Faction.FACTION_GREEN;
+                        case 'purple':
+                            return Faction.FACTION_PURPLE;
+                        case 'player': 
+                            return Faction.PLAYER;
                         default:
-                            // 如果阵营属性不明确，回退到位置判断
-                            console.log(`%c[TARGET DEBUG] 阵营属性不明确，使用位置判断: ${node.name}`, 'color: orange');
-                            break;
+                            // 如果阵营属性不明确，默认为玩家阵营
+                            console.log(`%c[TARGET DEBUG] 阵营属性不明确，设为player: ${node.name}`, 'color: orange');
+                            return Faction.PLAYER;
                     }
                 } else {
                     console.log(`%c[TARGET DEBUG] 手动角色 ${node.name}: 跳过目标选择`, 'color: gray');
@@ -221,15 +254,9 @@ export class TargetSelector extends Component implements ITargetSelector {
                 }
             }
             
-            // 回退到位置判断（用于没有阵营属性或阵营属性不明确的情况）
-            // 左侧敌人（x < 0）
-            if (position.x < 0) {
-                return Faction.ENEMY_LEFT;
-            }
-            // 右侧敌人（x > 0）
-            else if (position.x > 0) {
-                return Faction.ENEMY_RIGHT;
-            }
+            // 对于没有明确阵营信息的情况，返回null (不参与目标选择)
+            console.log(`%c[TARGET DEBUG] 无法确定阵营，跳过目标选择: ${node.name}`, 'color: orange');
+            return null;
         }
         
         return null;
@@ -239,16 +266,8 @@ export class TargetSelector extends Component implements ITargetSelector {
      * 获取敌对阵营列表
      */
     private getEnemyFactions(myFaction: Faction): Faction[] {
-        switch (myFaction) {
-            case Faction.PLAYER:
-                return [Faction.ENEMY_LEFT, Faction.ENEMY_RIGHT];
-            case Faction.ENEMY_LEFT:
-                return [Faction.PLAYER, Faction.ENEMY_RIGHT];
-            case Faction.ENEMY_RIGHT:
-                return [Faction.PLAYER, Faction.ENEMY_LEFT];
-            default:
-                return [];
-        }
+        // 使用新的FactionManager来获取敌对阵营
+        return factionManager.getEnemyFactions(myFaction);
     }
     
     /**

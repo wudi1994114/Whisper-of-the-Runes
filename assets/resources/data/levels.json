@@ -1,19 +1,98 @@
 {
   "levels": [
     {
+      "id": 0,
+      "name": "普通测试场景",
+      "backgroundImage": "textures/backgrounds/test_arena",
+      "mapSize": { "width": 1600, "height": 1000 },
+      "playerSpawn": { "x": 0, "y": 0 },
+      
+      "factionRelationships": {
+        "player": { "attacks": [] },
+        "red": { "attacks": ["blue"] },
+        "blue": { "attacks": ["red"] }
+      },
+      
+      "monsterSpawners": [
+        {
+          "id": "central_spawner",
+          "position": { "x": 0, "y": 0 },
+          "spawnRadius": 400,
+          "spawnType": "circle",
+          "faction": "red",
+          "enemies": [
+            {
+              "type": "ent_normal",
+              "count": 3,
+              "spawnInterval": 2.0,
+              "maxAlive": 5,
+              "spawnDelay": 1.0,
+              "respawnOnDeath": true,
+              "faction": "red"
+            },
+            {
+              "type": "lich_normal",
+              "count": 1,
+              "spawnInterval": 10.0,
+              "maxAlive": 2,
+              "spawnDelay": 5.0,
+              "respawnOnDeath": true,
+              "faction": "red"
+            },
+            {
+              "type": "ent_normal",
+              "count": 3,
+              "spawnInterval": 2.0,
+              "maxAlive": 5,
+              "spawnDelay": 1.0,
+              "respawnOnDeath": true,
+              "faction": "blue"
+            },
+            {
+              "type": "lich_normal",
+              "count": 1,
+              "spawnInterval": 10.0,
+              "maxAlive": 2,
+              "spawnDelay": 5.0,
+              "respawnOnDeath": true,
+              "faction": "blue"
+            }
+          ]
+        }
+      ],
+      
+      "objectives": [
+        {
+          "type": "test",
+          "description": "普通对战测试"
+        }
+      ],
+      
+      "duration": 300,
+      "description": "普通测试场景 - 红蓝两阵营对抗"
+    },
+    {
       "id": 1,
       "name": "森林边缘",
       "backgroundImage": "textures/backgrounds/forest",
       "mapSize": { "width": 2000, "height": 1200 },
       "playerSpawn": { "x": 0, "y": 0 },
       
+      "factionRelationships": {
+        "player": { "attacks": ["red", "blue", "green", "purple"] },
+        "red": { "attacks": ["player", "blue", "green", "purple"] },
+        "blue": { "attacks": ["player", "red", "green", "purple"] },
+        "green": { "attacks": ["player", "red", "blue", "purple"] },
+        "purple": { "attacks": ["player", "red", "blue", "green"] }
+      },
       
       "monsterSpawners": [
         {
-          "id": "spawner_1",
-          "position": { "x": 400, "y": 200 },
-          "spawnRadius": 100,
+          "id": "unified_spawner",
+          "position": { "x": 0, "y": 0 },
+          "spawnRadius": 350,
           "spawnType": "circle",
+          "faction": "red",
           "enemies": [
             {
               "type": "ent_normal",
@@ -21,39 +100,26 @@
               "spawnInterval": 3.0,
               "maxAlive": 3,
               "spawnDelay": 2.0,
-              "respawnOnDeath": true
-            }
-          ]
-        },
-        {
-          "id": "spawner_2", 
-          "position": { "x": -300, "y": -200 },
-          "spawnRadius": 80,
-          "spawnType": "circle",
-          "enemies": [
+              "respawnOnDeath": true,
+              "faction": "red"
+            },
             {
               "type": "ent_normal",
               "count": 1,
               "spawnInterval": 4.0,
               "maxAlive": 2,
               "spawnDelay": 5.0,
-              "respawnOnDeath": true
-            }
-          ]
-        },
-        {
-          "id": "spawner_3",
-          "position": { "x": 600, "y": -100 },
-          "spawnRadius": 60,
-          "spawnType": "circle",
-          "enemies": [
+              "respawnOnDeath": true,
+              "faction": "blue"
+            },
             {
               "type": "lich_normal",
               "count": 1,
               "spawnInterval": 8.0,
               "maxAlive": 1,
               "spawnDelay": 10.0,
-              "respawnOnDeath": true
+              "respawnOnDeath": true,
+              "faction": "purple"
             }
           ]
         }
@@ -74,16 +140,25 @@
       "id": 2,
       "name": "暗黑洞穴",
       "backgroundImage": "textures/backgrounds/cave",
+      
+      "factionRelationships": {
+        "player": { "attacks": ["purple", "red"] },
+        "purple": { "attacks": ["player", "red"] },
+        "red": { "attacks": ["player", "purple"] }
+      },
+      
       "enemies": [
         {
           "type": "skeleton",
           "spawnCount": 8,
-          "spawnInterval": 2.5
+          "spawnInterval": 2.5,
+          "faction": "purple"
         },
         {
           "type": "orc",
           "spawnCount": 2,
-          "spawnInterval": 8
+          "spawnInterval": 8,
+          "faction": "red"
         }
       ],
       "duration": 90,
@@ -93,16 +168,25 @@
       "id": 3,
       "name": "兽人要塞",
       "backgroundImage": "textures/backgrounds/fortress",
+      
+      "factionRelationships": {
+        "player": { "attacks": ["red", "green"] },
+        "red": { "attacks": ["player", "green"] },
+        "green": { "attacks": ["player", "red"] }
+      },
+      
       "enemies": [
         {
           "type": "orc",
           "spawnCount": 10,
-          "spawnInterval": 3
+          "spawnInterval": 3,
+          "faction": "red"
         },
         {
           "type": "goblin",
           "spawnCount": 15,
-          "spawnInterval": 1.5
+          "spawnInterval": 1.5,
+          "faction": "green"
         }
       ],
       "duration": 120,

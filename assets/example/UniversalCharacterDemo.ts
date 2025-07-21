@@ -5,47 +5,12 @@ import { FireballLauncher } from '../scripts/launcher/FireballLauncher';
 import { AnimationDirection, AnimationState } from '../scripts/animation/AnimationConfig';
 import { dataManager } from '../scripts/core/DataManager';
 import { animationManager } from '../scripts/animation/AnimationManager';
+import { find, Node } from 'cc';
 
 const { ccclass, property } = _decorator;
 
 @ccclass('UniversalCharacterDemo')
 export class UniversalCharacterDemo extends BaseCharacterDemo {
-
-    /**
-     * 角色显示名称后缀 - 可选配置
-     */
-    @property({
-        displayName: "显示名称后缀", 
-        tooltip: "可选的显示名称后缀，用于区分多个相同类型的角色"
-    })
-    public displayNameSuffix: string = '';
-
-    /**
-     * 【关键修复】外部指定的敌人类型 - 优先级高于GameManager配置
-     */
-    @property({
-        displayName: "指定敌人类型",
-        tooltip: "外部指定的敌人类型，如果设置则优先使用此配置而不是从GameManager读取"
-    })
-    public specifiedEnemyType: string = '';
-
-    /**
-     * 火球伤害 - 远程攻击敌人使用
-     */
-    @property({
-        displayName: "火球伤害",
-        tooltip: "远程攻击敌人的火球伤害值"
-    })
-    public fireballDamage: number = 75;
-
-    /**
-     * 火球角度偏移 - 远程攻击敌人使用
-     */
-    @property({
-        displayName: "火球角度偏移", 
-        tooltip: "在基础角度上的额外偏移（度）"
-    })
-    public fireballAngleOffset: number = 0;
 
     // 智能攻击系统
     private fireballLauncher: FireballLauncher | null = null;
@@ -53,16 +18,9 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
     private hasRangedSkills: boolean = false;
 
     /**
-     * 【关键修复】获取敌人配置ID - 支持外部指定类型
+     * 获取敌人配置ID - 完全从GameManager获取
      */
     protected getEnemyConfigId(): string {
-        // 优先使用外部指定的敌人类型
-        if (this.specifiedEnemyType && this.specifiedEnemyType.trim() !== '') {
-            console.log(`[UniversalCharacterDemo] 使用外部指定的敌人类型: ${this.specifiedEnemyType}`);
-            return this.specifiedEnemyType.trim();
-        }
-
-        // 回退到从GameManager获取
         if (!GameManager.instance) {
             console.warn('[UniversalCharacterDemo] GameManager.instance 不存在，使用默认敌人类型');
             return 'ent_normal';
@@ -83,21 +41,7 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
     }
 
     /**
-     * 【新增】设置敌人类型 - 供外部调用
-     */
-    public setEnemyType(enemyType: string): void {
-        this.specifiedEnemyType = enemyType;
-        console.log(`[UniversalCharacterDemo] 敌人类型已设置为: ${enemyType}`);
-        
-        // 如果已经初始化过，需要重新加载配置
-        if (this.enemyData) {
-            console.log(`[UniversalCharacterDemo] 重新加载敌人配置...`);
-            this.reloadEnemyConfiguration();
-        }
-    }
-
-    /**
-     * 【新增】重新加载敌人配置 - 当敌人类型改变时调用
+     * 重新加载敌人配置 - 当敌人类型改变时调用
      */
     private async reloadEnemyConfiguration(): Promise<void> {
         try {
@@ -136,7 +80,7 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
     }
 
     /**
-     * 【新增】重新加载动画系统
+     * 重新加载动画系统
      */
     private async reloadAnimations(): Promise<void> {
         if (!this.enemyData) {
@@ -167,12 +111,11 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
     }
 
     /**
-     * 获取角色显示名称
+     * 获取角色显示名称 - 基于敌人类型生成
      */
     protected getCharacterDisplayName(): string {
         const baseId = this.getEnemyConfigId();
-        const suffix = this.displayNameSuffix ? `_${this.displayNameSuffix}` : '';
-        return `UniversalDemo_${baseId}${suffix}`;
+        return `UniversalDemo_${baseId}`;
     }
 
     /**
@@ -203,7 +146,7 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
             return;
         }
 
-        // 在攻击动画的合适帧触发火球（类似巫妖的第5帧）
+        // 在攻击动画的合适帧触发火球
         const fireballTriggerTime = this.calculateFireballTriggerTime();
         
         setTimeout(() => {
@@ -238,23 +181,26 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
         // 获取生命值百分比
         const healthPercent = this.characterStats.currentHealth / this.characterStats.maxHealth;
         
+        // 基于怪物配置的基础伤害值计算
+        let damage = this.enemyData.baseAttack;
+        
         // 血量越低，火球伤害越高（狂暴效果）
         if (healthPercent < 0.3) {
-            this.fireballDamage = Math.floor(this.enemyData.baseAttack * 1.8); // 高伤害
-            this.fireballAngleOffset = 0; // 精准角度
+            damage = Math.floor(this.enemyData.baseAttack * 1.8); // 高伤害
             console.log(`[${this.getCharacterDisplayName()}] 进入狂暴状态，火球威力大幅提升！`);
         } else if (healthPercent < 0.6) {
-            this.fireballDamage = Math.floor(this.enemyData.baseAttack * 1.4); // 中等伤害
-            this.fireballAngleOffset = 5; // 轻微偏移
+            damage = Math.floor(this.enemyData.baseAttack * 1.4); // 中等伤害
             console.log(`[${this.getCharacterDisplayName()}] 受伤状态，火球威力提升`);
-        } else {
-            this.fireballDamage = this.enemyData.baseAttack; // 基础伤害
-            this.fireballAngleOffset = 0; // 无偏移
+        }
+        
+        // 更新火球发射器的伤害
+        if (this.fireballLauncher) {
+            this.fireballLauncher.damage = damage;
         }
     }
 
     /**
-     * 【优化】发射火球 - 支持动态瞄准（AI模式瞄准当前目标，手动模式瞄准最近敌人）
+     * 发射火球 - 支持动态瞄准（AI模式瞄准当前目标，手动模式瞄准最近敌人）
      */
     private launchFireball(): void {
         if (!this.fireballLauncher) {
@@ -284,26 +230,26 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
             const targetPos = targetToAim.position;
             const mode = (this as any).controlMode === 1 ? 'AI' : '手动';
             console.log(`[${this.getCharacterDisplayName()}] 🎯 ${mode}模式精确瞄准目标 ${targetToAim.name} 位置: (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)})`);
-            this.fireballLauncher.launchFireballToPosition(targetPos, this.fireballDamage);
+            this.fireballLauncher.launchFireballToPosition(targetPos);
         } else {
             // 没有目标时按角度发射
             const targetAngle = this.calculateLaunchAngle();
             console.log(`[${this.getCharacterDisplayName()}] 📐 无目标，按朝向发射火球: ${targetAngle}°`);
-            this.fireballLauncher.launchFireballAtAngle(targetAngle, this.fireballDamage);
+            this.fireballLauncher.launchFireballAtAngle(targetAngle);
         }
         
-        console.log(`[${this.getCharacterDisplayName()}] 🔥 火球发射完成！伤害: ${this.fireballDamage}`);
+        console.log(`[${this.getCharacterDisplayName()}] 🔥 火球发射完成！伤害: ${this.fireballLauncher.damage}`);
     }
 
     /**
-     * 【修复】动态计算发射角度 - 优先瞄准当前目标，否则基于朝向
+     * 动态计算发射角度 - 优先瞄准当前目标，否则基于朝向
      */
     private calculateLaunchAngle(): number {
-        // 【关键修复】优先瞄准当前AI目标
+        // 优先瞄准当前AI目标
         const currentTarget = this.getAICurrentTarget?.() || (this as any).currentTarget;
         
         if (currentTarget && currentTarget.isValid) {
-            // 计算从巫妖位置到目标位置的角度
+            // 计算从当前位置到目标位置的角度
             const myPos = this.node.position;
             const targetPos = currentTarget.position;
             
@@ -316,15 +262,14 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
             const angleDegrees = angleRadians * 180 / Math.PI;
             
             console.log(`[${this.getCharacterDisplayName()}] 🎯 动态瞄准目标 ${currentTarget.name}`);
-            console.log(`  巫妖位置: (${myPos.x.toFixed(1)}, ${myPos.y.toFixed(1)})`);
+            console.log(`  位置: (${myPos.x.toFixed(1)}, ${myPos.y.toFixed(1)})`);
             console.log(`  目标位置: (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)})`);
             console.log(`  计算角度: ${angleDegrees.toFixed(1)}°`);
             
-            // 应用角度偏移
-            return angleDegrees + this.fireballAngleOffset;
+            return angleDegrees;
         }
         
-        // 【备用方案】没有目标时基于角色朝向计算角度
+        // 备用方案：没有目标时基于角色朝向计算角度
         let baseAngle = 0;
         
         // 根据当前朝向确定基础角度
@@ -346,22 +291,22 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
         }
         
         console.log(`[${this.getCharacterDisplayName()}] 📐 基于朝向发射，角度: ${baseAngle}°`);
-        
-        // 应用角度偏移
-        return baseAngle + this.fireballAngleOffset;
+        return baseAngle;
     }
 
     /**
-     * 编辑器中的调试信息
+     * 组件初始化
      */
     public async onLoad(): Promise<void> {
-        console.log(`[${this.getCharacterDisplayName()}] 开始初始化角色演示（状态机版本）...`);
+        await this.ensureManagers();
+        
+        console.log(`[${this.getCharacterDisplayName()}] 开始初始化通用角色演示...`);
         
         // 等待数据管理器加载完成
         await super.onLoad();
         
         const enemyType = this.getEnemyConfigId();
-        console.log(`[UniversalCharacterDemo] 使用 GameManager 配置的敌人类型: ${enemyType}`);
+        console.log(`[UniversalCharacterDemo] 使用敌人类型: ${enemyType}`);
         
         // 分析敌人类型并设置攻击系统
         this.analyzeEnemyAttackType();
@@ -371,16 +316,16 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
             this.setupFireballLauncher();
         }
         
-        // 【关键修复】统一的模式判断和控制模式设置
+        // 控制模式完全从GameManager获取
         if (GameManager.instance) {
             if (GameManager.instance.manualTestMode) {
-                // 手动测试模式：设置为手动控制，让用户通过键盘操作
+                // 手动测试模式：设置为手动控制
                 this.controlMode = 0; // ControlMode.MANUAL
                 console.log('[UniversalCharacterDemo] 手动测试模式：设置为手动控制（键盘操作）');
-            } else if (GameManager.instance.aiTestMode || GameManager.instance.normalMode) {
-                // AI测试模式 + 正常模式：都设置为AI控制（走同一套逻辑）
+            } else if (GameManager.instance.testMode || GameManager.instance.normalMode) {
+                // AI测试模式 + 正常模式：都设置为AI控制
                 this.controlMode = 1; // ControlMode.AI
-                const mode = GameManager.instance.aiTestMode ? 'AI测试模式' : '正常模式';
+                const mode = GameManager.instance.testMode ? 'AI测试模式' : '正常模式';
                 console.log(`[UniversalCharacterDemo] ${mode}：设置为AI控制`);
             } else {
                 console.warn('[UniversalCharacterDemo] 未知模式，使用默认控制模式');
@@ -401,7 +346,7 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
     }
 
     /**
-     * 分析敌人攻击类型（近战/远程）
+     * 分析敌人攻击类型（近战/远程）- 基于怪物配置
      */
     private analyzeEnemyAttackType(): void {
         if (!this.enemyData) {
@@ -410,7 +355,7 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
             return;
         }
 
-        // 【改进】多重判断条件确定是否为远程攻击者
+        // 多重判断条件确定是否为远程攻击者
         const enemyId = this.enemyData.id;
         let isRanged = false;
 
@@ -447,24 +392,24 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
         }
 
         this.isRangedAttacker = isRanged;
-        this.hasRangedSkills = isRanged; // 简化：远程攻击就认为有远程技能
+        this.hasRangedSkills = isRanged;
 
         const attackType = this.isRangedAttacker ? '远程攻击' : '近战攻击';
         console.log(`[${this.getCharacterDisplayName()}] 攻击类型分析完成: ${attackType} (敌人ID: ${enemyId})`);
     }
 
     /**
-     * 获取远程技能名称 - 简化版本
+     * 获取远程技能名称
      */
     private getRemoteSkillNames(): string {
         if (this.isRangedAttacker) {
-            return 'fireball'; // 巫妖默认使用火球术
+            return 'fireball'; // 默认使用火球术
         }
         return '';
     }
 
     /**
-     * 初始化火球发射器 - 仅在远程攻击敌人需要时调用
+     * 初始化火球发射器 - 完全基于怪物配置
      */
     private setupFireballLauncher(): void {
         // 获取或创建FireballLauncher组件
@@ -502,11 +447,14 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
             this.fireballLauncher.launchCooldown = Math.min(this.enemyData.attackInterval, fireballSkill.cooldown);
         }
 
-        // 设置火球基础伤害
-        this.fireballDamage = this.enemyData.baseAttack;
-        this.fireballLauncher.damage = this.fireballDamage;
+        // 设置火球基础伤害（从怪物配置获取）
+        this.fireballLauncher.damage = this.enemyData.baseAttack;
 
-        console.log(`[${this.getCharacterDisplayName()}] 火球发射器配置完成: 冷却=${this.fireballLauncher.launchCooldown}s, 伤害=${this.fireballDamage}`);
+        // 设置发射者阵营信息（重要！）
+        const currentFaction = this.getFaction();
+        this.fireballLauncher.setFactionInfo(currentFaction, this.node);
+
+        console.log(`[${this.getCharacterDisplayName()}] 火球发射器配置完成: 冷却=${this.fireballLauncher.launchCooldown}s, 伤害=${this.fireballLauncher.damage}, 阵营=${currentFaction}`);
     }
 
     /**
@@ -571,6 +519,24 @@ export class UniversalCharacterDemo extends BaseCharacterDemo {
             return `远程攻击 (${this.hasRangedSkills ? this.getRemoteSkillNames() : '基于敌人类型判断'})`;
         } else {
             return '近战攻击';
+        }
+    }
+
+    /**
+     * 确保核心管理器存在于场景中
+     */
+    private async ensureManagers(): Promise<void> {
+        let gameManagerNode = find('GameManager');
+        if (!gameManagerNode) {
+            console.log('[UniversalCharacterDemo] 检测到 GameManager 不存在，正在自动创建...');
+            gameManagerNode = new Node('GameManager');
+            gameManagerNode.addComponent(GameManager);
+            find('Canvas')?.addChild(gameManagerNode); // 假设有一个Canvas节点
+
+            // 等待一帧以确保 GameManager 的 onLoad 和 start 方法被调用
+            return new Promise(resolve => setTimeout(resolve, 100));
+        } else {
+            console.log('[UniversalCharacterDemo] GameManager 已存在，跳过创建。');
         }
     }
 } 

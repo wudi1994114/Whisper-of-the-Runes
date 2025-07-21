@@ -2,6 +2,7 @@
 
 import { _decorator, Component, Node, Vec3, Vec2 } from 'cc';
 import { EnemyData } from '../configs/EnemyConfig';
+import { Faction } from '../configs/FactionConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -28,14 +29,7 @@ export enum AIBehaviorType {
     MIXED = 'mixed'             // 混合型AI
 }
 
-/**
- * 阵营枚举
- */
-export enum Faction {
-    PLAYER = 'player',          // 玩家阵营
-    ENEMY_LEFT = 'enemy_left',  // 左侧敌人阵营
-    ENEMY_RIGHT = 'enemy_right' // 右侧敌人阵营
-}
+
 
 /**
  * 目标信息接口

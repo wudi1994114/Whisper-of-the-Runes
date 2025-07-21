@@ -1,6 +1,6 @@
 // assets/scripts/core/GameManager.ts
 
-import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Prefab } from 'cc';
+import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Prefab, PhysicsSystem2D } from 'cc';
 import { dataManager } from './DataManager';
 import { eventManager } from './EventManager';
 import { inputManager } from './InputManager';
@@ -11,9 +11,12 @@ import { GameEvents } from './GameEvents';
 import { levelManager } from './LevelManager';
 import { animationManager } from '../animation/AnimationManager';
 import { instantiate } from 'cc';
-import { AIConfig, AIBehaviorType, Faction } from './MonsterAI';
+import { AIConfig, AIBehaviorType } from './MonsterAI';
+import { Faction } from '../configs/FactionConfig';
+import { targetSelector } from './TargetSelector';
 import { TargetSelector } from './TargetSelector';
 import { UITransform } from 'cc';
+import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -71,11 +74,14 @@ export class GameManager extends Component {
     })
     public manualTestMode: boolean = false;
 
+    // ===== 关卡选择配置 =====
     @property({
-        displayName: "AI测试模式", 
-        tooltip: "生成两边阵营怪物测试AI行为"
+        displayName: "选择关卡ID",
+        tooltip: "正常模式下使用的关卡ID\n0: 普通测试场景\n1: 森林边缘\n2: 暗黑洞穴\n3: 兽人要塞",
+        min: 0,
+        step: 1
     })
-    public aiTestMode: boolean = false;
+    public selectedLevelId: number = 0;
 
     @property({
         type: Enum({
@@ -108,7 +114,7 @@ export class GameManager extends Component {
             golem_boss: 26
         }),
         displayName: "测试怪物类型",
-        tooltip: "选择要生成的怪物类型"
+        tooltip: "手动测试模式下选择要生成的怪物类型"
     })
     public testEnemyType: number = 0;
 
@@ -132,7 +138,6 @@ export class GameManager extends Component {
     
     // 测试模式相关
     private currentTestEnemy: Node | null = null;
-    private aiTestEnemies: Node[] = []; // AI测试模式下的怪物列表
     private availableEnemyTypes: string[] = [
         'ent_normal', 'ent_elite', 'ent_boss',
         'lich_normal', 'lich_elite', 'lich_boss',
@@ -158,13 +163,19 @@ export class GameManager extends Component {
         }
         GameManager.instance = this;
         
-        // 检查节点是否在根节点下，只有在根节点下才能设置为常驻节点
+        // 确保GameManager节点在场景根目录下，以便设置为常驻节点
         if (this.node.parent === director.getScene()) {
-            director.addPersistRootNode(this.node); // 设置为常驻节点，切换场景时不销毁
-            console.log('GameManager: 节点已设置为常驻节点');
+            director.addPersistRootNode(this.node);
+            console.log('GameManager: 节点已成功设置为常驻节点。');
         } else {
-            console.warn('GameManager: 节点不在根节点下，无法设置为常驻节点');
-            console.log(`GameManager: 当前节点父级: ${this.node.parent?.name || 'null'}`);
+            console.warn('GameManager: 节点不在场景根目录下，无法设置为常驻节点。请将GameManager节点拖到层级管理器的根层级。');
+            // 备用方案：尝试将节点移动到根目录
+            if (this.node.parent) {
+                this.node.parent.removeChild(this.node);
+                director.getScene()?.addChild(this.node);
+                director.addPersistRootNode(this.node);
+                console.log('GameManager: 已尝试将节点移动到根并设置为常驻节点。');
+            }
         }
     }
     
@@ -173,7 +184,7 @@ export class GameManager extends Component {
         this.enforceModeMutex();
         
         // 打印详细的模式状态
-        console.log(`GameManager: 模式状态详情 - normalMode: ${this.normalMode}, manualTestMode: ${this.manualTestMode}, aiTestMode: ${this.aiTestMode}`);
+        console.log(`GameManager: 模式状态详情 - normalMode: ${this.normalMode}, manualTestMode: ${this.manualTestMode}`);
         
         // 加载所有player enemy level skill数据
         await this.initManagers();
@@ -252,6 +263,12 @@ export class GameManager extends Component {
 
         if (keyCode === KeyCode.KEY_C) {
             this.showCacheInfo();
+            return;
+        }
+
+        // 添加对象池调试按键
+        if (keyCode === KeyCode.KEY_P) {
+            this.debugPoolStatus();
             return;
         }
         
@@ -413,36 +430,31 @@ export class GameManager extends Component {
      * 切换测试模式（简化版，仅用于控制切换）
      */
     private toggleGameMode(): void {
-        // 在三种模式间循环切换
+        // 在两种模式间切换
         if (this.normalMode) {
-            this.setMode(false, true, false);  // 切换到手动测试
-        } else if (this.manualTestMode) {
-            this.setMode(false, false, true);  // 切换到AI测试
-        } else {
-            this.setMode(true, false, false);  // 切换到正常模式
+            this.setMode(false, true);  // 切换到手动测试
+        } else { // Was manualTestMode
+            this.setMode(true, false);  // 切换到正常模式
         }
 
         // 切换模式时停止当前移动
         this.currentMoveDirection.set(0, 0);
         this.isMoving = false;
 
-        const currentMode = this.normalMode ? '正常模式' : 
-                           this.manualTestMode ? '手动测试模式' : 'AI测试模式';
+        const currentMode = this.normalMode ? '正常模式' : '手动测试模式';
         console.log(`GameManager: 切换到 ${currentMode}`);
         
         // 清理之前的状态
         this.clearTestEnemy();
-        this.clearAITestEnemies();
         
         // 根据新模式设置场景
-        if (this.aiTestMode) {
-            this.scheduleOnce(() => {
-                this.createAITestScene();
-            }, 0.1);
-        } else if (this.testMode) {
+        if (this.manualTestMode) {
+            this.initTestMode(); // 切换到手动测试时，初始化
             console.log('GameManager: 控制切换到怪物。按T键切换回玩家控制。');
         } else {
             console.log('GameManager: 控制切换到玩家。按T键切换到怪物控制。');
+            // 切换回正常模式时，重新加载所选关卡
+            this.startSelectedLevel();
         }
     }
 
@@ -485,23 +497,23 @@ export class GameManager extends Component {
         // 初始化关卡管理器
         await levelManager.initialize();
 
+        // 设置物理碰撞组
+        if (PhysicsSystem2D.instance) {
+            setupPhysicsGroupCollisions();
+        }
+
         // 注册挂载的预制体到对象池
         this.registerMountedPrefabs();
 
-        // 启动默认关卡，加载敌人预制体到对象池
-        await this.startDefaultLevelForInit();
-
+        // 【关键修复】提前初始化目标选择器，确保在角色生成前可用
+        this.initializeTargetSelector();
+        
         // 初始化伤害文字池系统
         poolManager.initializeDamageTextPool();
         
-        // 初始化目标选择器
-        this.initializeTargetSelector();
-        
-        // 如果是AI测试模式，延迟创建测试场景（确保所有系统都已初始化）
-        if (this.aiTestMode) {
-            this.scheduleOnce(() => {
-                this.createAITestScene();
-            }, 1.0);
+        // 根据模式启动关卡或测试（在TargetSelector初始化后）
+        if (this.normalMode) {
+            await this.startSelectedLevel();
         }
         
         // 打印伤害文字池状态
@@ -525,11 +537,11 @@ export class GameManager extends Component {
         
         // 初始化测试模式
         console.log(`GameManager: 检查测试模式状态 - testMode: ${this.testMode}`);
-        if (this.testMode) {
+        if (this.manualTestMode) {
             console.log('GameManager: 开始初始化测试模式...');
             this.initTestMode();
         } else {
-            console.log('GameManager: 测试模式未启用');
+            console.log('GameManager: 正常模式，由关卡管理器控制');
         }
         
         console.log("GameManager initialized.");
@@ -555,7 +567,23 @@ export class GameManager extends Component {
         // director.loadScene('Game');
 
         // 可以在这里启动默认关卡
-        this.startDefaultLevel();
+        this.startSelectedLevel();
+    }
+
+    /**
+     * 启动选择的关卡
+     */
+    public async startSelectedLevel() {
+        try {
+            // 如果已有活动关卡，先结束
+            if (levelManager.isLevelActive()) {
+                await levelManager.endLevel();
+            }
+            console.log(`GameManager: Starting level ${this.selectedLevelId}...`);
+            await levelManager.startLevel(this.selectedLevelId);
+        } catch (error) {
+            console.error(`GameManager: Failed to start level ${this.selectedLevelId}`, error);
+        }
     }
 
     /**
@@ -564,9 +592,9 @@ export class GameManager extends Component {
     private registerMountedPrefabs(): void {
         console.log(`GameManager: 开始注册挂载的预制体到对象池...`);
         
-        if (this.manualTestMode || this.aiTestMode) {
-            // 测试模式：注册所有敌人类型到对象池
-            console.log(`GameManager: 当前为测试模式，注册所有敌人类型`);
+        if (this.manualTestMode) {
+            // 手动测试模式：注册所有敌人类型到对象池
+            console.log(`GameManager: 当前为手动测试模式，注册所有敌人类型`);
             this.registerAllEnemyTypesToPool();
         } else {
             // 正常模式：只注册基础预制体，敌人由levelManager按需加载
@@ -639,44 +667,55 @@ export class GameManager extends Component {
     }
 
     /**
-     * 正常模式：只注册基础预制体
+     * 正常模式：根据选择的关卡注册所需的敌人类型
      */
     private registerBasicPrefabs(): void {
-        console.log('🎮 正常模式：注册基础预制体...');
+        console.log('🎮 正常模式：根据关卡注册所需的敌人类型...');
         
         let successCount = 0;
         let totalCount = 0;
 
-        // 正常模式下，只注册最基础的敌人类型到对象池
-        // 其他敌人类型由levelManager按需动态加载
+        if (!this.entPrefab) {
+            console.warn('⚠️ GameManager: 未挂载通用敌人预制体');
+            return;
+        }
+
+        // 【关键修复】获取选择关卡需要的所有敌人类型
+        const requiredEnemyTypes = this.getRequiredEnemyTypesForLevel(this.selectedLevelId);
         
-        // 注册基础通用敌人预制体（仅 ent_normal）
-        if (this.entPrefab) {
+        if (requiredEnemyTypes.length === 0) {
+            console.warn(`🎮 GameManager: 关卡 ${this.selectedLevelId} 没有配置敌人，只注册基础类型`);
+            requiredEnemyTypes.push('ent_normal'); // 至少注册一个基础类型
+        }
+
+        console.log(`🎮 GameManager: 关卡 ${this.selectedLevelId} 需要敌人类型:`, requiredEnemyTypes);
+
+        // 为关卡需要的每个敌人类型注册对象池
+        for (const enemyType of requiredEnemyTypes) {
             totalCount++;
+            const config = this.getPoolConfigByEnemyType(enemyType);
             const success = resourceManager.registerMountedPrefabToPool(
-                'ent_normal',
+                enemyType,
                 this.entPrefab,
                 {
-                    poolName: 'ent_normal',
-                    maxSize: 30,
-                    preloadCount: 5
+                    poolName: enemyType,
+                    maxSize: config.maxSize,
+                    preloadCount: config.preloadCount
                 }
             );
             if (success) {
                 successCount++;
-                console.log('✅ GameManager: 基础通用敌人预制体注册成功');
+                console.log(`✅ GameManager: 敌人预制体注册到 ${enemyType} 池成功`);
             } else {
-                console.error('❌ GameManager: 基础通用敌人预制体注册失败');
+                console.error(`❌ GameManager: 敌人预制体注册到 ${enemyType} 池失败`);
             }
-        } else {
-            console.warn('⚠️ GameManager: 未挂载通用敌人预制体');
         }
 
         // 注册火球预制体
         this.registerFireballPrefab();
 
-        console.log(`🎮 正常模式基础预制体注册完成 - 成功: ${successCount}/${totalCount}`);
-        console.log('📌 其他敌人类型将由LevelManager按需动态加载');
+        console.log(`🎮 正常模式预制体注册完成 - 成功: ${successCount}/${totalCount}`);
+        console.log(`📌 已为关卡 ${this.selectedLevelId} 注册所有需要的敌人类型`);
     }
 
     /**
@@ -704,28 +743,58 @@ export class GameManager extends Component {
     }
 
     /**
-     * 启动默认关卡（用于初始化时加载敌人预制体到对象池）
+     * 获取指定关卡需要的敌人类型
+     * @param levelId 关卡ID
+     * @returns 敌人类型数组
      */
-    private async startDefaultLevelForInit() {
+    private getRequiredEnemyTypesForLevel(levelId: number): string[] {
+        const enemyTypes = new Set<string>();
+        
         try {
-            console.log('GameManager: 启动默认关卡进行初始化，加载敌人预制体到对象池...');
-            await levelManager.startLevel(1); // 启动第一个关卡，触发敌人预制体加载
-            console.log('GameManager: 默认关卡初始化完成，敌人预制体已加载到对象池');
+            // 从DataManager获取关卡数据
+            const levelData = dataManager.getLevelData(levelId);
+            if (!levelData) {
+                console.warn(`GameManager: 未找到关卡 ${levelId} 的数据`);
+                return [];
+            }
+
+            // 从新格式的monsterSpawners中提取
+            if (levelData.monsterSpawners) {
+                levelData.monsterSpawners.forEach(spawner => {
+                    spawner.enemies?.forEach(enemy => {
+                        enemyTypes.add(enemy.type);
+                    });
+                });
+            }
+            
+            // 从旧格式的enemies中提取（兼容性）
+            if (levelData.enemies) {
+                levelData.enemies.forEach(enemy => {
+                    enemyTypes.add(enemy.type);
+                });
+            }
+
+            return Array.from(enemyTypes);
         } catch (error) {
-            console.error('GameManager: 初始化时启动默认关卡失败', error);
-            console.warn('GameManager: 敌人预制体可能未完全加载到对象池，游戏可能需要动态创建敌人');
+            console.error(`GameManager: 获取关卡 ${levelId} 敌人类型失败`, error);
+            return [];
         }
     }
 
     /**
-     * 启动默认关卡（用于测试）
+     * 根据敌人类型获取对象池配置
+     * @param enemyType 敌人类型
+     * @returns 对象池配置
      */
-    private async startDefaultLevel() {
-        try {
-            console.log('GameManager: Starting default level...');
-            await levelManager.startLevel(1); // 启动第一个关卡
-        } catch (error) {
-            console.error('GameManager: Failed to start default level', error);
+    private getPoolConfigByEnemyType(enemyType: string): { maxSize: number; preloadCount: number } {
+        if (enemyType.includes('normal') || enemyType.startsWith('slime_')) {
+            return { maxSize: 30, preloadCount: 5 };
+        } else if (enemyType.includes('elite')) {
+            return { maxSize: 15, preloadCount: 3 };
+        } else if (enemyType.includes('boss')) {
+            return { maxSize: 5, preloadCount: 1 };
+        } else {
+            return { maxSize: 20, preloadCount: 3 };
         }
     }
 
@@ -783,24 +852,39 @@ export class GameManager extends Component {
      */
     private async testLevelSystem() {
         console.log('\n=== Level System Test ===');
+        // 这个函数现在只是重新加载当前选择的关卡
+        await this.startSelectedLevel();
+    }
 
-        try {
-            if (levelManager.isLevelActive()) {
-                console.log('Ending current level...');
-                await levelManager.endLevel();
-
-                // 等待一秒后启动新关卡
-                setTimeout(async () => {
-                    console.log('Starting level 1 again...');
-                    await levelManager.startLevel(1);
-                }, 1000);
+    /**
+     * 调试：打印对象池状态
+     */
+    public debugPoolStatus(): void {
+        console.log('\n=== 对象池状态调试 ===');
+        
+        // 获取当前关卡需要的敌人类型
+        const requiredEnemyTypes = this.getRequiredEnemyTypesForLevel(this.selectedLevelId);
+        console.log(`当前关卡 ${this.selectedLevelId} 需要的敌人类型:`, requiredEnemyTypes);
+        
+        // 检查每个敌人类型的对象池状态
+        for (const enemyType of requiredEnemyTypes) {
+            const poolStats = poolManager.getStats(enemyType) as any;
+            if (poolStats && poolStats.size >= 0) {
+                console.log(`✅ ${enemyType}: 池大小=${poolStats.size}/${poolStats.maxSize}, 获取=${poolStats.getCount}, 创建=${poolStats.createCount}`);
             } else {
-                console.log('Starting level 1...');
-                await levelManager.startLevel(1);
+                console.error(`❌ ${enemyType}: 对象池不存在或未初始化`);
             }
-        } catch (error) {
-            console.error('Level system test failed:', error);
         }
+        
+        // 检查火球对象池
+        const fireballStats = poolManager.getStats('fireball') as any;
+        if (fireballStats && fireballStats.size >= 0) {
+            console.log(`✅ fireball: 池大小=${fireballStats.size}/${fireballStats.maxSize}, 获取=${fireballStats.getCount}, 创建=${fireballStats.createCount}`);
+        } else {
+            console.error(`❌ fireball: 对象池不存在或未初始化`);
+        }
+        
+        console.log('=== 对象池状态调试完成 ===\n');
     }
 
     /**
@@ -1569,10 +1653,17 @@ export class GameManager extends Component {
     }
     
     /**
-     * 初始化目标选择器
+     * 初始化目标选择器（全局单例）
      */
     private initializeTargetSelector(): void {
-        // 首先查找Canvas节点
+        // 【修复】首先检查是否已有有效的单例实例
+        const existingInstance = TargetSelector.getInstance();
+        if (existingInstance && existingInstance.node && existingInstance.node.isValid) {
+            console.log(`GameManager: TargetSelector单例已存在，位于 ${existingInstance.node.parent?.name || 'unknown'} 下`);
+            return;
+        }
+
+        // 查找场景和Canvas节点
         const scene = director.getScene();
         if (!scene) {
             console.error('GameManager: 无法获取场景');
@@ -1590,218 +1681,33 @@ export class GameManager extends Component {
             console.warn('GameManager: 未找到Canvas节点，将TargetSelector放在场景根级别');
             canvasNode = scene;
         }
-        
-        // 检查Canvas下是否已经有TargetSelector
-        let targetSelectorNode = canvasNode.getChildByName('TargetSelector');
-        if (!targetSelectorNode) {
-            targetSelectorNode = new Node('TargetSelector');
-            targetSelectorNode.addComponent(TargetSelector);
-            canvasNode.addChild(targetSelectorNode);
-            console.log(`GameManager: 目标选择器已添加到 ${canvasNode.name} 下`);
-        } else {
-            console.log(`GameManager: 目标选择器已存在于 ${canvasNode.name} 下`);
-        }
-    }
-    
-    /**
-     * 创建AI测试场景
-     */
-    private createAITestScene(): void {
-        console.log('GameManager: 开始创建AI测试场景...');
-        
-        // 获取Canvas尺寸
-        const scene = director.getScene();
-        const canvasNode = scene?.getComponentInChildren('cc.Canvas')?.node;
-        const canvasSize = canvasNode?.getComponent(UITransform)?.contentSize;
 
-        const halfWidth = canvasSize ? canvasSize.width / 2 : 480; // 默认值
-        const halfHeight = canvasSize ? canvasSize.height / 2 : 320;
-
-        // 清除现有的测试怪物
-        this.clearAITestEnemies();
-        
-        // 创建左侧阵营怪物，位置在左侧1/4处
-        this.createAITestEnemiesForFaction(Faction.ENEMY_LEFT, -halfWidth * 0.5, halfHeight * 0.8, 3);
-        
-        // 创建右侧阵营怪物，位置在右侧1/4处
-        this.createAITestEnemiesForFaction(Faction.ENEMY_RIGHT, halfWidth * 0.5, halfHeight * 0.8, 3);
-        
-        console.log(`GameManager: AI测试场景创建完成，共生成${this.aiTestEnemies.length}个怪物`);
-        
-        // 【关键修复】强制刷新TargetSelector缓存，让它立即检测到新创建的怪物
-        this.scheduleOnce(() => {
-            console.log('🔄 AI怪物创建完成，强制刷新TargetSelector缓存...');
-            const selector = director.getScene()?.getComponentInChildren(TargetSelector);
-            if (selector) {
-                (selector as any).updateTargetCache?.();
-                console.log('✅ TargetSelector缓存已强制刷新');
-            } else {
-                console.warn('❌ 未找到TargetSelector，无法刷新缓存');
-            }
-        }, 0.5); // 等待0.5秒确保所有怪物都完全初始化
-        
-        console.log('🤖 AI测试模式：观察怪物自动寻敌和攻击行为');
-        console.log('💡 提示：按T键可在不同模式间切换');
-    }
-    
-    /**
-     * 为指定阵营创建测试怪物
-     */
-    private createAITestEnemiesForFaction(faction: Faction, centerX: number, spawnHeight: number, count: number): void {
-        const enemyTypes = ['ent_normal', 'orc_normal', 'lich_normal']; // 混合近战和远程
-        
-        for (let i = 0; i < count; i++) {
-            const enemyType = enemyTypes[i % enemyTypes.length];
-            const position = {
-                x: centerX + (Math.random() - 0.5) * 200,
-                y: (Math.random() - 0.5) * spawnHeight,
-                z: 0
-            };
-            
-            const enemy = this.createAITestEnemy(enemyType, position, faction);
-            if (enemy) {
-                this.aiTestEnemies.push(enemy);
-            }
-        }
-    }
-    
-    /**
-     * 创建单个AI测试怪物
-     */
-    private createAITestEnemy(enemyType: string, position: { x: number, y: number, z: number }, faction: Faction): Node | null {
-        try {
-            // 获取敌人数据
-            const enemyData = dataManager.getEnemyData(enemyType);
-            if (!enemyData) {
-                console.error(`GameManager: 未找到怪物类型 ${enemyType} 的配置数据`);
-                return null;
-            }
-
-            // 从对象池获取怪物实例
-            const enemy = poolManager.getEnemyInstance(enemyType, enemyData);
-            if (!enemy) {
-                console.error(`GameManager: 无法从对象池获取怪物 ${enemyType}`);
-                return null;
-            }
-
-            // 设置位置
-            enemy.setPosition(position.x, position.y, position.z);
-            enemy.active = true;
-
-            // 【关键修复】确保UniversalCharacterDemo使用正确的敌人类型
-            const universalDemo = enemy.getComponent('UniversalCharacterDemo');
-            if (universalDemo && (universalDemo as any).setEnemyType) {
-                (universalDemo as any).setEnemyType(enemyType);
-                console.log(`GameManager: 已为AI测试怪物设置敌人类型: ${enemyType}`);
-            }
-
-            // 【新方法】使用BaseCharacterDemo的集成AI功能
-            this.setupAIOnBaseCharacterDemo(enemy, enemyType, enemyData, faction);
-
-            // 【关键修复】查找Canvas并把怪物节点作为其子节点添加
-            const scene = director.getScene();
-            if (scene) {
-                const canvasComponent = scene.getComponentInChildren('cc.Canvas');
-                let parentNode: Node | null = canvasComponent ? canvasComponent.node : null;
-                
-                if (!parentNode) {
-                    parentNode = scene.getChildByName('Canvas');
+        // 【修复】清理可能存在的重复TargetSelector节点
+        const existingSelectors = canvasNode.children.filter(child => child.name === 'TargetSelector');
+        if (existingSelectors.length > 0) {
+            console.log(`GameManager: 清理 ${existingSelectors.length} 个重复的TargetSelector节点`);
+            existingSelectors.forEach(node => {
+                if (node.isValid) {
+                    node.destroy();
                 }
-                
-                if (parentNode) {
-                    parentNode.addChild(enemy);
-                } else {
-                    console.warn('GameManager: AI测试场景未找到Canvas，怪物将被添加到场景根节点');
-                    scene.addChild(enemy);
-                }
-            }
-
-            console.log(`GameManager: 创建AI测试怪物 ${enemyType} 成功，阵营: ${faction}, 位置: (${position.x}, ${position.y})`);
-            return enemy;
-
-        } catch (error) {
-            console.error(`GameManager: 创建AI测试怪物失败 - ${enemyType}`, error);
-            return null;
+            });
         }
-    }
-    
-    /**
-     * 在BaseCharacterDemo上设置AI功能
-     */
-    private setupAIOnBaseCharacterDemo(enemy: Node, enemyType: string, enemyData: any, faction: Faction): void {
-        try {
-            // 获取BaseCharacterDemo组件（应该在对象池创建时已经添加）
-            const characterDemo = enemy.getComponent('BaseCharacterDemo');
-            if (!characterDemo) {
-                console.warn(`GameManager: ${enemy.name} 没有BaseCharacterDemo组件，无法设置AI`);
-                return;
-            }
 
-            // 设置为AI模式
-            (characterDemo as any).controlMode = 1; // ControlMode.AI
-            (characterDemo as any).aiFaction = this.factionToString(faction);
-            (characterDemo as any).aiBehaviorType = enemyType.includes('lich') ? 'ranged' : 'melee';
-
-            // 创建AI配置
-            const aiConfig: AIConfig = {
-                detectionRange: enemyData.detectionRange || 1000,
-                attackRange: enemyData.attackRange || 80,
-                pursuitRange: enemyData.pursuitRange || 1200,
-                moveSpeed: (enemyData.moveSpeed || 1) * 100,
-                attackInterval: enemyData.attackInterval || 2,
-                behaviorType: enemyType.includes('lich') ? AIBehaviorType.RANGED : AIBehaviorType.MELEE,
-                faction: faction,
-                returnDistance: enemyData.returnDistance || 250,
-                patrolRadius: 100,
-                maxIdleTime: enemyData.idleWaitTime || 3
-            };
-
-            // 初始化AI
-            if ((characterDemo as any).initializeAI) {
-                (characterDemo as any).initializeAI(enemyData, aiConfig);
-                console.log(`GameManager: AI配置已设置到BaseCharacterDemo - ${enemyType}, 阵营: ${faction}`);
-            } else {
-                console.warn(`GameManager: BaseCharacterDemo组件不支持initializeAI方法`);
-            }
-        } catch (error) {
-            console.error(`GameManager: 设置BaseCharacterDemo AI失败 - ${enemyType}`, error);
-        }
-    }
-
-    /**
-     * 将Faction枚举转换为字符串
-     */
-    private factionToString(faction: Faction): string {
-        switch (faction) {
-            case Faction.ENEMY_LEFT: return 'enemy_left';
-            case Faction.ENEMY_RIGHT: return 'enemy_right';
-            case Faction.PLAYER: return 'player';
-            default: return 'enemy_left';
-        }
-    }
-    
-
-    
-    /**
-     * 清除AI测试怪物
-     */
-    private clearAITestEnemies(): void {
-        this.aiTestEnemies.forEach(enemy => {
-            if (enemy && enemy.isValid) {
-                enemy.destroy();
-            }
-        });
-        this.aiTestEnemies = [];
-        console.log('GameManager: AI测试怪物已清除');
+        // 创建新的TargetSelector节点
+        const targetSelectorNode = new Node('TargetSelector');
+        targetSelectorNode.addComponent(TargetSelector);
+        canvasNode.addChild(targetSelectorNode);
+        
+        console.log(`GameManager: ✅ 全局TargetSelector已创建并添加到 ${canvasNode.name} 下`);
+        console.log(`GameManager: 所有AI角色将共享此TargetSelector实例`);
     }
     
     /**
      * 设置模式（互斥）
      */
-    private setMode(normal: boolean, manual: boolean, aiTest: boolean): void {
+    private setMode(normal: boolean, manual: boolean): void {
         this.normalMode = normal;
         this.manualTestMode = manual;
-        this.aiTestMode = aiTest;
     }
     
     /**
@@ -1809,46 +1715,20 @@ export class GameManager extends Component {
      */
     private enforceModeMutex(): void {
         // 统计勾选的模式数量
-        const selectedCount = [this.normalMode, this.manualTestMode, this.aiTestMode].filter(Boolean).length;
-        
-        // 如果没有选择任何模式，默认选择正常模式
-        if (selectedCount === 0) {
-            this.setMode(true, false, false);
+        const isNormal = this.normalMode;
+        const isManual = this.manualTestMode;
+
+        if (isNormal && isManual) {
+            // 如果都勾选了，默认保留正常模式
+            this.setMode(true, false);
+            console.warn('GameManager: 正常模式和手动测试模式不能同时启用，已默认切换到正常模式。');
+        } else if (!isNormal && !isManual) {
+            // 如果都没选，默认开启正常模式
+            this.setMode(true, false);
             console.log('GameManager: 没有选择模式，默认启用正常模式');
         }
-        // 如果选择了多个模式，保留最后一个选择的
-        else if (selectedCount > 1) {
-            // 保留优先级：AI测试 > 手动测试 > 正常模式
-            if (this.aiTestMode) {
-                this.setMode(false, false, true);
-                console.log('GameManager: 检测到多选，保留AI测试模式');
-            } else if (this.manualTestMode) {
-                this.setMode(false, true, false);
-                console.log('GameManager: 检测到多选，保留手动测试模式');
-            } else {
-                this.setMode(true, false, false);
-                console.log('GameManager: 检测到多选，保留正常模式');
-            }
-        }
         
-        const currentMode = this.normalMode ? '正常模式' : 
-                           this.manualTestMode ? '手动测试模式' : 'AI测试模式';
+        const currentMode = this.normalMode ? '正常模式' : '手动测试模式';
         console.log(`GameManager: 当前模式 - ${currentMode}`);
-    }
-    
-
-    
-    /**
-     * 强制启用AI测试模式 - 便捷方法
-     */
-    public forceAITestMode(): void {
-        console.log('🚀 强制启用AI测试模式...');
-        this.setMode(false, false, true);
-        console.log(`模式已设置为: normalMode=${this.normalMode}, manualTestMode=${this.manualTestMode}, aiTestMode=${this.aiTestMode}`);
-        
-        // 立即创建AI测试场景
-        this.clearTestEnemy();
-        this.clearAITestEnemies();
-        this.createAITestScene();
     }
 }

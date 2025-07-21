@@ -487,62 +487,44 @@ export class DataManager {
 
         console.log(`DataManager: 关卡 ${levelId} 需要敌人类型:`, Array.from(enemyTypes));
 
-        // 检查并添加尚未在对象池中的预制体配置
-        let skippedCount = 0;
+        // 【关键修复】检查所有敌人类型是否都已在对象池中
+        let missingCount = 0;
+        let availableCount = 0;
+        
         enemyTypes.forEach(enemyType => {
             const enemyData = this._enemyDatabase[enemyType];
             if (enemyData) {
                 // 检查对象池中是否已有该敌人类型
                 const poolStats = poolManager.getStats(enemyType) as any;
                 if (poolStats && poolStats.size >= 0) {
-                    console.log(`✅ DataManager: 敌人 ${enemyType} 已在对象池中，跳过动态加载`);
-                    skippedCount++;
+                    console.log(`✅ DataManager: 敌人 ${enemyType} 已在对象池中可用`);
+                    availableCount++;
                 } else {
-                    // 添加敌人预制体配置
-                    const prefabPath = this.getEnemyPrefabPath(enemyData);
-                    
-                    const enemyConfig: PrefabConfig = {
-                        name: enemyType,
-                        resourcePath: prefabPath,
-                        loadStrategy: 'hybrid',  // 支持备用方案
-                        poolConfig: {
-                            poolName: enemyType,
-                            maxSize: this.getEnemyPoolSize(enemyData),
-                            preloadCount: this.getEnemyPreloadCount(enemyData)
-                        },
-                        priority: this.getEnemyPriority(enemyData)
-                    };
-                    configs.push(enemyConfig);
-                    console.log(`📥 DataManager: 需要动态加载敌人 ${enemyType}`);
+                    console.error(`❌ DataManager: 敌人 ${enemyType} 未在对象池中！这应该在GameManager启动时就注册好！`);
+                    missingCount++;
                 }
-                
-                // 检查并添加技能预制体配置
-                const skillConfigs = this.getEnemySkillPrefabConfigs(enemyData);
-                skillConfigs.forEach(skillConfig => {
-                    // 检查技能预制体是否已在对象池中
-                    const skillPoolStats = poolManager.getStats(skillConfig.poolConfig?.poolName || skillConfig.name) as any;
-                    if (skillPoolStats && skillPoolStats.size >= 0) {
-                        console.log(`✅ DataManager: 技能 ${skillConfig.name} 已在对象池中，跳过动态加载`);
-                        skippedCount++;
-                    } else {
-                        configs.push(skillConfig);
-                        console.log(`📥 DataManager: 需要动态加载技能 ${skillConfig.name}`);
-                    }
-                });
             } else {
                 console.error(`DataManager: 未找到敌人类型 ${enemyType} 的数据`);
+                missingCount++;
             }
         });
 
-        // 对预制体配置进行去重处理
-        const deduplicatedConfigs = this.deduplicatePrefabConfigs(configs);
-        console.log(`DataManager: 关卡 ${levelId} 预制体配置统计:`);
-        console.log(`  - 敌人类型: ${Array.from(enemyTypes).length} 个`);
-        console.log(`  - 已在对象池: ${skippedCount} 个`);
-        console.log(`  - 需要动态加载: ${configs.length} 个`);
-        console.log(`  - 去重后: ${deduplicatedConfigs.length} 个`);
+        // 统计检查结果
+        console.log(`DataManager: 关卡 ${levelId} 敌人类型检查结果:`);
+        console.log(`  - 总共需要: ${Array.from(enemyTypes).length} 个敌人类型`);
+        console.log(`  - 对象池可用: ${availableCount} 个`);
+        console.log(`  - 缺失/异常: ${missingCount} 个`);
         
-        return deduplicatedConfigs;
+        if (missingCount > 0) {
+            console.error(`❌ DataManager: 关卡 ${levelId} 有 ${missingCount} 个敌人类型未正确配置！`);
+            console.error(`❌ 这表明GameManager在启动时没有正确注册所有需要的敌人类型到对象池`);
+        } else {
+            console.log(`✅ DataManager: 关卡 ${levelId} 所有敌人类型都已正确配置在对象池中`);
+        }
+        
+        // 【核心修复】正常模式下不返回任何配置，因为所有敌人应该已经在GameManager中注册
+        // 返回空数组表示不需要动态加载
+        return [];
     }
 
     /**

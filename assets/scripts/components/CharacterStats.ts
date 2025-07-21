@@ -5,6 +5,7 @@ import { MonsterAnimationController } from '../animation/MonsterAnimationControl
 import { EnemyData } from '../configs/EnemyConfig';
 import { eventManager } from '../core/EventManager';
 import { GameEvents } from '../core/GameEvents';
+import { Faction, FactionUtils } from '../configs/FactionConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -22,6 +23,7 @@ export class CharacterStats extends Component {
     private _baseDefense: number = 5;
     private _moveSpeed: number = 1.0;
     private _expReward: number = 0;
+    private _faction: Faction = Faction.PLAYER;
     
     // 组件引用
     private _spriteComponent: Sprite | null = null;
@@ -91,6 +93,14 @@ export class CharacterStats extends Component {
         return this._enemyData;
     }
     
+    public get faction(): Faction {
+        return this._faction;
+    }
+    
+    public set faction(value: Faction) {
+        this._faction = value;
+    }
+    
     public get isInitialized(): boolean {
         return this._isInitialized;
     }
@@ -111,6 +121,8 @@ export class CharacterStats extends Component {
         this._baseDefense = enemyData.baseDefense;
         this._moveSpeed = enemyData.moveSpeed;
         this._expReward = enemyData.expReward;
+        
+        // 阵营将由外部系统动态设置，不再从敌人数据中读取
         
         console.log(`Character stats initialized: ${enemyData.name}`);
         

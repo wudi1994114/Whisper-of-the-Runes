@@ -114,6 +114,15 @@ export class LichAnimationDemo extends BaseCharacterDemo {
         if (fireballSkill) {
             this.fireballLauncher.launchCooldown = Math.min(this.enemyData.attackInterval, fireballSkill.cooldown);
         }
+
+        // 设置火球基础伤害（从怪物配置获取）
+        this.fireballLauncher.damage = this.enemyData.baseAttack;
+
+        // 设置发射者阵营信息（重要！）
+        const currentFaction = this.getFaction();
+        this.fireballLauncher.setFactionInfo(currentFaction, this.node);
+
+        console.log(`[LichAnimationDemo] 火球发射器配置完成: 冷却=${this.fireballLauncher.launchCooldown}s, 伤害=${this.fireballLauncher.damage}, 阵营=${currentFaction}`);
     }
 
     /**

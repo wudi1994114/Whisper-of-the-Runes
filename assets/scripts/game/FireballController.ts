@@ -1,10 +1,15 @@
 // assets/scripts/game/FireballController.ts
 
-import { _decorator, Component, Node, Sprite, Animation, AnimationClip, animation, SpriteFrame, SpriteAtlas, Vec3, Vec2, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, js, UITransform } from 'cc';
-import { eventManager } from '../core/EventManager';
-import { GameEvents } from '../core/GameEvents';
-import { poolManager } from '../core/PoolManager';
+import { _decorator, Component, Node, Sprite, Animation, Collider2D, RigidBody2D, Vec3, Vec2, AnimationClip, SpriteAtlas, JsonAsset, IPhysics2DContact, resources, Prefab, js, UITransform, Contact2DType, SpriteFrame, animation } from 'cc';
 import { dataManager } from '../core/DataManager';
+import { Faction } from '../configs/FactionConfig';
+import { GameEvents } from '../core/GameEvents';
+import { eventManager } from '../core/EventManager';
+import { CharacterStats } from '../components/CharacterStats';
+import { poolManager } from '../core/PoolManager';
+import { systemConfigManager } from '../core/SystemConfig';
+import { PhysicsGroup } from '../configs/PhysicsConfig';
+import { factionManager } from '../core/FactionManager';
 import { resourceManager } from '../core/ResourceManager';
 
 const { ccclass, property } = _decorator;
@@ -56,6 +61,10 @@ export class FireballController extends Component {
     private moveDirection: Vec3 = new Vec3(1, 0, 0);
     private currentLifeTime: number = 0;
     private isDestroying: boolean = false;
+    
+    // 阵营相关
+    private shooterFaction: Faction = Faction.PLAYER;  // 发射者阵营
+    private shooterNode: Node | null = null;            // 发射者节点
     
     // 动画剪辑缓存
     private spawnClip: AnimationClip | null = null;
@@ -285,11 +294,25 @@ export class FireballController extends Component {
     private onCollisionEnter(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null): void {
         if (this.isDestroying) return;
         
-        // 检查碰撞对象类型（可以根据需要添加标签过滤）
+        // 检查碰撞对象类型
         console.log(`FireballController: 检测到碰撞，对象: ${otherCollider.node.name}`);
         
-        // 【修复】直接对目标造成伤害，而不是发送事件
-        this.dealDamageToTarget(otherCollider.node, this.damage);
+        // 获取目标的阵营信息
+        const targetCharacterStats = otherCollider.node.getComponent('CharacterStats');
+        if (targetCharacterStats) {
+            const targetFaction = (targetCharacterStats as any).faction;
+            
+            // 检查阵营关系 - 只有敌对阵营才造成伤害
+            if (factionManager.doesAttack(this.shooterFaction, targetFaction)) {
+                console.log(`FireballController: ${this.shooterFaction} 阵营的火球攻击 ${targetFaction} 阵营的目标 ${otherCollider.node.name}`);
+                this.dealDamageToTarget(otherCollider.node, this.damage);
+            } else {
+                console.log(`FireballController: ${this.shooterFaction} 阵营的火球不会攻击 ${targetFaction} 阵营的目标 ${otherCollider.node.name}`);
+            }
+        } else {
+            // 如果没有CharacterStats组件，可能是墙壁等障碍物，直接爆炸
+            console.log(`FireballController: 撞击障碍物 ${otherCollider.node.name}`);
+        }
         
         // 触发爆炸
         this.explode();
@@ -539,16 +562,62 @@ export class FireballController extends Component {
      * 运行时设置火球属性
      * @param damage 伤害值
      * @param lifeTime 生命时间
+     * @param shooterFaction 发射者阵营
+     * @param shooterNode 发射者节点
      */
-    public setFireballParams(damage?: number, lifeTime?: number): void {
+    public setFireballParams(damage?: number, lifeTime?: number, shooterFaction?: Faction, shooterNode?: Node): void {
         if (damage !== undefined) {
             this.damage = damage;
         }
         if (lifeTime !== undefined) {
             this.lifeTime = lifeTime;
         }
+        if (shooterFaction !== undefined) {
+            this.shooterFaction = shooterFaction;
+            this.updateProjectilePhysicsGroup(); // 更新物理分组
+        }
+        if (shooterNode !== undefined) {
+            this.shooterNode = shooterNode;
+        }
         
-        console.log(`FireballController: 更新火球参数 - 伤害: ${this.damage}, 速度: ${this.moveSpeed}, 生命时间: ${this.lifeTime}`);
+        console.log(`Fireball params set: damage=${this.damage}, faction=${this.shooterFaction}`);
+    }
+
+    /**
+     * 根据发射者阵营更新投射物的物理分组
+     */
+    private updateProjectilePhysicsGroup(): void {
+        const collider = this.getComponent(Collider2D);
+        if (!collider) {
+            console.warn(`FireballController: 缺少Collider2D组件，无法设置物理分组`);
+            return;
+        }
+        
+        let group: number;
+        switch (this.shooterFaction) {
+            case Faction.PLAYER:
+                group = PhysicsGroup.PLAYER_PROJECTILE;
+                break;
+            case Faction.FACTION_RED:
+                group = PhysicsGroup.FACTION_RED_PROJECTILE;
+                break;
+            case Faction.FACTION_BLUE:
+                group = PhysicsGroup.FACTION_BLUE_PROJECTILE;
+                break;
+            case Faction.FACTION_GREEN:
+                group = PhysicsGroup.FACTION_GREEN_PROJECTILE;
+                break;
+            case Faction.FACTION_PURPLE:
+                group = PhysicsGroup.FACTION_PURPLE_PROJECTILE;
+                break;
+            default:
+                group = PhysicsGroup.DEFAULT;
+                break;
+        }
+
+        collider.group = group;
+        const groupName = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === group) || 'UNKNOWN';
+        console.log(`FireballController: 物理分组已更新为 ${groupName} (${group})`);
     }
 
     // =================== 对象池管理方法 ===================
@@ -577,6 +646,9 @@ export class FireballController extends Component {
         
         // 重新设置碰撞检测
         this.setupCollisionDetection();
+        
+        // 设置投射物物理分组
+        this.updateProjectilePhysicsGroup();
         
         // 激活节点
         this.node.active = true;

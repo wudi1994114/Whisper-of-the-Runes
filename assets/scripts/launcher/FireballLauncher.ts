@@ -9,6 +9,9 @@ import { FireballController } from '../game/FireballController';
 import { resourceManager } from '../core/ResourceManager';
 import { dataManager } from '../core/DataManager';
 import { AnimationDirection } from '../animation/AnimationConfig';
+import { Faction } from '../configs/FactionConfig';
+import { factionManager } from '../core/FactionManager';
+import { PhysicsUtils } from '../configs/PhysicsConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -71,6 +74,10 @@ export class FireballLauncher extends Component implements IProjectileController
     private moveDirection: Vec3 = new Vec3(1, 0, 0);
     private currentLifeTime: number = 0;
     private isDestroying: boolean = false;
+    
+    // 阵营相关
+    private shooterFaction: Faction = Faction.PLAYER;  // 发射者阵营
+    private shooterNode: Node | null = null;            // 发射者节点
     
     // 动画剪辑缓存
     private spawnClip: AnimationClip | null = null;
@@ -213,6 +220,9 @@ export class FireballLauncher extends Component implements IProjectileController
             poolFireball.lifeTime = this.lifeTime;
             poolFireball.frameRate = this.frameRate;
             poolFireball.launchAngle = this.launchAngle;
+            
+            // 设置阵营信息和物理分组
+            poolFireball.setFireballParams(undefined, undefined, this.shooterFaction, this.shooterNode || undefined);
             
             return poolFireball;
         }
@@ -445,8 +455,22 @@ export class FireballLauncher extends Component implements IProjectileController
         // 检查碰撞对象类型
         console.log(`FireballLauncher: 检测到碰撞，对象: ${otherCollider.node.name}`);
         
-        // 【修复】直接对目标造成伤害，而不是发送事件
-        this.dealDamageToTarget(otherCollider.node, this.damage);
+        // 获取目标的阵营信息
+        const targetCharacterStats = otherCollider.node.getComponent('CharacterStats');
+        if (targetCharacterStats) {
+            const targetFaction = (targetCharacterStats as any).faction;
+            
+            // 检查阵营关系 - 只有敌对阵营才造成伤害
+            if (factionManager.doesAttack(this.shooterFaction, targetFaction)) {
+                console.log(`FireballLauncher: ${this.shooterFaction} 阵营的火球攻击 ${targetFaction} 阵营的目标 ${otherCollider.node.name}`);
+                this.dealDamageToTarget(otherCollider.node, this.damage);
+            } else {
+                console.log(`FireballLauncher: ${this.shooterFaction} 阵营的火球不会攻击 ${targetFaction} 阵营的目标 ${otherCollider.node.name}`);
+            }
+        } else {
+            // 如果没有CharacterStats组件，可能是墙壁等障碍物，直接爆炸
+            console.log(`FireballLauncher: 撞击障碍物 ${otherCollider.node.name}`);
+        }
         
         // 触发爆炸
         this.explode();
@@ -674,6 +698,40 @@ export class FireballLauncher extends Component implements IProjectileController
         
         // 同时更新角度属性
         this.launchAngle = Math.atan2(direction.y, direction.x) * 180 / Math.PI;
+    }
+
+    /**
+     * 设置火球的阵营信息
+     * @param faction 发射者阵营
+     * @param shooterNode 发射者节点
+     */
+    public setFactionInfo(faction: Faction, shooterNode?: Node): void {
+        this.shooterFaction = faction;
+        if (shooterNode) {
+            this.shooterNode = shooterNode;
+        }
+        
+        // 如果这是火球控制器实例，设置物理分组
+        if (!this.isLauncher) {
+            this.updateProjectilePhysicsGroup();
+        }
+        
+        console.log(`FireballLauncher: 设置阵营为 ${faction}`);
+    }
+
+    /**
+     * 根据发射者阵营更新投射物的物理分组
+     */
+    private updateProjectilePhysicsGroup(): void {
+        if (!this.rigidBody) {
+            console.warn('FireballLauncher: 无法设置物理分组 - 未找到RigidBody2D组件');
+            return;
+        }
+
+        const physicsGroup = PhysicsUtils.getProjectilePhysicsGroup(this.shooterFaction);
+        this.rigidBody.group = physicsGroup;
+        
+        console.log(`FireballLauncher: 设置投射物物理分组 - 阵营: ${this.shooterFaction}, 分组: ${physicsGroup} (${PhysicsUtils.getGroupName(physicsGroup)})`);
     }
     
     protected onDestroy(): void {

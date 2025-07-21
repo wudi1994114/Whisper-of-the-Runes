@@ -1,7 +1,8 @@
 // assets/scripts/core/MonsterSpawner.ts
 
 import { _decorator, Component, Node, director, Vec3, instantiate, Prefab } from 'cc';
-import { Faction, AIConfig, AIBehaviorType } from './MonsterAI';
+import { AIConfig, AIBehaviorType } from './MonsterAI';
+import { Faction, FactionUtils } from '../configs/FactionConfig';
 import { dataManager } from './DataManager';
 import { poolManager } from './PoolManager';
 import { eventManager } from './EventManager';
@@ -18,6 +19,7 @@ interface SpawnerConfig {
     position: { x: number, y: number };
     spawnRadius: number;
     spawnType: string;
+    faction?: string;
     size?: { width: number, height: number };
     enemies: EnemySpawnConfig[];
 }
@@ -32,6 +34,7 @@ interface EnemySpawnConfig {
     maxAlive: number;
     spawnDelay: number;
     respawnOnDeath: boolean;
+    faction?: string; // 支持每个敌人指定独立的阵营
 }
 
 /**
@@ -57,7 +60,7 @@ export class MonsterSpawner extends Component {
     private isInitialized: boolean = false;
     
     // AI配置
-    private spawnerFaction: Faction = Faction.ENEMY_LEFT;
+    private spawnerFaction: Faction = Faction.FACTION_RED;
     
     protected onLoad(): void {
         // 监听怪物死亡事件
@@ -89,8 +92,13 @@ export class MonsterSpawner extends Component {
         this.spawnerConfig = config;
         this.node.setPosition(config.position.x, config.position.y);
         
-        // 根据位置确定阵营
-        this.spawnerFaction = config.position.x < 0 ? Faction.ENEMY_LEFT : Faction.ENEMY_RIGHT;
+        // 从配置中读取阵营信息
+        if (config.faction) {
+            this.spawnerFaction = FactionUtils.stringToFaction(config.faction);
+        } else {
+            // 回退到默认阵营
+            this.spawnerFaction = Faction.FACTION_RED;
+        }
         
         // 初始化存活怪物映射
         config.enemies.forEach(enemyConfig => {
@@ -165,13 +173,14 @@ export class MonsterSpawner extends Component {
         
         for (let i = 0; i < needSpawn; i++) {
             const spawnPos = this.getSpawnPosition();
-            const monster = this.createMonster(enemyConfig.type, spawnPos);
+            const monster = this.createMonster(enemyConfig.type, spawnPos, enemyConfig);
             if (monster) {
                 this.registerMonster(enemyConfig.type, monster);
             }
         }
         
-        console.log(`MonsterSpawner: Spawned ${needSpawn} ${enemyConfig.type} monsters`);
+        const factionInfo = enemyConfig.faction ? ` (阵营: ${enemyConfig.faction})` : '';
+        console.log(`MonsterSpawner: Spawned ${needSpawn} ${enemyConfig.type} monsters${factionInfo}`);
     }
     
     /**
@@ -222,7 +231,7 @@ export class MonsterSpawner extends Component {
     /**
      * 创建怪物 - 使用对象池和统一初始化
      */
-    private createMonster(enemyType: string, position: Vec3): Node | null {
+    private createMonster(enemyType: string, position: Vec3, enemyConfig?: EnemySpawnConfig): Node | null {
         try {
             // 1. 获取敌人配置数据
             const enemyData = dataManager.getEnemyData(enemyType);
@@ -241,13 +250,10 @@ export class MonsterSpawner extends Component {
                 monster.active = true;
                 
                 // 添加AI组件
-                this.addAIController(monster, enemyType, enemyData);
+                this.addAIController(monster, enemyType, enemyData, enemyConfig);
                 
-                // 添加到场景
-                const scene = director.getScene();
-                if (scene) {
-                    scene.addChild(monster);
-                }
+                // 添加到Canvas下
+                this.addMonsterToCanvas(monster);
                 
                 console.log(`MonsterSpawner: 从对象池创建怪物 ${enemyType} 成功`);
                 return monster;
@@ -268,13 +274,10 @@ export class MonsterSpawner extends Component {
             this.initializeMonsterComponents(monster, enemyType, enemyData);
             
             // 添加AI组件
-            this.addAIController(monster, enemyType, enemyData);
+            this.addAIController(monster, enemyType, enemyData, enemyConfig);
             
-            // 添加到场景
-            const scene = director.getScene();
-            if (scene) {
-                scene.addChild(monster);
-            }
+            // 添加到Canvas下
+            this.addMonsterToCanvas(monster);
             
             console.log(`MonsterSpawner: 使用传统方式创建怪物 ${enemyType} 成功`);
             return monster;
@@ -282,6 +285,26 @@ export class MonsterSpawner extends Component {
         } catch (error) {
             console.error('MonsterSpawner: Failed to create monster', error);
             return null;
+        }
+    }
+
+    /**
+     * 将怪物节点添加到Canvas下
+     * @param monsterNode 怪物节点
+     */
+    private addMonsterToCanvas(monsterNode: Node): void {
+        const scene = director.getScene();
+        if (!scene) {
+            console.error('MonsterSpawner: 无法获取当前场景。');
+            return;
+        }
+
+        const canvas = scene.getComponentInChildren('cc.Canvas');
+        if (canvas && canvas.node) {
+            canvas.node.addChild(monsterNode);
+        } else {
+            console.warn('MonsterSpawner: 未在场景中找到Canvas节点，怪物将被添加到根节点。');
+            scene.addChild(monsterNode);
         }
     }
 
@@ -336,7 +359,7 @@ export class MonsterSpawner extends Component {
     /**
      * 为怪物设置AI控制
      */
-    private addAIController(monster: Node, enemyType: string, enemyData: any): void {
+    private addAIController(monster: Node, enemyType: string, enemyData: any, enemyConfig?: EnemySpawnConfig): void {
         try {
             // 获取BaseCharacterDemo组件
             const characterDemo = monster.getComponent('BaseCharacterDemo');
@@ -349,12 +372,32 @@ export class MonsterSpawner extends Component {
             // 检查当前是否为正常模式（正常模式下通过关卡生成的怪物需要设置AI）
             const gameManager = GameManager?.instance;
             if (gameManager && gameManager.normalMode) {
-                // 正常模式：设置为AI模式
+                // 【新增功能】支持每个敌人独立的阵营设置
+                let targetFaction = this.spawnerFaction;
+                if (enemyConfig && enemyConfig.faction) {
+                    targetFaction = FactionUtils.stringToFaction(enemyConfig.faction);
+                    console.log(`MonsterSpawner: 使用敌人独立阵营: ${enemyConfig.faction} -> ${targetFaction}`);
+                } else {
+                    console.log(`MonsterSpawner: 使用生成器默认阵营: ${targetFaction}`);
+                }
+                
+                console.log(`MonsterSpawner: 开始设置 ${enemyType} 的阵营和AI - 目标阵营: ${targetFaction}`);
+                
+                // 【关键修复1】先设置阵营，再配置AI
+                // 1. 设置阵营信息到角色组件（这会同时更新物理分组）
+                if ((characterDemo as any).setFaction) {
+                    (characterDemo as any).setFaction(targetFaction);
+                    console.log(`MonsterSpawner: ✅ 阵营已设置: ${targetFaction}`);
+                } else {
+                    console.warn(`MonsterSpawner: ❌ setFaction方法不存在`);
+                }
+
+                // 2. 设置AI模式和基础配置
                 (characterDemo as any).controlMode = 1; // ControlMode.AI
-                (characterDemo as any).aiFaction = this.factionToString(this.spawnerFaction);
+                (characterDemo as any).aiFaction = this.factionToString(targetFaction);
                 (characterDemo as any).aiBehaviorType = this.determineAIBehaviorType(enemyType) === AIBehaviorType.RANGED ? 'ranged' : 'melee';
 
-                // 创建AI配置
+                // 3. 创建AI配置
                 const aiConfig: AIConfig = {
                     detectionRange: enemyData.detectionRange || 200,
                     attackRange: enemyData.attackRange || 60,
@@ -362,18 +405,18 @@ export class MonsterSpawner extends Component {
                     moveSpeed: enemyData.moveSpeed * 100 || 100, // 转换为像素/秒
                     attackInterval: enemyData.attackInterval || 2,
                     behaviorType: this.determineAIBehaviorType(enemyType),
-                    faction: this.spawnerFaction,
+                    faction: targetFaction,
                     returnDistance: enemyData.returnDistance || 200,
                     patrolRadius: 50,
                     maxIdleTime: enemyData.idleWaitTime || 2
                 };
 
-                // 初始化AI
+                // 4. 初始化AI
                 if ((characterDemo as any).initializeAI) {
                     (characterDemo as any).initializeAI(enemyData, aiConfig);
-                    console.log(`MonsterSpawner: [正常模式] AI配置已设置到BaseCharacterDemo - ${enemyType}, 阵营: ${this.spawnerFaction}`);
+                    console.log(`MonsterSpawner: ✅ AI配置完成 - ${enemyType}, 阵营: ${targetFaction}`);
                 } else {
-                    console.warn(`MonsterSpawner: BaseCharacterDemo组件不支持initializeAI方法`);
+                    console.warn(`MonsterSpawner: ❌ initializeAI方法不存在`);
                 }
             } else {
                 console.log(`MonsterSpawner: 跳过AI设置 - 当前不是正常模式，让其他逻辑处理控制模式`);
@@ -400,12 +443,8 @@ export class MonsterSpawner extends Component {
      * 将Faction枚举转换为字符串
      */
     private factionToString(faction: Faction): string {
-        switch (faction) {
-            case Faction.ENEMY_LEFT: return 'enemy_left';
-            case Faction.ENEMY_RIGHT: return 'enemy_right';
-            case Faction.PLAYER: return 'player';
-            default: return 'enemy_left';
-        }
+        // 使用FactionUtils来转换
+        return FactionUtils.factionToString(faction);
     }
     
     /**

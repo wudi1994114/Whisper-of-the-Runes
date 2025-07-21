@@ -1,11 +1,14 @@
 // assets/scripts/core/LevelManager.ts
 
-import { _decorator, Component } from 'cc';
+import { _decorator, Component, Node, director } from 'cc';
 import { dataManager } from './DataManager';
 import { animationManager } from '../animation/AnimationManager';
 import { eventManager } from './EventManager';
 import { GameEvents } from './GameEvents';
 import { resourceManager } from './ResourceManager';
+import { FactionRelationships } from '../configs/FactionConfig';
+import { factionManager } from './FactionManager';
+import { MonsterSpawner } from './MonsterSpawner';
 
 const { ccclass } = _decorator;
 
@@ -18,6 +21,7 @@ export interface LevelData {
     backgroundImage: string;
     mapSize?: { width: number; height: number };
     playerSpawn?: { x: number; y: number };
+    factionRelationships?: FactionRelationships;
     monsterSpawners?: MonsterSpawnerData[];
     enemies?: LegacyEnemyData[];
     objectives?: any[];
@@ -33,6 +37,7 @@ export interface MonsterSpawnerData {
     position: { x: number; y: number };
     spawnRadius: number;
     spawnType: string;
+    faction?: string;
     enemies: {
         type: string;
         count: number;
@@ -50,6 +55,7 @@ export interface LegacyEnemyData {
     type: string;
     spawnCount: number;
     spawnInterval: number;
+    faction?: string;
 }
 
 /**
@@ -71,6 +77,9 @@ export class LevelManager {
     private _isLevelLoaded: boolean = false;
     private _isLevelActive: boolean = false;
     
+    // 怪物生成器实例列表
+    private _activeSpawners: Node[] = [];
+
     public static get instance(): LevelManager {
         if (!this._instance) {
             this._instance = new LevelManager();
@@ -111,11 +120,17 @@ export class LevelManager {
             this._currentLevelId = levelId;
             this._isLevelActive = true;
 
+            // 设置阵营关系
+            this.setupFactionRelationships(levelData);
+
             // 加载关卡所需的敌人预制体
             await this.loadLevelEnemyPrefabs(levelData);
 
             // 预加载关卡所需的动画资源
             await this.preloadLevelAnimations(levelData);
+
+            // 创建怪物生成器
+            this.createMonsterSpawners(levelData);
 
             // 发送关卡开始事件
             eventManager.emit(GameEvents.LEVEL_STARTED, levelData);
@@ -144,6 +159,9 @@ export class LevelManager {
         console.log(`LevelManager: Ending level ${levelId}`);
 
         try {
+            // 清理怪物生成器
+            this.cleanupMonsterSpawners();
+
             // 清理关卡动画缓存
             await this.cleanupLevelAnimations();
 
@@ -161,6 +179,63 @@ export class LevelManager {
             console.error(`LevelManager: Failed to end level ${levelId}`, error);
             throw error;
         }
+    }
+
+    /**
+     * 创建怪物生成器
+     * @param levelData 关卡数据
+     */
+    private createMonsterSpawners(levelData: LevelData): void {
+        if (!levelData.monsterSpawners || levelData.monsterSpawners.length === 0) {
+            console.log(`LevelManager: 关卡 ${levelData.id} 没有配置怪物生成器。`);
+            return;
+        }
+
+        const scene = director.getScene();
+        if (!scene) {
+            console.error('LevelManager: 无法获取当前场景，无法创建怪物生成器。');
+            return;
+        }
+        
+        console.log(`LevelManager: 为关卡 ${levelData.id} 创建 ${levelData.monsterSpawners.length} 个怪物生成器...`);
+
+        levelData.monsterSpawners.forEach(spawnerData => {
+            try {
+                const spawnerNode = new Node(spawnerData.id || 'MonsterSpawner');
+                const monsterSpawner = spawnerNode.addComponent(MonsterSpawner);
+                
+                // 初始化生成器
+                monsterSpawner.initWithConfig(spawnerData as any);
+                
+                // 将生成器节点添加到场景中
+                scene.addChild(spawnerNode);
+                this._activeSpawners.push(spawnerNode);
+                
+                console.log(`✅ LevelManager: 怪物生成器 ${spawnerNode.name} 创建成功。`);
+
+            } catch (error) {
+                console.error(`LevelManager: 创建怪物生成器失败 (ID: ${spawnerData.id})`, error);
+            }
+        });
+    }
+
+    /**
+     * 清理所有活动的怪物生成器
+     */
+    private cleanupMonsterSpawners(): void {
+        console.log(`LevelManager: 清理 ${this._activeSpawners.length} 个怪物生成器...`);
+        this._activeSpawners.forEach(spawnerNode => {
+            if (spawnerNode && spawnerNode.isValid) {
+                // 在销毁节点前，可以调用生成器内部的清理方法（如果需要）
+                const spawnerComponent = spawnerNode.getComponent(MonsterSpawner);
+                if (spawnerComponent) {
+                    spawnerComponent.clearAllMonsters();
+                }
+                spawnerNode.destroy();
+            }
+        });
+        this._activeSpawners = [];
+        console.log('LevelManager: 所有怪物生成器已清理。');
     }
 
     /**
@@ -303,6 +378,21 @@ export class LevelManager {
      */
     public isLevelActive(): boolean {
         return this._isLevelActive;
+    }
+
+    /**
+     * 设置关卡的阵营关系
+     * @param levelData 关卡数据
+     */
+    private setupFactionRelationships(levelData: LevelData): void {
+        if (levelData.factionRelationships) {
+            console.log(`LevelManager: 设置关卡 ${levelData.id} 的阵营关系配置`);
+            factionManager.setFactionRelationships(levelData.factionRelationships);
+            factionManager.printDebugInfo();
+        } else {
+            console.log(`LevelManager: 关卡 ${levelData.id} 没有阵营关系配置，使用默认配置`);
+            factionManager.resetToDefaultRelationships();
+        }
     }
 
     /**

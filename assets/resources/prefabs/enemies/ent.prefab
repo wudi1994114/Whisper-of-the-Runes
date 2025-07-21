@@ -31,10 +31,16 @@
       },
       {
         "__id__": 8
+      },
+      {
+        "__id__": 10
+      },
+      {
+        "__id__": 12
       }
     ],
     "_prefab": {
-      "__id__": 10
+      "__id__": 14
     },
     "_lpos": {
       "__type__": "cc.Vec3",
@@ -157,7 +163,7 @@
     "fileId": "4b55UNY8RIQKWAKbqe7ZmE"
   },
   {
-    "__type__": "bd5b9+AKp5OSotcbX6Pmgsc",
+    "__type__": "3a04dfCnCFCjIYI9HEcJJcg",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -168,16 +174,85 @@
     "__prefab": {
       "__id__": 9
     },
-    "moveSpeed": 10,
+    "moveSpeed": 200,
     "characterId": "",
     "enablePooling": false,
-    "enemyTypeId": "ent_normal",
-    "displayNameSuffix": "",
+    "controlMode": 0,
+                "aiFaction": "red",
+    "aiBehaviorType": "melee",
     "_id": ""
   },
   {
     "__type__": "cc.CompPrefabInfo",
-    "fileId": "d3/4622uxMtrTthPtwfxtu"
+    "fileId": "d7yAy5+olEKp7ZOXVDTeiq"
+  },
+  {
+    "__type__": "cc.RigidBody2D",
+    "_name": "",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "node": {
+      "__id__": 1
+    },
+    "_enabled": true,
+    "__prefab": {
+      "__id__": 11
+    },
+    "enabledContactListener": false,
+    "bullet": false,
+    "awakeOnLoad": true,
+    "_group": 1,
+    "_type": 2,
+    "_allowSleep": true,
+    "_gravityScale": 0,
+    "_linearDamping": 0,
+    "_angularDamping": 0,
+    "_linearVelocity": {
+      "__type__": "cc.Vec2",
+      "x": 0,
+      "y": 0
+    },
+    "_angularVelocity": 0,
+    "_fixedRotation": false,
+    "_id": ""
+  },
+  {
+    "__type__": "cc.CompPrefabInfo",
+    "fileId": "26j7DfgoFJfKNdTSDoH/9F"
+  },
+  {
+    "__type__": "cc.BoxCollider2D",
+    "_name": "",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "node": {
+      "__id__": 1
+    },
+    "_enabled": true,
+    "__prefab": {
+      "__id__": 13
+    },
+    "tag": 0,
+    "_group": 1,
+    "_density": 1,
+    "_sensor": false,
+    "_friction": 0.2,
+    "_restitution": 0,
+    "_offset": {
+      "__type__": "cc.Vec2",
+      "x": 0,
+      "y": 0
+    },
+    "_size": {
+      "__type__": "cc.Size",
+      "width": 128,
+      "height": 128
+    },
+    "_id": ""
+  },
+  {
+    "__type__": "cc.CompPrefabInfo",
+    "fileId": "8bpk8AaltKVJbbJ1OIZAig"
   },
   {
     "__type__": "cc.PrefabInfo",
