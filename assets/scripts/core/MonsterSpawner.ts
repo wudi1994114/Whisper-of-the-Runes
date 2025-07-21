@@ -1,13 +1,14 @@
 // assets/scripts/core/MonsterSpawner.ts
 
 import { _decorator, Component, Node, director, Vec3, instantiate, Prefab } from 'cc';
-import { AIConfig, AIBehaviorType } from './MonsterAI';
+import { AIBehaviorType } from './MonsterAI';
 import { Faction, FactionUtils } from '../configs/FactionConfig';
 import { dataManager } from './DataManager';
 import { poolManager } from './PoolManager';
 import { eventManager } from './EventManager';
 import { GameEvents } from './GameEvents';
 import { GameManager } from './GameManager';
+import { BaseCharacterDemo, ControlMode } from '../animation/BaseCharacterDemo';
 
 const { ccclass, property } = _decorator;
 
@@ -20,6 +21,7 @@ interface SpawnerConfig {
     spawnRadius: number;
     spawnType: string;
     size?: { width: number, height: number };
+    randomOffset?: { x: number, y: number }; // 随机偏移范围
     enemies: EnemySpawnConfig[];
 }
 
@@ -214,6 +216,14 @@ export class MonsterSpawner extends Component {
                 break;
         }
         
+        // 应用随机偏移
+        if (config.randomOffset) {
+            const randomOffsetX = (Math.random() - 0.5) * 2 * config.randomOffset.x;
+            const randomOffsetY = (Math.random() - 0.5) * 2 * config.randomOffset.y;
+            x += randomOffsetX;
+            y += randomOffsetY;
+        }
+        
         return new Vec3(
             this.node.position.x + x,
             this.node.position.y + y,
@@ -222,10 +232,11 @@ export class MonsterSpawner extends Component {
     }
     
     /**
-     * 创建怪物 - 使用对象池和统一初始化
+     * 创建怪物 - 使用新的角色对象池系统
      */
     private createMonster(enemyType: string, position: Vec3, enemyConfig?: EnemySpawnConfig): Node | null {
         try {
+            console.log(`MonsterSpawner: 创建怪物 ${enemyType} 位置: ${position.x}, ${position.y}`);
             // 1. 获取敌人配置数据
             const enemyData = dataManager.getEnemyData(enemyType);
             if (!enemyData) {
@@ -233,37 +244,65 @@ export class MonsterSpawner extends Component {
                 return null;
             }
 
-            // 2. 尝试从对象池获取敌人实例（使用统一初始化）
+            // 2. 使用新的对象池工厂创建AI敌人
+            const monster = BaseCharacterDemo.createAIEnemy(enemyType, {
+                position: position,
+                faction: enemyConfig?.faction || 'red',
+                behaviorType: 'melee' // 可以根据敌人类型或配置动态设置
+            });
+
+            if (!monster) {
+                console.error(`MonsterSpawner: 无法从对象池创建怪物 ${enemyType}`);
+                // 回退到传统方式
+                return this.createMonsterTraditional(enemyType, position, enemyConfig);
+            }
+
+            // 3. 【强化】确保敌人类型已设置（新对象池创建后的双重保险）
+            this.ensureEnemyTypeSet(monster.node, enemyType);
+            
+            // 4. 添加到Canvas下
+            this.addMonsterToCanvas(monster.node);
+            
+            console.log(`MonsterSpawner: ✅ 使用新对象池创建怪物 ${enemyType} 成功`);
+            return monster.node;
+            
+        } catch (error) {
+            console.error('MonsterSpawner: Failed to create monster with new pool system', error);
+            // 回退到传统方式
+            return this.createMonsterTraditional(enemyType, position, enemyConfig);
+        }
+    }
+
+    /**
+     * 传统方式创建怪物（回退方案）
+     */
+    private createMonsterTraditional(enemyType: string, position: Vec3, enemyConfig?: EnemySpawnConfig): Node | null {
+        try {
+            console.warn(`MonsterSpawner: 使用传统方式创建怪物 ${enemyType}`);
+            
+            const enemyData = dataManager.getEnemyData(enemyType);
+            if (!enemyData) {
+                console.error(`MonsterSpawner: 未找到敌人类型 ${enemyType} 的配置数据`);
+                return null;
+            }
+
+            // 尝试从旧的对象池获取
             let monster = poolManager.getEnemyInstance(enemyType, enemyData);
             if (monster) {
-                // 从对象池成功获取
                 monster.setPosition(position);
-                
-                // 激活节点
                 monster.active = true;
                 
-                // 【关键修复】设置敌人类型到UniversalCharacterDemo
-                const universalDemo = monster.getComponent('UniversalCharacterDemo');
-                if (universalDemo && (universalDemo as any).setEnemyType) {
-                    (universalDemo as any).setEnemyType(enemyType);
-                    console.log(`MonsterSpawner: ✅ 已设置敌人类型: ${enemyType}`);
-                } else {
-                    console.warn(`MonsterSpawner: ⚠️ 未找到UniversalCharacterDemo组件或setEnemyType方法`);
-                }
+                // 【强化】确保敌人类型已设置（getEnemyInstance已经设置了，但双重保险）
+                this.ensureEnemyTypeSet(monster, enemyType);
                 
-                // 添加AI组件
                 this.addAIController(monster, enemyType, enemyData, enemyConfig);
-                
-                // 添加到Canvas下
                 this.addMonsterToCanvas(monster);
                 
-                console.log(`MonsterSpawner: 从对象池创建怪物 ${enemyType} 成功`);
+                console.log(`MonsterSpawner: 传统对象池创建 ${enemyType} 成功`);
                 return monster;
             }
 
-            // 3. 对象池不可用，回退到传统实例化方式
-            console.warn(`MonsterSpawner: 对象池 ${enemyType} 不可用，使用传统实例化`);
-            
+            // 最后的回退：实例化预制体
             if (!this.monsterPrefab) {
                 console.error('MonsterSpawner: Monster prefab not set');
                 return null;
@@ -272,30 +311,53 @@ export class MonsterSpawner extends Component {
             monster = instantiate(this.monsterPrefab);
             monster.setPosition(position);
             
-            // 手动初始化组件
+            // 【强化】在初始化组件之前先设置敌人类型
+            this.ensureEnemyTypeSet(monster, enemyType);
+            
+            // 然后进行组件初始化
             this.initializeMonsterComponents(monster, enemyType, enemyData);
             
-            // 【关键修复】设置敌人类型到UniversalCharacterDemo（传统实例化方式）
-            const universalDemo = monster.getComponent('UniversalCharacterDemo');
-            if (universalDemo && (universalDemo as any).setEnemyType) {
-                (universalDemo as any).setEnemyType(enemyType);
-                console.log(`MonsterSpawner: ✅ 已设置敌人类型（传统方式）: ${enemyType}`);
-            } else {
-                console.warn(`MonsterSpawner: ⚠️ 未找到UniversalCharacterDemo组件或setEnemyType方法（传统方式）`);
-            }
-            
-            // 添加AI组件
             this.addAIController(monster, enemyType, enemyData, enemyConfig);
-            
-            // 添加到Canvas下
             this.addMonsterToCanvas(monster);
             
-            console.log(`MonsterSpawner: 使用传统方式创建怪物 ${enemyType} 成功`);
+            console.log(`MonsterSpawner: 预制体实例化创建 ${enemyType} 成功`);
             return monster;
             
         } catch (error) {
-            console.error('MonsterSpawner: Failed to create monster', error);
+            console.error('MonsterSpawner: Traditional creation failed', error);
             return null;
+        }
+    }
+
+    /**
+     * 【新增】确保敌人类型已正确设置的统一方法
+     * @param monsterNode 怪物节点
+     * @param enemyType 敌人类型
+     */
+    private ensureEnemyTypeSet(monsterNode: Node, enemyType: string): void {
+        try {
+            // 1. 设置BaseCharacterDemo的explicitEnemyType
+            const baseDemo = monsterNode.getComponent('BaseCharacterDemo');
+            if (baseDemo && (baseDemo as any).setEnemyType) {
+                (baseDemo as any).setEnemyType(enemyType);
+                console.log(`MonsterSpawner: ✅ 确认敌人类型已设置: ${enemyType}`);
+            } else {
+                console.warn(`MonsterSpawner: ⚠️ 未找到BaseCharacterDemo组件或setEnemyType方法`);
+            }
+
+            // 2. 设置BaseCharacterDemo的相关属性（如果需要）
+            if (baseDemo) {
+                // 可以在这里设置其他相关属性
+                console.log(`MonsterSpawner: BaseCharacterDemo组件已找到，敌人类型: ${enemyType}`);
+            }
+
+            // 3. 设置节点名称（便于调试）
+            if (!monsterNode.name.includes(enemyType)) {
+                monsterNode.name = `Monster_${enemyType}_${Date.now()}`;
+            }
+            
+        } catch (error) {
+            console.error(`MonsterSpawner: 设置敌人类型失败 - ${enemyType}`, error);
         }
     }
 
@@ -324,6 +386,9 @@ export class MonsterSpawner extends Component {
      */
     private initializeMonsterComponents(monster: Node, enemyType: string, enemyData: any): void {
         try {
+            // 【强化】确保敌人类型在组件初始化开始时已设置
+            this.ensureEnemyTypeSet(monster, enemyType);
+            
             // 设置怪物类型
             const enemyComponent = monster.getComponent('NormalEnemy');
             if (enemyComponent) {
@@ -368,14 +433,23 @@ export class MonsterSpawner extends Component {
     }
     
     /**
-     * 为怪物设置AI控制
+     * 为怪物设置AI控制（传统方式创建的怪物用）
      */
     private addAIController(monster: Node, enemyType: string, enemyData: any, enemyConfig?: EnemySpawnConfig): void {
         try {
+            // 【强化】在AI设置开始前确保敌人类型已设置
+            this.ensureEnemyTypeSet(monster, enemyType);
+            
             // 获取BaseCharacterDemo组件
             const characterDemo = monster.getComponent('BaseCharacterDemo');
             if (!characterDemo) {
                 console.warn(`MonsterSpawner: ${monster.name} 没有BaseCharacterDemo组件，无法设置AI`);
+                return;
+            }
+
+            // 检查是否已经通过新对象池系统设置了AI（避免重复设置）
+            if ((characterDemo as any).controlMode === ControlMode.AI) {
+                console.log(`MonsterSpawner: ${monster.name} 已通过新对象池系统设置AI，跳过重复设置`);
                 return;
             }
 
@@ -403,28 +477,11 @@ export class MonsterSpawner extends Component {
                     console.warn(`MonsterSpawner: ❌ setFaction方法不存在`);
                 }
 
-                // 2. 设置AI模式和基础配置
-                (characterDemo as any).controlMode = 1; // ControlMode.AI
-                (characterDemo as any).aiFaction = this.factionToString(targetFaction);
-                (characterDemo as any).aiBehaviorType = this.determineAIBehaviorType(enemyType) === AIBehaviorType.RANGED ? 'ranged' : 'melee';
+                // 2. AI配置已在createCharacter时通过options设置，无需重复设置
 
-                // 3. 创建AI配置
-                const aiConfig: AIConfig = {
-                    detectionRange: enemyData.detectionRange || 200,
-                    attackRange: enemyData.attackRange || 60,
-                    pursuitRange: enemyData.pursuitRange || 300,
-                    moveSpeed: enemyData.moveSpeed * 100 || 100, // 转换为像素/秒
-                    attackInterval: enemyData.attackInterval || 2,
-                    behaviorType: this.determineAIBehaviorType(enemyType),
-                    faction: targetFaction,
-                    returnDistance: enemyData.returnDistance || 200,
-                    patrolRadius: 50,
-                    maxIdleTime: enemyData.idleWaitTime || 2
-                };
-
-                // 4. 初始化AI
+                // 3. 初始化AI（简化版本，直接使用enemyData）
                 if ((characterDemo as any).initializeAI) {
-                    (characterDemo as any).initializeAI(enemyData, aiConfig);
+                    (characterDemo as any).initializeAI();
                     console.log(`MonsterSpawner: ✅ AI配置完成 - ${enemyType}, 阵营: ${targetFaction}`);
                 } else {
                     console.warn(`MonsterSpawner: ❌ initializeAI方法不存在`);

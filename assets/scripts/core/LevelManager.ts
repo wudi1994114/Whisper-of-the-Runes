@@ -9,6 +9,7 @@ import { resourceManager } from './ResourceManager';
 import { FactionRelationships } from '../configs/FactionConfig';
 import { factionManager } from './FactionManager';
 import { MonsterSpawner } from './MonsterSpawner';
+import { CharacterPoolInitializer } from '../animation/BaseCharacterDemo';
 
 const { ccclass } = _decorator;
 
@@ -122,6 +123,10 @@ export class LevelManager {
 
             // 设置阵营关系
             this.setupFactionRelationships(levelData);
+
+            // 【新增】根据关卡数据初始化角色对象池
+            console.log(`🎮 [正常模式] 为关卡 ${levelId} 初始化角色对象池...`);
+            CharacterPoolInitializer.initializePoolsForLevel(levelData);
 
             // 加载关卡所需的敌人预制体
             await this.loadLevelEnemyPrefabs(levelData);

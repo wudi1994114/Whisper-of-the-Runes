@@ -43,37 +43,15 @@ export interface TargetInfo {
 }
 
 /**
- * AI配置接口
+ * AI配置已迁移到 EnemyData 中，不再需要单独的配置接口
  */
-export interface AIConfig {
-    // 检测范围
-    detectionRange: number;
-    // 攻击范围
-    attackRange: number;
-    // 追击范围（超出后返回）
-    pursuitRange: number;
-    // 移动速度
-    moveSpeed: number;
-    // 攻击间隔
-    attackInterval: number;
-    // 行为类型
-    behaviorType: AIBehaviorType;
-    // 阵营
-    faction: Faction;
-    // 返回原位距离
-    returnDistance: number;
-    // 巡逻半径
-    patrolRadius: number;
-    // 最大空闲时间
-    maxIdleTime: number;
-}
 
 /**
  * 怪物AI基础接口
  */
 export interface IMonsterAI {
-    // 初始化AI
-    initialize(enemyData: EnemyData, config: AIConfig): void;
+    // 初始化AI（直接使用enemyData中的配置）
+    initialize(enemyData: EnemyData): void;
     
     // 更新AI逻辑
     updateAI(deltaTime: number): void;

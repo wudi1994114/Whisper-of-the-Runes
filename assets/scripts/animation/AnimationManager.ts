@@ -246,7 +246,6 @@ export class AnimationManager {
                 }
             }
             
-            console.log(`Created ${clips.size} animation clips for ${enemyData.name}`);
             return clips;
             
         } catch (error) {

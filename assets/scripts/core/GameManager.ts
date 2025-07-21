@@ -1,6 +1,6 @@
 // assets/scripts/core/GameManager.ts
 
-import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Prefab, PhysicsSystem2D } from 'cc';
+import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Vec3, Prefab, PhysicsSystem2D } from 'cc';
 import { dataManager } from './DataManager';
 import { eventManager } from './EventManager';
 import { inputManager } from './InputManager';
@@ -11,12 +11,13 @@ import { GameEvents } from './GameEvents';
 import { levelManager } from './LevelManager';
 import { animationManager } from '../animation/AnimationManager';
 import { instantiate } from 'cc';
-import { AIConfig, AIBehaviorType } from './MonsterAI';
+import { AIBehaviorType } from './MonsterAI';
 import { Faction } from '../configs/FactionConfig';
 import { targetSelector } from './TargetSelector';
 import { TargetSelector } from './TargetSelector';
 import { UITransform } from 'cc';
 import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
+import { CharacterPoolInitializer, BaseCharacterDemo } from '../animation/BaseCharacterDemo';
 
 const { ccclass, property } = _decorator;
 
@@ -45,12 +46,12 @@ export class GameManager extends Component {
     public gameMode: GameMode = GameMode.DEVELOPMENT;
 
     // ===== 简化预制体配置区域 =====
-    // UniversalCharacterDemo 智能系统现在只需要两个预制体
+            // BaseCharacterDemo 智能系统现在只需要两个预制体
     
     @property({
         type: Prefab,
         displayName: "通用敌人预制体 (必需)",
-        tooltip: "用于所有敌人类型的基础模板\n包含基础动画、血条、攻击组件\nUniversalCharacterDemo 会根据敌人类型自动配置远程攻击能力"
+        tooltip: "用于所有敌人类型的基础模板\n包含基础动画、血条、攻击组件\nBaseCharacterDemo 会根据敌人类型自动配置远程攻击能力"
     })
     public entPrefab: Prefab | null = null;
 
@@ -1052,6 +1053,10 @@ export class GameManager extends Component {
      * 初始化测试模式
      */
     private initTestMode(): void {
+        console.log('🧪 [测试模式] 初始化角色对象池系统...');
+        
+        // 初始化所有角色对象池（测试模式）
+        CharacterPoolInitializer.initializeAllPools();
         
         // 打印对象池状态
         this.printPoolStatus();
@@ -1065,7 +1070,7 @@ export class GameManager extends Component {
      * @param enemyType 怪物类型
      */
     public spawnTestEnemy(enemyType: string): void {
-        console.log(`生成测试怪物: ${enemyType}`);
+        console.log(`🧪 使用新对象池系统生成测试怪物: ${enemyType}`);
         
         // 清除之前的测试怪物
         this.clearTestEnemy();
@@ -1076,37 +1081,37 @@ export class GameManager extends Component {
             console.error(`找不到怪物类型: ${enemyType}`);
             return;
         }
-        
-        // 从对象池获取怪物实例
-        const enemyInstance = poolManager.getEnemyInstance(enemyType, enemyData);
-        if (!enemyInstance) {
-            console.error(`无法从对象池获取怪物: ${enemyType}`);
+
+        // 使用新的对象池系统创建角色
+        let character: any = null;
+        const testPosition = new Vec3(0, 0, 0); // 屏幕中心
+
+        if (this.manualTestMode) {
+            // 手动测试模式：创建玩家控制的角色
+            character = BaseCharacterDemo.createPlayer(enemyType, testPosition);
+            console.log(`🎮 [手动测试模式] 创建手动控制角色: ${enemyType}`);
+        } else {
+            // AI测试模式：创建AI控制的角色
+            character = BaseCharacterDemo.createAIEnemy(enemyType, {
+                position: testPosition,
+                faction: 'red',
+                behaviorType: 'melee'
+            });
+            console.log(`🤖 [AI测试模式] 创建AI控制角色: ${enemyType}`);
+        }
+
+        if (!character) {
+            console.error(`❌ 无法从新对象池系统创建怪物: ${enemyType}`);
+            // 回退到旧系统
+            this.spawnTestEnemyFallback(enemyType);
             return;
         }
-        
-        // 【关键修复】只在手动测试模式下设置控制模式
-        const characterDemo = enemyInstance.getComponent('BaseCharacterDemo');
-        if (characterDemo && this.manualTestMode) {
-            // 只有手动测试模式才设置为手动控制
-            (characterDemo as any).controlMode = 0; // ControlMode.MANUAL
-            console.log(`🎮 [手动测试模式] 怪物 ${enemyInstance.name} 设置为手动控制`);
-        }
-        // 注意：正常模式下不在这里设置控制模式，交给 MonsterSpawner 处理
 
-        // 【关键修复】确保UniversalCharacterDemo使用正确的敌人类型
-        const universalDemo = enemyInstance.getComponent('UniversalCharacterDemo');
-        if (universalDemo && (universalDemo as any).setEnemyType) {
-            (universalDemo as any).setEnemyType(enemyType);
-            console.log(`GameManager: 已为手动测试怪物设置敌人类型: ${enemyType}`);
-        }
+        const enemyInstance = character.node;
         
-        // 设置为测试位置（屏幕中心）并置顶
-        // 直接使用常见的屏幕中心坐标
-        const testPosition = { x: 0, y: 0 }; // 适合大多数移动设备
-        
-        enemyInstance.setPosition(testPosition.x, testPosition.y, 0);
-        console.log(`🎯 测试怪物位置: (${testPosition.x}, ${testPosition.y})`);
+        // 角色已经在创建时设置了位置，确保激活状态
         enemyInstance.active = true;
+        console.log(`🎯 测试怪物位置: (${testPosition.x}, ${testPosition.y})`);
         
         // 找到合适的父节点 - 优先使用Canvas
         let parentNode = null;
@@ -1165,13 +1170,69 @@ export class GameManager extends Component {
     }
 
     /**
+     * 回退方案：使用旧系统生成测试怪物
+     */
+    private spawnTestEnemyFallback(enemyType: string): void {
+        console.warn(`🔄 回退到旧系统创建测试怪物: ${enemyType}`);
+        
+        // 获取敌人数据
+        const enemyData = dataManager.getEnemyData(enemyType);
+        if (!enemyData) {
+            console.error(`找不到怪物类型: ${enemyType}`);
+            return;
+        }
+        
+        // 从旧对象池获取怪物实例
+        const enemyInstance = poolManager.getEnemyInstance(enemyType, enemyData);
+        if (!enemyInstance) {
+            console.error(`无法从旧对象池获取怪物: ${enemyType}`);
+            return;
+        }
+        
+        // 【关键修复】先设置敌人类型，再进行其他操作
+        const baseDemo = enemyInstance.getComponent('BaseCharacterDemo');
+        if (baseDemo && (baseDemo as any).setEnemyType) {
+            (baseDemo as any).setEnemyType(enemyType);
+            console.log(`🎮 [回退] 已设置敌人类型: ${enemyType}`);
+        }
+        
+        // 控制模式已在创建时设置，无需重复设置
+        console.log(`🎮 [回退] 控制模式已在创建时正确设置`);
+        
+        // 设置位置和激活
+        enemyInstance.setPosition(0, 0, 0);
+        enemyInstance.active = true;
+        
+        // 添加到Canvas
+        const scene = director.getScene();
+        if (scene) {
+            const canvas = scene.getComponentInChildren('cc.Canvas');
+            if (canvas && canvas.node) {
+                canvas.node.addChild(enemyInstance);
+                enemyInstance.setSiblingIndex(1000);
+            }
+        }
+        
+        this.currentTestEnemy = enemyInstance;
+        console.log(`✅ [回退] 测试怪物已生成: ${enemyData.name}`);
+    }
+
+    /**
      * 清除当前测试怪物
      */
     public clearTestEnemy(): void {
         if (this.currentTestEnemy && this.currentTestEnemy.isValid) {
-            // 回收到对象池
-            poolManager.put(this.currentTestEnemy);
-            console.log('🗑️ 测试怪物已清除');
+            // 检查是否是新对象池系统创建的角色
+            const characterDemo = this.currentTestEnemy.getComponent('BaseCharacterDemo');
+            if (characterDemo && (characterDemo as any).getIsFromPool && (characterDemo as any).getIsFromPool()) {
+                // 使用新对象池系统回收
+                (characterDemo as any).returnToPool();
+                console.log('🗑️ 测试怪物已通过新对象池系统回收');
+            } else {
+                // 使用旧对象池系统回收
+                poolManager.put(this.currentTestEnemy);
+                console.log('🗑️ 测试怪物已通过旧对象池系统回收');
+            }
         }
         this.currentTestEnemy = null;
     }

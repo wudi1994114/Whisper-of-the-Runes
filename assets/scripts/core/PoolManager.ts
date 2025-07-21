@@ -199,12 +199,20 @@ class PoolManager {
         // 【关键修复】强制激活节点
         node.active = true;
 
-        // 如果提供了敌人数据，进行统一初始化
+        // 【关键修复】如果有敌人数据，先设置敌人类型，再进行其他初始化
         if (enemyData) {
+            // 1. 先设置敌人类型到BaseCharacterDemo
+            const baseDemo = node.getComponent('BaseCharacterDemo');
+            if (baseDemo && (baseDemo as any).setEnemyType && enemyData.id) {
+                (baseDemo as any).setEnemyType(enemyData.id);
+                console.log(`PoolManager: ✅ 已设置敌人类型: ${enemyData.id}`);
+            }
+            
+            // 2. 然后进行统一初始化
             this.initializeEnemyInstance(node, enemyData);
         }
 
-        // 【关键修复】调用BaseCharacterDemo的重用回调（如果存在）
+        // 【修复】现在可以安全地调用BaseCharacterDemo的重用回调
         const characterDemo = node.getComponent('BaseCharacterDemo');
         if (characterDemo && (characterDemo as any).onReuseFromPool) {
             try {
@@ -255,7 +263,7 @@ class PoolManager {
         }
 
         try {
-            // 注意：UniversalCharacterDemo的敌人类型设置交给调用方（GameManager或MonsterSpawner）处理
+            // 注意：BaseCharacterDemo的敌人类型设置交给调用方（GameManager或MonsterSpawner）处理
             // 避免重复调用 setEnemyType() 导致的冲突
 
             // 初始化CharacterStats组件
@@ -275,194 +283,6 @@ class PoolManager {
             console.log(`PoolManager: 敌人实例 ${enemyData.id} 初始化完成`);
         } catch (error) {
             console.error(`PoolManager: 初始化敌人实例失败`, error);
-        }
-    }
-
-    /**
-     * 初始化敌人动画系统
-     * @param node 敌人节点
-     * @param enemyData 敌人数据配置
-     */
-    private async initializeAnimationSystem(node: Node, enemyData: any): Promise<void> {
-        if (!enemyData || !enemyData.assetNamePrefix) {
-            console.warn('PoolManager: 敌人数据缺少动画资源前缀，跳过动画初始化');
-            return;
-        }
-
-        try {
-            console.log(`PoolManager: 开始初始化 ${enemyData.name} 的动画系统 (前缀: ${enemyData.assetNamePrefix})`);
-            
-            // 使用AnimationManager创建动画剪辑
-            const animationClips = await animationManager.createAllAnimationClips(enemyData);
-            
-            if (animationClips.size === 0) {
-                console.warn(`PoolManager: ${enemyData.name} 没有创建任何动画剪辑`);
-                return;
-            }
-            
-            // 使用AnimationManager设置动画组件
-            const animationComponent = animationManager.setupAnimationComponent(node, animationClips);
-            
-            // 重要：设置Sprite组件的初始图像
-            await this.setupInitialSpriteFrame(node, enemyData);
-            
-            // 设置节点缩放
-            if (enemyData.nodeScale && enemyData.nodeScale !== 1) {
-                node.setScale(enemyData.nodeScale, enemyData.nodeScale, 1);
-            }
-            
-            console.log(`PoolManager: ${enemyData.name} 动画系统初始化成功，创建了 ${animationClips.size} 个动画剪辑`);
-            
-            // 播放默认待机动画
-            this.playDefaultIdleAnimation(animationComponent, enemyData);
-            
-        } catch (error) {
-            console.error(`PoolManager: ${enemyData.name} 动画系统初始化失败`, error);
-        }
-    }
-
-    /**
-     * 设置Sprite组件的初始图像
-     * @param node 敌人节点
-     * @param enemyData 敌人数据配置
-     */
-    private async setupInitialSpriteFrame(node: Node, enemyData: any): Promise<void> {
-        const spriteComponent = node.getComponent('cc.Sprite') as any;
-        if (!spriteComponent) {
-            console.warn('PoolManager: 节点没有Sprite组件，跳过初始图像设置');
-            return;
-        }
-
-        try {
-            // 加载敌人的图集
-            const atlas = await animationManager.loadSpriteAtlas(enemyData.plistUrl);
-            if (!atlas) {
-                console.error(`PoolManager: 无法加载图集 ${enemyData.plistUrl}`);
-                return;
-            }
-
-            // 获取第一个Idle动画的第一帧作为初始图像
-            let idleFrameName = `${enemyData.assetNamePrefix}_Idle_front00`;
-            let initialFrame = atlas.getSpriteFrame(idleFrameName);
-            
-            if (!initialFrame) {
-                // 尝试使用AnimationConfig中定义的正确framePrefix
-                const animConfig = getAnimationConfigByPrefix(enemyData.assetNamePrefix);
-                if (animConfig && animConfig.animations[AnimationState.IDLE] && animConfig.animations[AnimationState.IDLE][AnimationDirection.FRONT]) {
-                    const idleConfig = animConfig.animations[AnimationState.IDLE][AnimationDirection.FRONT];
-                    idleFrameName = `${idleConfig.framePrefix}00`;
-                    initialFrame = atlas.getSpriteFrame(idleFrameName);
-                    if (initialFrame) {
-                        console.log(`PoolManager: 使用AnimationConfig中的正确帧名称: ${idleFrameName}`);
-                    }
-                }
-                
-                if (!initialFrame) {
-                    // 如果仍然找不到，尝试其他可能的格式
-                    const alternativeNames = [
-                        `${enemyData.assetNamePrefix}_Idle_front_00`,
-                        `${enemyData.assetNamePrefix}_idle_front00`,
-                        `${enemyData.assetNamePrefix}_idle_front_00`,
-                        `${enemyData.assetNamePrefix}_front_idle00`
-                    ];
-                    
-                    for (const altName of alternativeNames) {
-                        initialFrame = atlas.getSpriteFrame(altName);
-                        if (initialFrame) {
-                            console.log(`PoolManager: 使用替代帧名称: ${altName}`);
-                            idleFrameName = altName;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (initialFrame) {
-                spriteComponent.spriteFrame = initialFrame;
-                console.log(`PoolManager: 已设置初始图像 ${idleFrameName} 为 ${enemyData.name}`);
-            } else {
-                console.warn(`PoolManager: 无法找到初始图像帧 ${idleFrameName}`);
-                // 调试：打印图集中可用的帧
-                this.debugAvailableFrames(atlas, enemyData.assetNamePrefix);
-            }
-
-        } catch (error) {
-            console.error(`PoolManager: 设置初始图像失败`, error);
-        }
-    }
-
-    /**
-     * 调试：打印图集中可用的帧
-     * @param atlas 图集
-     * @param prefix 资源前缀
-     */
-    private debugAvailableFrames(atlas: any, prefix: string): void {
-        console.log(`PoolManager: 调试 - 图集中包含的 ${prefix} 相关帧:`);
-        const spriteFrameNames = atlas.getSpriteFrames();
-        const relatedFrames = Object.keys(spriteFrameNames).filter(name => 
-            name.toLowerCase().includes(prefix.toLowerCase())
-        );
-        
-        if (relatedFrames.length > 0) {
-            console.log('找到的相关帧:', relatedFrames.slice(0, 10)); // 只显示前10个
-        } else {
-            console.log('没有找到相关帧，图集中的帧数量:', Object.keys(spriteFrameNames).length);
-        }
-    }
-
-    /**
-     * 播放默认待机动画
-     * @param animationComponent 动画组件
-     * @param enemyData 敌人数据
-     */
-    private playDefaultIdleAnimation(animationComponent: any, enemyData: any): void {
-        if (!animationComponent || !enemyData) {
-            return;
-        }
-
-        try {
-            // 构建正确的待机动画名称：assetNamePrefix_Idle_front
-            const idleAnimationName = `${enemyData.assetNamePrefix}_Idle_front`;
-            const hasIdleClip = animationComponent.clips.some((c: any) => c && c.name === idleAnimationName);
-            
-            if (hasIdleClip) {
-                animationComponent.play(idleAnimationName);
-                console.log(`PoolManager: 开始播放默认待机动画: ${idleAnimationName}`);
-            } else {
-                // 如果没有找到具体的 Idle_front，尝试播放任何包含 Idle 的动画
-                const idleClip = animationComponent.clips.find((c: any) => c && c.name && c.name.includes('Idle'));
-                
-                if (idleClip) {
-                    animationComponent.play(idleClip.name);
-                    console.log(`PoolManager: 开始播放找到的待机动画: ${idleClip.name}`);
-                } else {
-                    // 如果还是没有找到，尝试播放第一个可用的动画
-                    const firstClip = animationComponent.clips.find((c: any) => c && c.name);
-                    if (firstClip) {
-                        animationComponent.play(firstClip.name);
-                        console.log(`PoolManager: 开始播放第一个可用动画: ${firstClip.name}`);
-                    } else {
-                        console.warn('PoolManager: 没有找到可播放的动画剪辑');
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('PoolManager: 播放默认动画失败', error);
-        }
-    }
-
-    /**
-     * 根据敌人ID获取角色类型（用于血条配置）
-     * @param enemyId 敌人ID
-     * @returns 角色类型
-     */
-    private getCharacterTypeFromEnemyId(enemyId: string): string {
-        if (enemyId.startsWith('ent_')) {
-            return 'ent';
-        } else if (enemyId.startsWith('lich_')) {
-            return 'lich';
-        } else {
-            return 'default';
         }
     }
 

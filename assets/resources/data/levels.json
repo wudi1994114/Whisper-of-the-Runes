@@ -15,11 +15,12 @@
       
       "monsterSpawners": [
         {
-          "id": "central_spawner",
-          "position": { "x": 0, "y": 0 },
-          "spawnRadius": 400,
+          "id": "red_left_spawner",
+          "position": { "x": -200, "y": 0 },
+          "spawnRadius": 80,
           "spawnType": "circle",
           "faction": "red",
+          "randomOffset": { "x": 50, "y": 50 },
           "enemies": [
             {
               "type": "ent_normal",
@@ -38,7 +39,17 @@
               "spawnDelay": 5.0,
               "respawnOnDeath": true,
               "faction": "red"
-            },
+            }
+          ]
+        },
+        {
+          "id": "blue_right_spawner",
+          "position": { "x": 200, "y": 0 },
+          "spawnRadius": 80,
+          "spawnType": "circle",
+          "faction": "blue",
+          "randomOffset": { "x": 50, "y": 50 },
+          "enemies": [
             {
               "type": "ent_normal",
               "count": 3,

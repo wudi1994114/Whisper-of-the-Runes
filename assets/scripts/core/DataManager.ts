@@ -606,7 +606,7 @@ export class DataManager {
             'golem_boss': 'ent',
             'golem': 'ent', // 兼容旧配置
             
-            // 巫妖系列 - 现在也使用ent.prefab（UniversalCharacterDemo会动态配置）
+            // 巫妖系列 - 现在也使用ent.prefab（BaseCharacterDemo会动态配置）
             'lich_normal': 'ent',
             'lich_elite': 'ent',
             'lich_boss': 'ent'
