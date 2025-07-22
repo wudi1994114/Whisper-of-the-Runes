@@ -598,17 +598,17 @@ export class FireballController extends Component {
             case Faction.PLAYER:
                 group = PhysicsGroup.PLAYER_PROJECTILE;
                 break;
-            case Faction.FACTION_RED:
-                group = PhysicsGroup.FACTION_RED_PROJECTILE;
+            case Faction.RED:
+                group = PhysicsGroup.RED_PROJECTILE;
                 break;
-            case Faction.FACTION_BLUE:
-                group = PhysicsGroup.FACTION_BLUE_PROJECTILE;
+            case Faction.BLUE:
+                group = PhysicsGroup.BLUE_PROJECTILE;
                 break;
-            case Faction.FACTION_GREEN:
-                group = PhysicsGroup.FACTION_GREEN_PROJECTILE;
+            case Faction.GREEN:
+                group = PhysicsGroup.GREEN_PROJECTILE;
                 break;
-            case Faction.FACTION_PURPLE:
-                group = PhysicsGroup.FACTION_PURPLE_PROJECTILE;
+            case Faction.PURPLE:
+                group = PhysicsGroup.PURPLE_PROJECTILE;
                 break;
             default:
                 group = PhysicsGroup.DEFAULT;

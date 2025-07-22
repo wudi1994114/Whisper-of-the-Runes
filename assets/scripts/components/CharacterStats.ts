@@ -5,7 +5,6 @@ import { MonsterAnimationController } from '../animation/MonsterAnimationControl
 import { EnemyData } from '../configs/EnemyConfig';
 import { eventManager } from '../core/EventManager';
 import { GameEvents } from '../core/GameEvents';
-import { Faction } from '../configs/FactionConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -23,7 +22,7 @@ export class CharacterStats extends Component {
     private _baseDefense: number = 5;
     private _moveSpeed: number = 1.0;
     private _expReward: number = 0;
-    private _faction: Faction = Faction.PLAYER; // 默认值，AI模式下会被MonsterSpawner重新设置
+    // 阵营管理已移至BaseCharacterDemo的aiFaction属性
     
     // 组件引用
     private _spriteComponent: Sprite | null = null;
@@ -54,6 +53,8 @@ export class CharacterStats extends Component {
             this._animationController = this.addComponent(MonsterAnimationController);
         }
     }
+    
+    // 注册/反注册逻辑已移至BaseCharacterDemo组件
     
     // ========== 属性访问器 ==========
     
@@ -93,13 +94,7 @@ export class CharacterStats extends Component {
         return this._enemyData;
     }
     
-    public get faction(): Faction {
-        return this._faction;
-    }
-    
-    public set faction(value: Faction) {
-        this._faction = value;
-    }
+    // 阵营属性已移至BaseCharacterDemo的aiFaction
     
     public get isInitialized(): boolean {
         return this._isInitialized;
@@ -121,10 +116,6 @@ export class CharacterStats extends Component {
         this._baseDefense = enemyData.baseDefense;
         this._moveSpeed = enemyData.moveSpeed;
         this._expReward = enemyData.expReward;
-        
-        // 阵营将由外部系统动态设置，不再从敌人数据中读取
-        
-        console.log(`Character stats initialized: ${enemyData.name}`);
         
         // 初始化动画控制器
         if (this._animationController) {

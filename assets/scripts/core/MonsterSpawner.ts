@@ -244,11 +244,12 @@ export class MonsterSpawner extends Component {
                 return null;
             }
 
+            const behaviorType = this.determineAIBehaviorType(enemyType);
             // 2. 使用新的对象池工厂创建AI敌人
             const monster = BaseCharacterDemo.createAIEnemy(enemyType, {
                 position: position,
                 faction: enemyConfig?.faction || 'red',
-                behaviorType: 'melee' // 可以根据敌人类型或配置动态设置
+                behaviorType: behaviorType // 可以根据敌人类型或配置动态设置
             });
 
             if (!monster) {
@@ -568,35 +569,6 @@ export class MonsterSpawner extends Component {
                 this.aliveMonsters.set(enemyType, monsters);
                 console.log(`MonsterSpawner: Monster ${enemyType} died`);
             }
-        });
-    }
-    
-    /**
-     * 获取生成器状态信息
-     */
-    public getStatusInfo(): string {
-        if (!this.spawnerConfig) {
-            return 'Not initialized';
-        }
-        
-        let info = `Spawner ${this.spawnerConfig.id}:\n`;
-        this.spawnerConfig.enemies.forEach(enemyConfig => {
-            const alive = this.getAliveCount(enemyConfig.type);
-            const timer = this.spawnTimers.get(enemyConfig.type) || 0;
-            info += `  ${enemyConfig.type}: ${alive}/${enemyConfig.maxAlive} (next: ${timer.toFixed(1)}s)\n`;
-        });
-        
-        return info;
-    }
-    
-    /**
-     * 强制生成所有怪物
-     */
-    public forceSpawnAll(): void {
-        if (!this.spawnerConfig) return;
-        
-        this.spawnerConfig.enemies.forEach(enemyConfig => {
-            this.spawnEnemyGroup(enemyConfig);
         });
     }
     

@@ -7,12 +7,39 @@ import {
     DEFAULT_FACTION_RELATIONSHIPS,
     FactionUtils
 } from '../configs/FactionConfig';
+import { PhysicsGroup } from '../configs/PhysicsConfig';
 
 const { ccclass } = _decorator;
 
 /**
+ * 阵营到物理分组的映射表
+ * 将游戏阵营映射到对应的物理碰撞分组
+ */
+const FACTION_TO_PHYSICS_GROUP: { [key in Faction]: number } = {
+    [Faction.PLAYER]: PhysicsGroup.PLAYER,
+    [Faction.RED]: PhysicsGroup.RED,
+    [Faction.BLUE]: PhysicsGroup.BLUE,
+    [Faction.GREEN]: PhysicsGroup.GREEN,
+    [Faction.PURPLE]: PhysicsGroup.PURPLE,
+};
+
+/**
+ * 物理分组到阵营的反向映射表
+ */
+const PHYSICS_GROUP_TO_FACTION: { [key: number]: Faction } = {};
+
+// 初始化反向映射表
+for (const faction in FACTION_TO_PHYSICS_GROUP) {
+    if (FACTION_TO_PHYSICS_GROUP.hasOwnProperty(faction)) {
+        const factionKey = faction as Faction;
+        const physicsGroup = FACTION_TO_PHYSICS_GROUP[factionKey];
+        PHYSICS_GROUP_TO_FACTION[physicsGroup] = factionKey;
+    }
+}
+
+/**
  * 阵营管理器
- * 负责管理游戏中的阵营关系和攻击判定
+ * 负责管理游戏中的阵营关系、攻击判定和物理碰撞分组映射
  */
 @ccclass('FactionManager')
 export class FactionManager extends Component {
@@ -197,6 +224,136 @@ export class FactionManager extends Component {
      */
     public printDebugInfo(): void {
         console.log(this.getDebugInfo());
+    }
+
+    // ============= 物理碰撞分组映射方法 =============
+
+    /**
+     * 获取阵营对应的物理分组
+     * @param faction 阵营
+     * @returns 物理分组ID
+     */
+    public getFactionPhysicsGroup(faction: Faction): number {
+        const group = FACTION_TO_PHYSICS_GROUP[faction];
+        if (group === undefined) {
+            console.warn(`FactionManager: 未找到阵营 ${faction} 对应的物理分组，使用默认分组`);
+            return PhysicsGroup.DEFAULT;
+        }
+        return group;
+    }
+
+    /**
+     * 获取物理分组对应的阵营
+     * @param physicsGroup 物理分组ID
+     * @returns 阵营，如果未找到则返回null
+     */
+    public getPhysicsGroupFaction(physicsGroup: number): Faction | null {
+        const faction = PHYSICS_GROUP_TO_FACTION[physicsGroup];
+        if (!faction) {
+            console.warn(`FactionManager: 未找到物理分组 ${physicsGroup} 对应的阵营`);
+            return null;
+        }
+        return faction;
+    }
+
+    /**
+     * 检查两个物理分组是否应该发生碰撞
+     * @param group1 物理分组1
+     * @param group2 物理分组2
+     * @returns 是否应该碰撞
+     */
+    public shouldPhysicsGroupsCollide(group1: number, group2: number): boolean {
+        const faction1 = this.getPhysicsGroupFaction(group1);
+        const faction2 = this.getPhysicsGroupFaction(group2);
+        
+        if (!faction1 || !faction2) {
+            // 如果有未知分组，默认允许碰撞
+            return true;
+        }
+        
+        // 检查阵营关系来决定是否碰撞
+        return this.areEnemies(faction1, faction2);
+    }
+
+    /**
+     * 获取与指定阵营敌对的所有物理分组
+     * @param faction 阵营
+     * @returns 敌对物理分组列表
+     */
+    public getEnemyPhysicsGroups(faction: Faction): number[] {
+        const enemyFactions = this.getEnemyFactions(faction);
+        const enemyGroups: number[] = [];
+        
+        enemyFactions.forEach(enemyFaction => {
+            const group = this.getFactionPhysicsGroup(enemyFaction);
+            enemyGroups.push(group);
+        });
+        
+        return enemyGroups;
+    }
+
+    /**
+     * 获取与指定阵营友好的所有物理分组
+     * @param faction 阵营
+     * @returns 友好物理分组列表
+     */
+    public getFriendlyPhysicsGroups(faction: Faction): number[] {
+        const friendlyFactions = this.getFriendlyFactions(faction);
+        const friendlyGroups: number[] = [];
+        
+        friendlyFactions.forEach(friendlyFaction => {
+            const group = this.getFactionPhysicsGroup(friendlyFaction);
+            friendlyGroups.push(group);
+        });
+        
+        return friendlyGroups;
+    }
+
+    /**
+     * 获取阵营和物理分组映射的调试信息
+     */
+    public getPhysicsGroupMappingInfo(): string {
+        let info = 'FactionManager 阵营-物理分组映射:\n';
+        
+        for (const faction in FACTION_TO_PHYSICS_GROUP) {
+            if (FACTION_TO_PHYSICS_GROUP.hasOwnProperty(faction)) {
+                const factionKey = faction as Faction;
+                const group = FACTION_TO_PHYSICS_GROUP[factionKey];
+                const groupName = this.getPhysicsGroupName(group);
+                info += `${factionKey} -> ${groupName} (${group})\n`;
+            }
+        }
+        
+        return info;
+    }
+
+    /**
+     * 获取物理分组名称（用于调试）
+     */
+    private getPhysicsGroupName(group: number): string {
+        const groupNames = {
+            [PhysicsGroup.DEFAULT]: 'DEFAULT',
+            [PhysicsGroup.PLAYER]: 'PLAYER',
+            [PhysicsGroup.PLAYER_PROJECTILE]: 'PLAYER_PROJECTILE',
+            [PhysicsGroup.RED]: 'RED',
+            [PhysicsGroup.RED_PROJECTILE]: 'RED_PROJECTILE',
+            [PhysicsGroup.BLUE]: 'BLUE',
+            [PhysicsGroup.BLUE_PROJECTILE]: 'BLUE_PROJECTILE',
+            [PhysicsGroup.GREEN]: 'GREEN',
+            [PhysicsGroup.GREEN_PROJECTILE]: 'GREEN_PROJECTILE',
+            [PhysicsGroup.PURPLE]: 'PURPLE',
+            [PhysicsGroup.PURPLE_PROJECTILE]: 'PURPLE_PROJECTILE',
+            [PhysicsGroup.WORLD_OBSTACLE]: 'WORLD_OBSTACLE',
+        };
+        
+        return groupNames[group] || `UNKNOWN(${group})`;
+    }
+
+    /**
+     * 打印物理分组映射信息到控制台
+     */
+    public printPhysicsGroupMappingInfo(): void {
+        console.log(this.getPhysicsGroupMappingInfo());
     }
 
     protected onDestroy() {

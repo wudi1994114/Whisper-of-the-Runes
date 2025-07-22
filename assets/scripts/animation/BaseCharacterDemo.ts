@@ -1,4 +1,4 @@
-import { _decorator, Component, Animation, Sprite, Vec2, Node, EventKeyboard, KeyCode, input, Input, find, Graphics, Color, Collider2D, RigidBody2D, Enum, UITransform, instantiate, Prefab, Label, tween, director, Vec3 } from 'cc';
+import { _decorator, Component, Animation, Sprite, Vec2, Node, EventKeyboard, KeyCode, input, Input, find, Graphics, Color, Collider2D, RigidBody2D, Enum, UITransform, instantiate, Prefab, Label, tween, director, Vec3, ERigidBody2DType, BoxCollider2D } from 'cc';
 import { dataManager } from '../core/DataManager';
 import { EnemyData } from '../configs/EnemyConfig';
 import { CharacterStats } from '../components/CharacterStats';
@@ -18,6 +18,29 @@ import { FireballLauncher } from '../launcher/FireballLauncher';
 import { GameManager } from '../core/GameManager';
 
 const { ccclass, property } = _decorator;
+class TempVarPool {
+    // Vec2 临时变量池
+    public static readonly tempVec2_1 = new Vec2();
+    public static readonly tempVec2_2 = new Vec2();
+    public static readonly tempVec2_3 = new Vec2();
+    
+    // Vec3 临时变量池
+    public static readonly tempVec3_1 = new Vec3();
+    public static readonly tempVec3_2 = new Vec3();
+    public static readonly tempVec3_3 = new Vec3();
+    
+    /**
+     * 重置所有临时变量为零向量（调试用）
+     */
+    public static resetAll(): void {
+        this.tempVec2_1.set(0, 0);
+        this.tempVec2_2.set(0, 0);
+        this.tempVec2_3.set(0, 0);
+        this.tempVec3_1.set(0, 0, 0);
+        this.tempVec3_2.set(0, 0, 0);
+        this.tempVec3_3.set(0, 0, 0);
+    }
+}
 
 // ============= 对象池工厂管理器 =============
 
@@ -237,7 +260,18 @@ export class IdleState extends State {
     }
     
     update(deltaTime: number): void {
-        // Idle状态下可以检查输入
+        // 检查是否需要转换状态
+        if (this.character.wantsToAttack) {
+            this.character.transitionToState(CharacterState.ATTACKING);
+            return; // 转换后立即返回，避免执行旧状态逻辑
+        }
+        
+        if (this.character.hasMovementInput()) {
+            this.character.transitionToState(CharacterState.WALKING);
+            return;
+        }
+        
+        // 如果没有发生状态转换，则执行当前状态的逻辑（Idle可以为空）
     }
     
     exit(): void {
@@ -258,7 +292,18 @@ export class WalkingState extends State {
     }
     
     update(deltaTime: number): void {
-        // 执行移动逻辑
+        // 检查是否需要转换状态
+        if (this.character.wantsToAttack) {
+            this.character.transitionToState(CharacterState.ATTACKING);
+            return;
+        }
+        
+        if (!this.character.hasMovementInput()) {
+            this.character.transitionToState(CharacterState.IDLE);
+            return;
+        }
+
+        // 如果没有发生状态转换，则执行当前状态的逻辑
         this.character.handleMovement(deltaTime);
     }
     
@@ -274,46 +319,39 @@ export class WalkingState extends State {
 
 // 攻击状态
 export class AttackingState extends State {
-    private attackDuration: number = 0;
-    private maxAttackDuration: number = 0.6; // 攻击持续时间（秒）
+    private animationFinished: boolean = false;
     
     enter(): void {
         console.log('[StateMachine] 进入 Attacking 状态');
-        this.attackDuration = 0;
+        this.animationFinished = false;
         
-        // 根据角色配置计算攻击动画持续时间
-        this.calculateAttackDuration();
-        
-        this.character.playAttackAnimation();
+        // 播放攻击动画，并传入一个回调，在动画完成时设置标志
+        this.character.playAttackAnimation(() => {
+            this.animationFinished = true;
+        });
     }
     
     update(deltaTime: number): void {
-        this.attackDuration += deltaTime;
-        // 攻击状态下不处理移动，防止移动
+        // 在update中检查动画是否完成
+        if (this.animationFinished) {
+            // 动画完成后，根据移动意图决定下一个状态
+            if (this.character.hasMovementInput()) {
+                this.character.transitionToState(CharacterState.WALKING);
+            } else {
+                this.character.transitionToState(CharacterState.IDLE);
+            }
+        }
+        // 攻击状态下不处理移动
     }
     
     exit(): void {
         console.log('[StateMachine] 离开 Attacking 状态');
-        this.attackDuration = 0;
+        this.animationFinished = false; // 重置标志
     }
     
     canTransitionTo(newState: CharacterState): boolean {
-        // 攻击状态可以转换到任何状态（包括死亡和受伤）
-        return true;
-    }
-    
-    /**
-     * 根据角色配置计算攻击动画持续时间
-     */
-    private calculateAttackDuration(): void {
-        const enemyData = this.character.getEnemyData();
-        if (enemyData) {
-            // 从动画配置中计算持续时间（假设攻击动画为7帧，帧率12FPS）
-            const frameCount = 7; // 这里可以从动画配置中动态获取
-            const frameRate = 12;
-            this.maxAttackDuration = frameCount / frameRate;
-            console.log(`[StateMachine] 攻击动画持续时间: ${this.maxAttackDuration.toFixed(2)}秒`);
-        }
+        // 攻击中可以被受伤或死亡打断
+        return newState === CharacterState.HURT || newState === CharacterState.DEAD || newState === CharacterState.IDLE;
     }
 }
 
@@ -517,12 +555,6 @@ export class BaseCharacterDemo extends Component {
     public characterId: string = '';
 
     @property({
-        displayName: "是否启用对象池",
-        tooltip: "是否使用对象池管理此角色"
-    })
-    public enablePooling: boolean = false;
-
-    @property({
         type: Enum(ControlMode),
         displayName: "控制模式",
         tooltip: "MANUAL: 键盘手动控制, AI: 自动AI控制"
@@ -535,16 +567,17 @@ export class BaseCharacterDemo extends Component {
     })
     public aiFaction: string = "red";
 
-    @property({
-        displayName: "AI行为类型",
-        tooltip: "AI行为类型 (melee近战/ranged远程)"
-    })
     public aiBehaviorType: string = "melee";
+
+    // 【新增】意图系统
+    public wantsToAttack: boolean = false;
 
     // 核心组件
     protected animationComponent: Animation | null = null;
     protected spriteComponent: Sprite | null = null;
     protected characterStats: CharacterStats | null = null;
+    protected rigidBody: RigidBody2D | null = null;
+    protected collider: Collider2D | null = null;
     
     // 敌人配置数据
     protected enemyData: EnemyData | null = null;
@@ -811,18 +844,18 @@ export class BaseCharacterDemo extends Component {
     }
 
     /**
-     * 动态计算发射角度 - 优先瞄准当前目标，否则基于朝向
+     * 动态计算发射角度 - 优先瞄准当前目标，否则基于朝向（性能优化：避免创建临时对象）
      */
     private calculateLaunchAngle(): number {
         // 优先瞄准当前AI目标
         const currentTarget = this.getAICurrentTarget?.() || this.currentTarget;
         
         if (currentTarget && currentTarget.isValid) {
-            // 计算从当前位置到目标位置的角度
+            // 【性能优化】直接使用 position 属性，避免创建临时变量
             const myPos = this.node.position;
             const targetPos = currentTarget.position;
             
-            // 计算方向向量
+            // 计算方向向量（直接计算，无需临时对象）
             const deltaX = targetPos.x - myPos.x;
             const deltaY = targetPos.y - myPos.y;
             
@@ -877,7 +910,7 @@ export class BaseCharacterDemo extends Component {
         }
 
         // 获取当前角色的阵营
-        let myFaction = this.characterStats ? this.characterStats.faction : Faction.PLAYER;
+        let myFaction = this.getFaction();
         
         // 查找最近的敌人
         const targetInfo = selector.findBestTarget(this.node.position, myFaction, attackRange);
@@ -1157,11 +1190,17 @@ export class BaseCharacterDemo extends Component {
         // 重置初始缩放
         damageNode.setScale(1, 1, 1);
         
+        // 【性能优化】复用静态临时变量进行动画效果
+        const moveOffset = TempVarPool.tempVec2_1;
+        const scaleTarget = TempVarPool.tempVec2_2;
+        moveOffset.set(0, 50);
+        scaleTarget.set(0.5, 0.5);
+        
         // 动画效果：向上飘动并逐渐消失
         tween(damageNode)
             .parallel(
-                tween().by(0.5, { position: new Vec2(0, 50) }),
-                tween().delay(0.1).to(0.4, { scale: new Vec2(0.5, 0.5) })
+                tween().by(0.5, { position: moveOffset }),
+                tween().delay(0.1).to(0.4, { scale: scaleTarget })
             )
             .call(() => {
                 // 归还到PoolManager
@@ -1199,7 +1238,7 @@ export class BaseCharacterDemo extends Component {
 
 
     /**
-     * 初始化AI - 简化版本，直接使用enemyData
+     * 初始化AI - 简化版本，直接使用enemyData（性能优化：使用定时器搜索目标）
      */
     public initializeAI(): void {
         if (this.controlMode !== ControlMode.AI || !this.enemyData) {
@@ -1212,29 +1251,30 @@ export class BaseCharacterDemo extends Component {
 
         console.log(`[${this.getCharacterDisplayName()}] AI配置已初始化 - 探测范围: ${this.enemyData.detectionRange || 200}, 攻击范围: ${this.enemyData.attackRange || 60}`);
         
+        // 【性能优化】使用定时器进行目标搜索，避免在每帧update中执行
+        const searchInterval = this.targetSearchInterval / 1000; // 转换为秒
+        this.schedule(this.updateAITargetSearch, searchInterval);
+        console.log(`[${this.getCharacterDisplayName()}] AI目标搜索定时器已启动，间隔: ${searchInterval}秒`);
+        
         // 【修复】通知全局TargetSelector有新的AI角色加入
         this.scheduleOnce(() => {
             const selector = TargetSelector.getInstance();
-            if (selector) {
-                selector.updateTargetCache?.();
+            if (selector && typeof (selector as any).updateTargetCache === 'function') {
+                (selector as any).updateTargetCache();
                 console.log(`%c[AI] ${this.getCharacterDisplayName()} 已通知TargetSelector更新缓存`, 'color: cyan');
             } else {
-                console.warn(`[${this.getCharacterDisplayName()}] 全局TargetSelector未初始化，无法更新缓存`);
+                console.warn(`[${this.getCharacterDisplayName()}] 全局TargetSelector未初始化或未实现updateTargetCache，无法更新缓存`);
             }
         }, 0.1);
     }
 
     /**
-     * AI目标搜索
+     * AI目标搜索（性能优化：改为定时器调用，无需时间间隔检查）
      */
     private updateAITargetSearch(): void {
         if (!this.enemyData) return;
-
-        const currentTime = Date.now();
-        if (currentTime - this.lastTargetSearchTime < this.targetSearchInterval) {
-            return;
-        }
-        this.lastTargetSearchTime = currentTime;
+        
+        // 【性能优化】移除时间间隔检查，因为现在使用 schedule 定时调用
 
         const selector = TargetSelector.getInstance();
         if (!selector) {
@@ -1252,10 +1292,7 @@ export class BaseCharacterDemo extends Component {
             detectionRange
         );
 
-        // 【调试输出】
-        if (!bestTarget) {
-            console.log(`%c[AI DEBUG] ${this.getCharacterDisplayName()} 未找到目标 - 我的阵营: ${myFaction}, 探测范围: ${detectionRange}`, 'color: yellow');
-        }
+
 
         // 更新目标
         if (bestTarget && bestTarget.node !== this.currentTarget) {
@@ -1279,11 +1316,20 @@ export class BaseCharacterDemo extends Component {
 
 
     /**
-     * 设置AI移动方向
+     * 设置AI移动方向（基于物理系统的移动）
      */
     private setAIMoveDirection(targetPosition: Vec3): void {
-        const direction = new Vec2();
-        Vec2.subtract(direction, new Vec2(targetPosition.x, targetPosition.y), new Vec2(this.node.position.x, this.node.position.y));
+        // 【性能优化】复用静态临时变量，避免频繁创建对象
+        const direction = TempVarPool.tempVec2_1;
+        const targetVec2 = TempVarPool.tempVec2_2;
+        const nodeVec2 = TempVarPool.tempVec2_3;
+        
+        // 设置临时变量值
+        targetVec2.set(targetPosition.x, targetPosition.y);
+        nodeVec2.set(this.node.position.x, this.node.position.y);
+        
+        // 计算方向向量
+        Vec2.subtract(direction, targetVec2, nodeVec2);
         
         if (direction.length() < 10) {
             this.moveDirection.set(0, 0);
@@ -1298,7 +1344,8 @@ export class BaseCharacterDemo extends Component {
     }
 
     private updateDirectionTowards(targetPosition: Vec3): void {
-        const direction = new Vec3();
+        // 【性能优化】复用静态临时变量，避免频繁创建对象
+        const direction = TempVarPool.tempVec3_2;
         Vec3.subtract(direction, targetPosition, this.node.position);
     
         if (Math.abs(direction.x) > Math.abs(direction.y)) {
@@ -1310,9 +1357,6 @@ export class BaseCharacterDemo extends Component {
 
     async onLoad() {
         await this.ensureManagers();
-        
-        console.log(`[${this.getCharacterDisplayName()}] 开始初始化通用角色演示...`);
-        
         // 等待数据管理器加载完成
         await this.waitForDataManager();
         
@@ -1382,6 +1426,12 @@ export class BaseCharacterDemo extends Component {
         const controlModeStr = this.controlMode === ControlMode.MANUAL ? '手动控制' : 'AI控制';
         console.log(`🎯 [${this.getCharacterDisplayName()}] 攻击类型: ${attackType}${skillInfo}, 控制模式: ${controlModeStr}`);
 
+        // 注册到目标选择器
+        this.registerToTargetSelector();
+        
+        // 打印碰撞映射信息（调试用）
+        this.printCollisionInfo();
+        
         console.log(`[${this.getCharacterDisplayName()}] 初始化完成！`);
         console.log('🎮 控制说明：WSAD移动，J键攻击（攻击时无法移动），H键受伤测试，K键死亡测试');
     }
@@ -1465,8 +1515,6 @@ export class BaseCharacterDemo extends Component {
                 this.characterStats.initWithEnemyData(this.enemyData);
             }
             
-            console.log(`[${this.getCharacterDisplayName()}] 成功加载配置:`, this.enemyData.name);
-            console.log(`[${this.getCharacterDisplayName()}] 攻击间隔: ${this.attackCooldown}秒, 血量: ${this.enemyData.baseHealth}, 移动速度: ${this.enemyData.moveSpeed}`);
         } else {
             console.error(`[${this.getCharacterDisplayName()}] 无法加载配置 ${configId}`);
         }
@@ -1484,9 +1532,79 @@ export class BaseCharacterDemo extends Component {
         console.log(`[${this.getCharacterDisplayName()}] 已保存节点原始位置:`, this.originalPosition);
         
         this.animationComponent = this.getComponent(Animation) || this.addComponent(Animation);
-        console.log(`[${this.getCharacterDisplayName()}] Animation 组件已准备就绪`);
-        console.log(`[${this.getCharacterDisplayName()}] Sprite组件已配置`);
-        console.log(`[${this.getCharacterDisplayName()}] CharacterStats组件已配置`);
+        this.rigidBody = this.getComponent(RigidBody2D) || this.addComponent(RigidBody2D);
+        this.collider = this.getComponent(Collider2D) || this.addComponent(Collider2D);
+        
+        // 配置刚体组件
+        this.setupRigidBody();
+        
+        // 配置碰撞体组件  
+        this.setupCollider();
+    }
+
+    /**
+     * 配置刚体组件
+     */
+    private setupRigidBody(): void {
+        if (!this.rigidBody) return;
+        
+        // 设置为动态刚体，可以移动但受物理影响
+        this.rigidBody.type = ERigidBody2DType.Dynamic;
+        
+        // 设置基础物理属性
+        this.rigidBody.linearDamping = 10; // 线性阻尼，使角色停止时更快减速
+        this.rigidBody.angularDamping = 10; // 角度阻尼，防止旋转
+        this.rigidBody.gravityScale = 0; // 不受重力影响（2D俯视角游戏）
+        this.rigidBody.allowSleep = false; // 不允许休眠，保持物理更新
+        this.rigidBody.fixedRotation = true; // 固定旋转，角色不应该旋转
+        
+        // 启用碰撞监听
+        this.rigidBody.enabledContactListener = true;
+        this.rigidBody.bullet = false; // 角色不是高速物体，不需要连续碰撞检测
+        
+        // 根据当前阵营设置物理分组
+        const currentFaction = this.getFaction();
+        const physicsGroup = factionManager.getFactionPhysicsGroup(currentFaction);
+        this.rigidBody.group = physicsGroup;
+        
+        console.log(`[${this.getCharacterDisplayName()}] 刚体组件配置完成，阵营: ${currentFaction}，分组: ${physicsGroup}`);
+    }
+
+    /**
+     * 配置碰撞体组件
+     */
+    private setupCollider(): void {
+        if (!this.collider || !this.enemyData) return;
+        
+        // 确保是BoxCollider2D类型
+        if (!(this.collider instanceof BoxCollider2D)) {
+            // 如果不是BoxCollider2D，移除当前碰撞体并添加新的
+            this.node.removeComponent(this.collider);
+            this.collider = this.addComponent(BoxCollider2D);
+        }
+        
+        const boxCollider = this.collider as any; // BoxCollider2D类型
+        
+        // 根据敌人配置设置碰撞体尺寸
+        const colliderSize = this.enemyData.colliderSize;
+        if (colliderSize) {
+            boxCollider.size.width = colliderSize.width;
+            boxCollider.size.height = colliderSize.height;
+        } else {
+            // 默认碰撞体尺寸
+            boxCollider.size.width = 50;
+            boxCollider.size.height = 50;
+        }
+        
+        // 设置为实体碰撞，不允许穿过
+        boxCollider.sensor = false;
+        
+        // 根据当前阵营设置物理分组
+        const currentFaction = this.getFaction();
+        const physicsGroup = factionManager.getFactionPhysicsGroup(currentFaction);
+        boxCollider.group = physicsGroup;
+        
+        console.log(`[${this.getCharacterDisplayName()}] 碰撞体组件配置完成，尺寸: ${boxCollider.size.width}x${boxCollider.size.height}，阵营: ${currentFaction}，分组: ${physicsGroup}`);
     }
 
     /**
@@ -1542,9 +1660,8 @@ export class BaseCharacterDemo extends Component {
      * 尝试攻击
      */
     private tryAttack(): void {
-        // 检查是否在攻击状态中
+        // 检查是否在攻击状态中 (这个检查可以保留，作为快速否决)
         if (this.stateMachine?.isInState(CharacterState.ATTACKING)) {
-            console.log(`[${this.getCharacterDisplayName()}] 正在攻击中，无法重复攻击`);
             return;
         }
         
@@ -1558,9 +1675,10 @@ export class BaseCharacterDemo extends Component {
         
         // 记录攻击时间
         this.lastAttackTime = currentTime;
-        console.log(`[${this.getCharacterDisplayName()}] 发起攻击，下次攻击间隔: ${this.attackCooldown}秒`);
         
-        this.stateMachine?.transitionTo(CharacterState.ATTACKING);
+        // 【核心修改】设置攻击意图，而不是直接转换状态
+        this.wantsToAttack = true; 
+        console.log(`[${this.getCharacterDisplayName()}] 产生攻击意图`);
     }
 
     /**
@@ -1582,21 +1700,10 @@ export class BaseCharacterDemo extends Component {
         
         // 根据移动方向更新角色朝向
         if (this.moveDirection.length() > 0) {
-            this.updateDirection();
+            this.updateDirection(); // updateDirection内部也只更新朝向，不动状态机
         }
-        
-        // 只有在非攻击状态下才根据移动状态切换状态机
-        if (!this.stateMachine?.isInState(CharacterState.ATTACKING)) {
-            const isMoving = this.moveDirection.length() > 0;
-            const currentState = this.stateMachine?.getCurrentState();
-            
-            if (isMoving && currentState !== CharacterState.WALKING) {
-                this.stateMachine?.transitionTo(CharacterState.WALKING);
-            } else if (!isMoving && currentState !== CharacterState.IDLE && currentState === CharacterState.WALKING) {
-                // 【修复】只有从WALKING状态才转换到IDLE，避免从IDLE转换到IDLE
-                this.stateMachine?.transitionTo(CharacterState.IDLE);
-            }
-        }
+
+        // 【移除】所有 stateMachine.transitionTo 的逻辑
     }
 
     /**
@@ -1644,10 +1751,12 @@ export class BaseCharacterDemo extends Component {
     /**
      * 播放攻击动画并处理结束回调
      */
-    public playAttackAnimation(): void {
+    public playAttackAnimation(onFinished?: () => void): void {
         if (!this.animationComponent || !this.enemyData) {
             console.warn(`[${this.getCharacterDisplayName()}] 动画组件或敌人数据未初始化`);
-            this.determineStateAfterAttack();
+            if (onFinished) {
+                onFinished();
+            }
             return;
         }
 
@@ -1669,42 +1778,22 @@ export class BaseCharacterDemo extends Component {
             // 设置攻击动画结束回调
             this.animationComponent.once(Animation.EventType.FINISHED, () => {
                 console.log(`[${this.getCharacterDisplayName()}] 攻击动画结束: ${animationName}`);
-                // 根据当前按键状态决定进入的状态
-                this.determineStateAfterAttack();
+                // 调用传入的回调
+                if (onFinished) {
+                    onFinished();
+                }
+                // 不再需要默认的状态决策，AttackingState 会自己处理
             });
         } else {
             console.warn(`[${this.getCharacterDisplayName()}] 攻击动画播放失败: ${animationName}`);
-            // 如果动画播放失败，也根据当前按键状态决定状态
-            this.determineStateAfterAttack();
-        }
-    }
-
-    /**
-     * 攻击结束后根据当前按键状态决定进入的状态
-     */
-    private determineStateAfterAttack(): void {
-        // 重新检查当前按键状态
-        this.updateMoveDirection();
-        
-        if (this.stateMachine) {
-            // 根据当前移动方向决定状态
-            const currentState = this.stateMachine.getCurrentState();
-            
-            if (this.moveDirection.length() > 0) {
-                // 有移动输入，进入行走状态
-                if (currentState !== CharacterState.WALKING) {
-                    console.log(`[${this.getCharacterDisplayName()}] 攻击结束，检测到移动输入，进入行走状态`);
-                    this.stateMachine.transitionTo(CharacterState.WALKING);
-                }
-            } else {
-                // 没有移动输入，进入待机状态
-                if (currentState !== CharacterState.IDLE) {
-                    console.log(`[${this.getCharacterDisplayName()}] 攻击结束，无移动输入，进入待机状态`);
-                    this.stateMachine.transitionTo(CharacterState.IDLE);
-                }
+            // 如果动画播放失败，也立即调用回调
+            if (onFinished) {
+                onFinished();
             }
         }
     }
+
+
 
     /**
      * 状态机转换接口
@@ -1724,110 +1813,85 @@ export class BaseCharacterDemo extends Component {
      * 更新函数 - 支持AI和手动模式
      */
     protected update(deltaTime: number): void {
-        // AI模式下的更新逻辑
+        // 如果是AI模式，让AI更新意图
         if (this.controlMode === ControlMode.AI && this.characterStats?.isAlive) {
             this.updateAI(deltaTime);
         }
 
-        // 让状态机处理当前状态（无论是AI设置的移动方向还是手动输入的移动方向）
-        if (this.stateMachine) {
-            this.stateMachine.update(deltaTime);
-        }
+        // 让状态机根据最新的意图进行更新和决策
+        this.stateMachine?.update(deltaTime);
+
+        // 【重要】在每一帧的最后，重置一次性的意图，比如攻击意图
+        this.wantsToAttack = false;
     }
 
     /**
-     * AI主更新逻辑
+     * AI主更新逻辑（性能优化：目标搜索已移至定时器）
      */
     private updateAI(deltaTime: number): void {
         if (!this.characterStats || !this.characterStats.isAlive || !this.enemyData) {
             return;
         }
         
-        // 1. 搜索目标
-        this.updateAITargetSearch();
+        // 【性能优化】目标搜索逻辑已移动到独立的定时器中，不再在每帧执行
 
-        // 2. 决策与状态转换
+        // 2. 决策与意图更新
         if (this.currentTarget && this.currentTarget.isValid) {
             const distance = Vec3.distance(this.node.position, this.currentTarget.position);
             const attackRange = this.enemyData.attackRange || 60;
 
             if (distance <= attackRange) {
-                // 在攻击范围内 -> 攻击
+                // 在攻击范围内 -> 产生攻击意图
                 this.moveDirection.set(0, 0);
                 this.updateDirectionTowards(this.currentTarget.position);
-                if (this.stateMachine?.getCurrentState() !== CharacterState.ATTACKING) {
-                    this.stateMachine?.transitionTo(CharacterState.ATTACKING);
-                }
+                this.wantsToAttack = true; // 设置攻击意图
             } else {
-                // 不在攻击范围 -> 追击
+                // 不在攻击范围 -> 产生移动意图
                 this.setAIMoveDirection(this.currentTarget.position);
-                if (this.stateMachine?.getCurrentState() !== CharacterState.WALKING) {
-                    this.stateMachine?.transitionTo(CharacterState.WALKING);
-                }
             }
         } else {
-            // 没有目标 -> 返回出生点或待机
+            // 没有目标 -> 产生回归或待机的移动意图
             const distanceFromHome = Vec3.distance(this.node.position, this.originalPosition);
             if (distanceFromHome > 10) { // 使用一个小的阈值判断是否 "在家"
                 this.setAIMoveDirection(this.originalPosition);
-                if (this.stateMachine?.getCurrentState() !== CharacterState.WALKING) {
-                    this.stateMachine?.transitionTo(CharacterState.WALKING);
-                }
             } else {
                 this.moveDirection.set(0, 0);
-                if (this.stateMachine?.getCurrentState() !== CharacterState.IDLE) {
-                    this.stateMachine?.transitionTo(CharacterState.IDLE);
-                }
             }
         }
     }
 
     /**
-     * 处理角色移动 - 由状态机调用
+     * 处理角色移动 - 由状态机调用（使用物理系统速度控制）
      */
     public handleMovement(deltaTime: number): void {
-        if (!this.enemyData || this.moveDirection.length() === 0) return;
+        if (!this.enemyData || this.moveDirection.length() === 0) {
+            // 没有移动输入时，停止刚体移动
+            if (this.rigidBody) {
+                this.rigidBody.linearVelocity = new Vec2(0, 0);
+            }
+            return;
+        }
+        
+        if (!this.rigidBody) {
+            console.warn(`[${this.getCharacterDisplayName()}] 刚体组件未初始化，无法使用物理移动`);
+            return;
+        }
         
         // 使用配置中的移动速度
         const speed = this.enemyData.moveSpeed * this.moveSpeed;
-        const moveDistance = speed * deltaTime;
         
-        // 计算新位置
-        const currentPos = this.node.position;
-        const newPos = new Vec3(
-            currentPos.x + this.moveDirection.x * moveDistance,
-            currentPos.y + this.moveDirection.y * moveDistance,
-            currentPos.z
+        // 【物理移动】设置刚体的线性速度而不是直接设置位置
+        const velocity = TempVarPool.tempVec2_1;
+        velocity.set(
+            this.moveDirection.x * speed,
+            this.moveDirection.y * speed
         );
         
-        // 简单边界检查
-        newPos.x = Math.max(-960, Math.min(960, newPos.x));
-        newPos.y = Math.max(-540, Math.min(540, newPos.y));
+        // 应用速度到刚体
+        this.rigidBody.linearVelocity = velocity;
         
-        // 应用新位置
-        this.node.setPosition(newPos);
-    }
-
-    // ============= 对象池管理相关方法 =============
-
-    /**
-     * 从对象池创建角色实例（推荐使用CharacterPoolFactory.createCharacter）
-     * @deprecated 请使用 CharacterPoolFactory.getInstance().createCharacter() 方法
-     * @param poolName 对象池名称
-     * @param characterId 角色ID
-     * @returns 角色节点
-     */
-    public static createFromPool(poolName: string, characterId: string): Node | null {
-        console.warn('[BaseCharacterDemo] createFromPool方法已废弃，请使用CharacterPoolFactory.createCharacter()');
-        const node = poolManager.get(poolName);
-        if (node) {
-            const character = node.getComponent(BaseCharacterDemo);
-            if (character) {
-                character.setPoolingProperties(true, poolName, characterId);
-                character.onReuseFromPool();
-            }
-        }
-        return node;
+        // 注释：边界检查现在由物理系统和碰撞体处理
+        // 如果需要硬性边界，可以在场景中添加不可见的墙壁碰撞体
     }
 
     /**
@@ -1853,7 +1917,6 @@ export class BaseCharacterDemo extends Component {
         this.isFromPool = isFromPool;
         this.poolName = poolName;
         this.characterId = characterId;
-        this.enablePooling = true;
     }
 
     /**
@@ -1893,14 +1956,25 @@ export class BaseCharacterDemo extends Component {
             this.stateMachine.start();
         }
         
+        // 【性能优化】如果是AI模式，重新启动目标搜索定时器
+        if (this.controlMode === ControlMode.AI && this.enemyData) {
+            const searchInterval = this.targetSearchInterval / 1000; // 转换为秒
+            this.schedule(this.updateAITargetSearch, searchInterval);
+            console.log(`[${this.getCharacterDisplayName()}] AI目标搜索定时器已重新启动，间隔: ${searchInterval}秒`);
+        }
+        
         console.log(`[BaseCharacterDemo] 重用完成，最终敌人类型: ${this.explicitEnemyType || '未设置'}`);
     }
 
     /**
-     * 回收到池时的回调
+     * 回收到池时的回调（性能优化：清理定时器）
      */
     public onRecycleToPool(): void {
         console.log(`[${this.getCharacterDisplayName()}] 回收到对象池 ID: ${this.characterId}`);
+        
+        // 【性能优化】清理AI目标搜索定时器
+        this.unschedule(this.updateAITargetSearch);
+        console.log(`[${this.getCharacterDisplayName()}] AI目标搜索定时器已清理`);
         
         // 清理输入监听
         this.cleanupInput();
@@ -1935,6 +2009,14 @@ export class BaseCharacterDemo extends Component {
         
         // 重置攻击时间
         this.lastAttackTime = 0;
+        
+        // 重置物理状态
+        if (this.rigidBody) {
+            this.rigidBody.linearVelocity = new Vec2(0, 0);
+            this.rigidBody.angularVelocity = 0;
+            // 唤醒刚体以确保物理更新
+            this.rigidBody.wakeUp();
+        }
         
         // 重置血量
         if (this.characterStats) {
@@ -1993,11 +2075,26 @@ export class BaseCharacterDemo extends Component {
      * @param faction 阵营
      */
     public setFaction(faction: Faction): void {
-        if (this.characterStats) {
-            this.characterStats.faction = faction;
-            this.updateCharacterPhysicsGroup(faction); // 设置物理分组
-            console.log(`[${this.getCharacterDisplayName()}] 阵营已设置为: ${faction}`);
+        const oldFaction = this.getFaction();
+        const newFactionString = FactionUtils.factionToString(faction);
+        
+        // 如果阵营发生变化，需要重新注册
+        if (oldFaction !== faction) {
+            // 先反注册旧阵营
+            this.deregisterFromTargetSelector();
+            
+            // 设置新阵营
+            this.aiFaction = newFactionString;
+            
+            // 重新注册新阵营
+            this.registerToTargetSelector();
+            
+            console.log(`[${this.getCharacterDisplayName()}] 阵营已变更: ${oldFaction} → ${faction} (aiFaction: ${this.aiFaction})`);
+        } else {
+            console.log(`[${this.getCharacterDisplayName()}] 阵营未变化: ${faction}`);
         }
+        
+        this.updateCharacterPhysicsGroup(faction); // 设置物理分组
     }
 
     /**
@@ -2011,38 +2108,51 @@ export class BaseCharacterDemo extends Component {
             return;
         }
 
-        let group: number;
-        switch (faction) {
-            case Faction.PLAYER:
-                group = PhysicsGroup.PLAYER;
-                break;
-            case Faction.FACTION_RED:
-                group = PhysicsGroup.FACTION_RED;
-                break;
-            case Faction.FACTION_BLUE:
-                group = PhysicsGroup.FACTION_BLUE;
-                break;
-            case Faction.FACTION_GREEN:
-                group = PhysicsGroup.FACTION_GREEN;
-                break;
-            case Faction.FACTION_PURPLE:
-                group = PhysicsGroup.FACTION_PURPLE;
-                break;
-            default:
-                group = PhysicsGroup.DEFAULT;
-                break;
-        }
-
+        // 使用FactionManager获取对应的物理分组
+        const group = factionManager.getFactionPhysicsGroup(faction);
         collider.group = group;
-        const groupName = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === group) || 'UNKNOWN';
-        console.log(`[${this.getCharacterDisplayName()}] 物理分组已更新为: ${groupName} (${group})`);
+        
+        console.log(`[${this.getCharacterDisplayName()}] 物理分组已更新为: ${faction} -> ${group}`);
+        
+        // 同时更新刚体的分组（如果存在）
+        if (this.rigidBody) {
+            this.rigidBody.group = group;
+            console.log(`[${this.getCharacterDisplayName()}] 刚体分组也已更新为: ${group}`);
+        }
     }
 
     /**
      * 获取角色阵营
      */
     public getFaction(): Faction {
-        return this.characterStats ? this.characterStats.faction : Faction.PLAYER;
+        // 直接从aiFaction属性获取阵营信息
+        return FactionUtils.stringToFaction(this.aiFaction);
+    }
+    
+    /**
+     * 向目标选择器注册当前角色
+     */
+    private registerToTargetSelector(): void {
+        const selector = TargetSelector.getInstance();
+        if (selector) {
+            const faction = this.getFaction();
+            selector.registerTarget(this.node, faction);
+            console.log(`%c[BaseCharacterDemo] 📝 已注册到目标选择器: ${this.node.name} → ${faction}`, 'color: green');
+        } else {
+            console.warn(`%c[BaseCharacterDemo] ⚠️ 目标选择器未初始化，无法注册: ${this.node.name}`, 'color: orange');
+        }
+    }
+    
+    /**
+     * 从目标选择器反注册当前角色
+     */
+    private deregisterFromTargetSelector(): void {
+        const selector = TargetSelector.getInstance();
+        if (selector) {
+            const faction = this.getFaction();
+            selector.deregisterTarget(this.node, faction);
+            console.log(`%c[BaseCharacterDemo] 🗑️ 已从目标选择器反注册: ${this.node.name} ← ${faction}`, 'color: red');
+        }
     }
 
     /**
@@ -2061,13 +2171,13 @@ export class BaseCharacterDemo extends Component {
             return;
         }
 
-        // 对于手动控制的角色，设置为玩家阵营（只有在还是默认PLAYER阵营时才设置）
+        // 对于手动控制的角色，设置为玩家阵营（只有在还是默认player阵营时才设置）
         if (this.controlMode === ControlMode.MANUAL) {
-            if (this.characterStats.faction === Faction.PLAYER) {
+            if (this.aiFaction === "player") {
                 this.setFaction(Faction.PLAYER);
                 console.log(`[${this.getCharacterDisplayName()}] 手动模式，设置默认玩家阵营`);
             } else {
-                console.log(`[${this.getCharacterDisplayName()}] 手动模式，但阵营已设置为: ${this.characterStats.faction}`);
+                console.log(`[${this.getCharacterDisplayName()}] 手动模式，但阵营已设置为: ${this.aiFaction}`);
             }
         }
     }
@@ -2120,6 +2230,12 @@ export class BaseCharacterDemo extends Component {
     }
 
     onDestroy() {
+        // 【性能优化】清理AI目标搜索定时器
+        this.unschedule(this.updateAITargetSearch);
+        
+        // 从目标选择器反注册
+        this.deregisterFromTargetSelector();
+        
         // 清理输入监听
         this.cleanupInput();
         
@@ -2128,7 +2244,13 @@ export class BaseCharacterDemo extends Component {
             this.animationComponent.stop();
         }
         
-        console.log(`[${this.getCharacterDisplayName()}] 组件已清理`);
+        // 清理物理组件
+        if (this.rigidBody) {
+            this.rigidBody.linearVelocity = new Vec2(0, 0);
+            this.rigidBody.angularVelocity = 0;
+        }
+        
+        console.log(`[${this.getCharacterDisplayName()}] 组件已清理（包括定时器和物理组件清理）`);
     }
 
     /**
@@ -2289,6 +2411,31 @@ export class BaseCharacterDemo extends Component {
     }
 
     /**
+     * 获取角色的碰撞信息（调试用）
+     */
+    public getCollisionInfo(): string {
+        const currentFaction = this.getFaction();
+        const physicsGroup = factionManager.getFactionPhysicsGroup(currentFaction);
+        const enemyGroups = factionManager.getEnemyPhysicsGroups(currentFaction);
+        const friendlyGroups = factionManager.getFriendlyPhysicsGroups(currentFaction);
+        
+        let info = `=== ${this.getCharacterDisplayName()} 碰撞信息 ===\n`;
+        info += `阵营: ${currentFaction}\n`;
+        info += `物理分组: ${physicsGroup}\n`;
+        info += `敌对分组: [${enemyGroups.join(', ')}]\n`;
+        info += `友好分组: [${friendlyGroups.join(', ')}]\n`;
+        
+        return info;
+    }
+
+    /**
+     * 打印碰撞信息到控制台（调试用）
+     */
+    public printCollisionInfo(): void {
+        console.log(this.getCollisionInfo());
+    }
+
+    /**
      * 获取所有可用的敌人类型（用于调试）(从UniversalCharacterDemo合并)
      */
     public getAvailableEnemyTypes(): string[] {
@@ -2446,77 +2593,3 @@ export class CharacterPoolInitializer {
     }
 }
 
-/*
-============= 使用示例 =============
-
-// 【自动初始化】对象池会根据关卡自动初始化，无需手动调用
-
-// === 测试模式 ===
-// 测试模式下会自动初始化所有角色类型的对象池
-// 在GameManager的manualTestMode = true时自动触发
-
-// === 正常模式 ===
-// 正常模式下根据关卡数据动态初始化所需的角色对象池
-// 在LevelManager.startLevel()时自动触发
-
-// === 重要修复 ===
-// ✅ 从对象池创建的角色会自动设置敌人类型标志位
-        // ✅ BaseCharacterDemo.getEnemyConfigId()现在能正确获取敌人类型
-// ✅ 不再出现"正常模式但未设置敌人类型"的警告
-
-// 1. 创建玩家角色
-const player = BaseCharacterDemo.createPlayer('ent_normal', new Vec3(0, 0, 0));
-
-// 2. 创建单个AI敌人
-const enemy = BaseCharacterDemo.createAIEnemy('goblin_normal', {
-    position: new Vec3(100, 100, 0),
-    faction: 'red',
-    behaviorType: 'melee'
-});
-
-// 3. 批量创建AI敌人
-const enemies = BaseCharacterDemo.createAIEnemyBatch('orc_normal', 5, {
-    faction: 'blue',
-    behaviorType: 'ranged'
-});
-
-// 4. 手动回收角色
-if (enemy) {
-    enemy.returnToPool();
-}
-
-// 5. 回收所有同类型角色
-BaseCharacterDemo.recycleAllByType('goblin_normal');
-
-// 6. 获取活跃角色数量
-const activeCount = BaseCharacterDemo.getActiveCharacterCount();
-console.log(`当前活跃角色数量: ${activeCount}`);
-
-// 7. 关卡结束时自动清理
-// CharacterPoolInitializer.cleanup(); // 通常由系统自动调用
-
-// === MonsterSpawner集成 ===
-// MonsterSpawner会自动使用新的对象池系统
-// 关卡配置示例：
-// {
-//     "monsterSpawners": [{
-//         "enemies": [{
-//             "type": "ent_normal",     // 自动使用对象池创建
-//             "faction": "red",
-//             "count": 5
-//         }]
-//     }]
-// }
-
-============= 优势 =============
-
-1. **性能优化**: 避免频繁创建和销毁对象，减少GC压力
-2. **统一管理**: 所有角色创建都通过对象池，便于监控和调试
-3. **自动回收**: 角色死亡后自动回收到对象池
-4. **类型安全**: 强类型检查，避免错误的池化操作
-5. **便捷API**: 提供简单易用的创建和管理接口
-6. **生命周期**: 完整的池化生命周期管理（重用/回收）
-7. **批量操作**: 支持批量创建和回收
-8. **阵营管理**: 自动处理不同阵营的AI角色
-
-*/ 

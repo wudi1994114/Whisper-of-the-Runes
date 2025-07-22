@@ -1,6 +1,6 @@
 // assets/scripts/core/TargetSelector.ts
 
-import { _decorator, Component, Node, Vec3, director } from 'cc';
+import { _decorator, Component, Node, Vec3 } from 'cc';
 import { ITargetSelector, TargetInfo } from './MonsterAI';
 import { Faction } from '../configs/FactionConfig';
 import { factionManager } from './FactionManager';
@@ -11,6 +11,7 @@ const { ccclass, property } = _decorator;
 /**
  * 目标选择器
  * 负责为AI查找和选择合适的攻击目标
+ * 使用注册/反注册模式管理目标，提供高性能的目标查找服务
  */
 @ccclass('TargetSelector')
 export class TargetSelector extends Component implements ITargetSelector {
@@ -18,19 +19,20 @@ export class TargetSelector extends Component implements ITargetSelector {
     // 单例实例
     private static _instance: TargetSelector | null = null;
     
-    // 缓存系统
-    private targetCache: Map<Faction, Node[]> = new Map();
-    private lastCacheUpdateTime: number = 0;
-    private cacheUpdateInterval: number = 500; // 500ms更新一次缓存
+    // 目标注册表：存储按阵营分类的目标节点
+    private targetRegistry: Map<Faction, Node[]> = new Map();
     
     protected onLoad(): void {
         TargetSelector._instance = this;
+        console.log(`%c[TargetSelector] 🎯 目标选择器已初始化`, 'color: blue; font-weight: bold');
     }
     
     protected onDestroy(): void {
         if (TargetSelector._instance === this) {
             TargetSelector._instance = null;
         }
+        this.targetRegistry.clear();
+        console.log(`%c[TargetSelector] 🗑️ 目标选择器已销毁`, 'color: orange');
     }
     
     /**
@@ -41,18 +43,64 @@ export class TargetSelector extends Component implements ITargetSelector {
     }
     
     /**
+     * 注册目标到指定阵营
+     * @param target 目标节点
+     * @param faction 目标所属阵营
+     */
+    public registerTarget(target: Node, faction: Faction): void {
+        if (!target || !target.isValid) {
+            console.warn(`%c[TargetSelector] ⚠️ 尝试注册无效的目标节点`, 'color: orange');
+            return;
+        }
+        
+        // 确保阵营列表存在
+        if (!this.targetRegistry.has(faction)) {
+            this.targetRegistry.set(faction, []);
+            console.log(`%c[TargetSelector] 🆕 创建阵营注册表: ${faction}`, 'color: green');
+        }
+        
+        const targets = this.targetRegistry.get(faction)!;
+        
+        // 防止重复注册
+        if (targets.indexOf(target) === -1) {
+            targets.push(target);
+            console.log(`%c[TargetSelector] ✅ 注册目标: ${target.name} → ${faction} (总数: ${targets.length})`, 'color: green');
+        } else {
+            console.warn(`%c[TargetSelector] ⚠️ 目标已存在，跳过注册: ${target.name} → ${faction}`, 'color: orange');
+        }
+    }
+    
+    /**
+     * 从指定阵营中反注册目标
+     * @param target 目标节点
+     * @param faction 目标所属阵营
+     */
+    public deregisterTarget(target: Node, faction: Faction): void {
+        const targets = this.targetRegistry.get(faction);
+        if (!targets) {
+            console.warn(`%c[TargetSelector] ⚠️ 阵营不存在，无法反注册: ${faction}`, 'color: orange');
+            return;
+        }
+        
+        const index = targets.indexOf(target);
+        if (index > -1) {
+            targets.splice(index, 1);
+            console.log(`%c[TargetSelector] ❌ 反注册目标: ${target.name} ← ${faction} (剩余: ${targets.length})`, 'color: red');
+            
+            // 如果该阵营没有目标了，可以选择清理注册表（可选）
+            if (targets.length === 0) {
+                console.log(`%c[TargetSelector] 🧹 阵营 ${faction} 已无目标，保留空列表`, 'color: gray');
+            }
+        } else {
+            console.warn(`%c[TargetSelector] ⚠️ 目标不在注册表中，无法反注册: ${target.name} ← ${faction}`, 'color: orange');
+        }
+    }
+    
+    /**
      * 查找最佳目标
      */
     public findBestTarget(myPosition: Vec3, myFaction: Faction, detectionRange: number): TargetInfo | null {
-        const currentTime = Date.now();
-        
-        // 更新缓存
-        if (currentTime - this.lastCacheUpdateTime > this.cacheUpdateInterval) {
-            this.updateTargetCache();
-            this.lastCacheUpdateTime = currentTime;
-        }
-        
-        // 确定敌对阵营
+        // 确定敌对阵营      
         const enemyFactions = this.getEnemyFactions(myFaction);
         
         let bestTarget: TargetInfo | null = null;
@@ -98,11 +146,21 @@ export class TargetSelector extends Component implements ITargetSelector {
      * 获取指定阵营的所有目标
      */
     public getTargetsByFaction(targetFaction: Faction): Node[] {
-        const cached = this.targetCache.get(targetFaction);
-        if (cached) {
-            return cached.filter(node => node && node.isValid);
+        const targets = this.targetRegistry.get(targetFaction);
+        if (!targets) {
+            return [];
         }
-        return [];
+        
+        // 清理无效的节点并返回有效的目标列表
+        const validTargets = targets.filter(node => node && node.isValid);
+        
+        // 如果发现无效节点，更新注册表
+        if (validTargets.length !== targets.length) {
+            this.targetRegistry.set(targetFaction, validTargets);
+            console.log(`%c[TargetSelector] 🧹 清理无效目标: ${targetFaction} (剩余: ${validTargets.length})`, 'color: gray');
+        }
+        
+        return validTargets;
     }
     
     /**
@@ -132,163 +190,53 @@ export class TargetSelector extends Component implements ITargetSelector {
     }
     
     /**
-     * 更新目标缓存
-     */
-    public updateTargetCache(): void {
-        this.targetCache.clear();
-        
-        const scene = director.getScene();
-        if (!scene) return;
-        
-        console.log(`%c[TARGET CACHE] 开始更新缓存...`, 'color: blue');
-        
-        const allNodes = scene.children;
-        let totalProcessed = 0;
-        
-        for (const node of allNodes) {
-            totalProcessed++;
-            const faction = this.determineFaction(node);
-            if (faction) {
-                if (!this.targetCache.has(faction)) {
-                    this.targetCache.set(faction, []);
-                }
-                this.targetCache.get(faction)!.push(node);
-                console.log(`%c[TARGET CACHE] ✅ 添加目标: ${node.name} → ${faction}`, 'color: blue');
-            } else {
-                // 【调试】输出未识别阵营的节点
-                const hasCharacterStats = !!node.getComponent('CharacterStats');
-                const hasBaseCharacterDemo = !!node.getComponent('BaseCharacterDemo');
-                if (hasCharacterStats || hasBaseCharacterDemo) {
-                    console.log(`%c[TARGET CACHE] ⚠️ 跳过节点: ${node.name} (未识别阵营) - CharacterStats:${hasCharacterStats}, BaseCharacterDemo:${hasBaseCharacterDemo}`, 'color: orange');
-                }
-            }
-            
-            // 递归检查子节点
-            this.checkChildrenForTargets(node, this.targetCache);
-        }
-        
-        console.log(`%c[TARGET CACHE] 缓存更新完成！处理了 ${totalProcessed} 个顶级节点`, 'color: blue');
-        for (const [faction, targets] of this.targetCache.entries()) {
-            console.log(`%c[TARGET CACHE]   ${faction}: ${targets.length} 个目标`, 'color: blue');
-            targets.forEach(target => console.log(`%c[TARGET CACHE]     · ${target.name} 位置: (${target.position.x.toFixed(0)}, ${target.position.y.toFixed(0)})`, 'color: lightblue'));
-        }
-    }
-    
-    /**
-     * 递归检查子节点
-     */
-    private checkChildrenForTargets(parentNode: Node, cache: Map<Faction, Node[]>): void {
-        for (const child of parentNode.children) {
-            const faction = this.determineFaction(child);
-            if (faction) {
-                if (!cache.has(faction)) {
-                    cache.set(faction, []);
-                }
-                cache.get(faction)!.push(child);
-            }
-            
-            // 继续递归
-            if (child.children.length > 0) {
-                this.checkChildrenForTargets(child, cache);
-            }
-        }
-    }
-    
-    /**
-     * 确定节点的阵营
-     */
-    private determineFaction(node: Node): Faction | null {
-        // 通过节点名称判断
-        const nodeName = node.name.toLowerCase();
-        
-        // 玩家
-        if (nodeName.includes('player') || node.getComponent('PlayerController')) {
-            return Faction.PLAYER;
-        }
-        
-        // 【重构】检查BaseCharacterDemo组件和AI模式
-        const characterDemo = node.getComponent('BaseCharacterDemo');
-        const characterStats = node.getComponent(CharacterStats);
-        
-        if (characterDemo || characterStats) {
-            const position = node.position;
-            
-            // 如果有BaseCharacterDemo组件，检查是否为AI模式
-            if (characterDemo) {
-                const controlMode = (characterDemo as any).controlMode;
-                const isAI = controlMode === 1; // ControlMode.AI = 1
-                
-                if (isAI) {
-                    // AI模式下，通过阵营属性直接获取阵营
-                    const aiFaction = (characterDemo as any).aiFaction;
-                    
-                    // 使用CharacterStats组件中的阵营信息
-                    const characterStats = node.getComponent('CharacterStats');
-                    if (characterStats) {
-                        const faction = (characterStats as any).faction;
-                        if (faction) {
-                            return faction;
-                        }
-                    }
-                    
-                    // 阵营字符串转换：只支持颜色阵营
-                    switch (aiFaction) {
-                        case 'red':
-                            return Faction.FACTION_RED;
-                        case 'blue':
-                            return Faction.FACTION_BLUE;
-                        case 'green':
-                            return Faction.FACTION_GREEN;
-                        case 'purple':
-                            return Faction.FACTION_PURPLE;
-                        case 'player': 
-                            return Faction.PLAYER;
-                        default:
-                            // 如果阵营属性不明确，默认为玩家阵营
-                            console.log(`%c[TARGET DEBUG] 阵营属性不明确，设为player: ${node.name}`, 'color: orange');
-                            return Faction.PLAYER;
-                    }
-                } else {
-                    console.log(`%c[TARGET DEBUG] 手动角色 ${node.name}: 跳过目标选择`, 'color: gray');
-                    return null; // 手动控制的角色不参与AI目标选择
-                }
-            }
-            
-            // 对于没有明确阵营信息的情况，返回null (不参与目标选择)
-            console.log(`%c[TARGET DEBUG] 无法确定阵营，跳过目标选择: ${node.name}`, 'color: orange');
-            return null;
-        }
-        
-        return null;
-    }
-    
-    /**
      * 获取敌对阵营列表
      */
     private getEnemyFactions(myFaction: Faction): Faction[] {
-        // 使用新的FactionManager来获取敌对阵营
         return factionManager.getEnemyFactions(myFaction);
     }
     
     /**
-     * 强制刷新缓存
+     * 获取所有已注册目标的数量统计
      */
-    public forceRefreshCache(): void {
-        this.updateTargetCache();
-        this.lastCacheUpdateTime = Date.now();
-    }
-    
-    /**
-     * 获取缓存统计信息
-     */
-    public getCacheStats(): { [key: string]: number } {
+    public getRegistrationStats(): { [key: string]: number } {
         const stats: { [key: string]: number } = {};
         
-        for (const [faction, targets] of this.targetCache) {
+        for (const [faction, targets] of this.targetRegistry) {
             stats[faction] = targets.filter(node => node && node.isValid).length;
         }
         
         return stats;
+    }
+    
+    /**
+     * 获取总的已注册目标数量
+     */
+    public getTotalRegisteredTargets(): number {
+        let total = 0;
+        for (const [, targets] of this.targetRegistry) {
+            total += targets.filter(node => node && node.isValid).length;
+        }
+        return total;
+    }
+    
+    /**
+     * 打印当前注册状态（调试用）
+     */
+    public printRegistrationStatus(): void {
+        console.log(`%c[TargetSelector] 📊 当前注册状态:`, 'color: cyan; font-weight: bold');
+        console.log(`%c[TargetSelector] ├─ 总目标数: ${this.getTotalRegisteredTargets()}`, 'color: cyan');
+        
+        for (const [faction, targets] of this.targetRegistry) {
+            const validTargets = targets.filter(node => node && node.isValid);
+            console.log(`%c[TargetSelector] ├─ ${faction}: ${validTargets.length} 个目标`, 'color: lightblue');
+            
+            validTargets.forEach((target, index) => {
+                const isLast = index === validTargets.length - 1;
+                const prefix = isLast ? '└─' : '├─';
+                console.log(`%c[TargetSelector] │  ${prefix} ${target.name} 位置: (${target.position.x.toFixed(0)}, ${target.position.y.toFixed(0)})`, 'color: lightblue');
+            });
+        }
     }
 }
 

@@ -4,65 +4,61 @@
     "collisionGroups": [
       {
         "index": 1,
-        "name": "RED"
-      },
-      {
-        "index": 2,
-        "name": "RED_PROJECTILE"
-      },
-      {
-        "index": 3,
-        "name": "BLUE"
-      },
-      {
-        "index": 4,
-        "name": "BLUE_PROJECTILE"
-      },
-      {
-        "index": 5,
-        "name": "GREEN"
-      },
-      {
-        "index": 6,
-        "name": "GREEN_PROJECTILE"
-      },
-      {
-        "index": 7,
-        "name": "PURPLE"
-      },
-      {
-        "index": 8,
-        "name": "PURPLE_PROJECTILE"
-      },
-      {
-        "index": 9,
-        "name": "PICKUP"
-      },
-      {
-        "index": 10,
-        "name": "TRIGGER"
-      },
-      {
-        "index": 11,
         "name": "PLAYER"
       },
       {
-        "index": 12,
+        "index": 2,
         "name": "PLAYER_PROJECTILE"
+      },
+      {
+        "index": 3,
+        "name": "RED"
+      },
+      {
+        "index": 4,
+        "name": "RED_PROJECTILE"
+      },
+      {
+        "index": 5,
+        "name": "BLUE"
+      },
+      {
+        "index": 6,
+        "name": "BLUE_PROJECTILE"
+      },
+      {
+        "index": 7,
+        "name": "GREEN"
+      },
+      {
+        "index": 8,
+        "name": "GREEN_PROJECTILE"
+      },
+      {
+        "index": 9,
+        "name": "PURPLE"
+      },
+      {
+        "index": 10,
+        "name": "PURPLE_PROJECTILE"
+      },
+      {
+        "index": 11,
+        "name": "WORLD_OBSTACLE"
       }
     ],
     "collisionMatrix": {
       "0": 0,
       "1": 8186,
-      "2": 2216,
-      "3": 6638,
-      "4": 2210,
-      "5": 6590,
-      "6": 2186,
-      "7": 6398,
-      "8": 2090,
-      "9": 2050,
-      "10": 2050,
+      "2": 2728,
+      "3": 8174,
+      "4": 2722,
+      "5": 8126,
+      "6": 2698,
+      "7": 7934,
+      "8": 2602,
+      "9": 3070,
+      "10": 2218,
       "11": 4094,
       "12": 170
     }

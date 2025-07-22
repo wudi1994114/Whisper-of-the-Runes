@@ -10,10 +10,10 @@ const { ccclass } = _decorator;
  */
 export enum Faction {
     PLAYER = 'player',              // 玩家阵营
-    FACTION_RED = 'red',            // 红色阵营 (火系/暴力)
-    FACTION_BLUE = 'blue',          // 蓝色阵营 (冰系/秩序)
-    FACTION_GREEN = 'green',        // 绿色阵营 (自然/野性)
-    FACTION_PURPLE = 'purple',      // 紫色阵营 (暗系/邪恶)
+    RED = 'red',                    // 红色阵营 (火系/暴力)
+    BLUE = 'blue',                  // 蓝色阵营 (冰系/秩序)
+    GREEN = 'green',                // 绿色阵营 (自然/野性)
+    PURPLE = 'purple',              // 紫色阵营 (暗系/邪恶)
 }
 
 /**
@@ -46,19 +46,19 @@ export interface FactionConfig {
  */
 export const DEFAULT_FACTION_RELATIONSHIPS: FactionRelationships = {
     [Faction.PLAYER]: { 
-        attacks: [Faction.FACTION_RED, Faction.FACTION_BLUE, Faction.FACTION_GREEN, Faction.FACTION_PURPLE] 
+        attacks: [Faction.RED, Faction.BLUE, Faction.GREEN, Faction.PURPLE] 
     },
-    [Faction.FACTION_RED]: { 
-        attacks: [Faction.PLAYER, Faction.FACTION_BLUE, Faction.FACTION_GREEN, Faction.FACTION_PURPLE] 
+    [Faction.RED]: { 
+        attacks: [Faction.PLAYER, Faction.BLUE, Faction.GREEN, Faction.PURPLE] 
     },
-    [Faction.FACTION_BLUE]: { 
-        attacks: [Faction.PLAYER, Faction.FACTION_RED, Faction.FACTION_GREEN, Faction.FACTION_PURPLE] 
+    [Faction.BLUE]: { 
+        attacks: [Faction.PLAYER, Faction.RED, Faction.GREEN, Faction.PURPLE] 
     },
-    [Faction.FACTION_GREEN]: { 
-        attacks: [Faction.PLAYER, Faction.FACTION_RED, Faction.FACTION_BLUE, Faction.FACTION_PURPLE] 
+    [Faction.GREEN]: { 
+        attacks: [Faction.PLAYER, Faction.RED, Faction.BLUE, Faction.PURPLE] 
     },
-    [Faction.FACTION_PURPLE]: { 
-        attacks: [Faction.PLAYER, Faction.FACTION_RED, Faction.FACTION_BLUE, Faction.FACTION_GREEN] 
+    [Faction.PURPLE]: { 
+        attacks: [Faction.PLAYER, Faction.RED, Faction.BLUE, Faction.GREEN] 
     }
 };
 
