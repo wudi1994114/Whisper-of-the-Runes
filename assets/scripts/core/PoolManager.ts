@@ -212,45 +212,8 @@ class PoolManager {
             this.initializeEnemyInstance(node, enemyData);
         }
 
-        // 【修复】现在可以安全地调用BaseCharacterDemo的重用回调
-        const characterDemo = node.getComponent('BaseCharacterDemo');
-        if (characterDemo && (characterDemo as any).onReuseFromPool) {
-            try {
-                (characterDemo as any).onReuseFromPool();
-                console.log(`PoolManager: 已调用BaseCharacterDemo的onReuseFromPool回调`);
-            } catch (error) {
-                console.warn(`PoolManager: 调用BaseCharacterDemo重用回调失败`, error);
-            }
-        }
-
         console.log(`PoolManager: 获取敌人实例完成 - ${poolName}, 节点已激活: ${node.active}`);
         return node;
-    }
-
-    /**
-     * 确保预制体实例上挂载了必要的组件
-     */
-    private ensureEssentialComponents(node: Node): void {
-        // 1. 确保有 CharacterStats 组件
-        let stats = node.getComponent(CharacterStats);
-        if (!stats) {
-            stats = node.addComponent(CharacterStats);
-            console.warn(`PoolManager: 节点 ${node.name} 缺少 CharacterStats 组件，已自动添加。`);
-        }
-
-        // 2. 确保有 HealthBarComponent 组件
-        let healthBar = node.getComponent(HealthBarComponent);
-        if (!healthBar) {
-            healthBar = node.addComponent(HealthBarComponent);
-            console.warn(`PoolManager: 节点 ${node.name} 缺少 HealthBarComponent 组件，已自动添加。`);
-        }
-
-        // 3. 确保有 MonsterAnimationController 组件
-        let animController = node.getComponent(MonsterAnimationController);
-        if (!animController) {
-            animController = node.addComponent(MonsterAnimationController);
-            console.warn(`PoolManager: 节点 ${node.name} 缺少 MonsterAnimationController 组件，已自动添加。`);
-        }
     }
 
     /**
@@ -341,38 +304,7 @@ class PoolManager {
      */
     private createNode(name: string, prefab: Prefab): Node | null {
         try {
-            const node = instantiate(prefab);
-            const poolObject = node.addComponent(PoolObject);
-            poolObject.poolName = name;
-            
-            // 【关键修复】连接BaseCharacterDemo的回调到PoolObject
-            const characterDemo = node.getComponent('BaseCharacterDemo');
-            if (characterDemo) {
-                // 设置PoolObject的回调指向BaseCharacterDemo的方法
-                poolObject.onReuse = () => {
-                    try {
-                        if ((characterDemo as any).onReuseFromPool) {
-                            (characterDemo as any).onReuseFromPool();
-                        }
-                    } catch (error) {
-                        console.warn(`PoolManager: BaseCharacterDemo重用回调失败`, error);
-                    }
-                };
-                
-                poolObject.onRecycle = () => {
-                    try {
-                        if ((characterDemo as any).onRecycleToPool) {
-                            (characterDemo as any).onRecycleToPool();
-                        }
-                    } catch (error) {
-                        console.warn(`PoolManager: BaseCharacterDemo回收回调失败`, error);
-                    }
-                };
-                
-                console.log(`PoolManager: 已为节点 ${node.name} 连接BaseCharacterDemo回调`);
-            }
-            
-            return node;
+            return instantiate(prefab);
         } catch (error) {
             handleError(
                 ErrorType.RESOURCE_LOADING,

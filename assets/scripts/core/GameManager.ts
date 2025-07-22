@@ -515,15 +515,6 @@ export class GameManager extends Component {
         // 检查资源引用完整性
         this.checkResourceIntegrity();
         
-        // 输出修复建议
-        const suggestions = this.getResourceFixSuggestions();
-        if (suggestions.length > 0) {
-            console.warn('⚠️ 发现资源配置问题，修复建议：');
-            suggestions.forEach((suggestion, index) => {
-                console.warn(`  ${index + 1}. ${suggestion}`);
-            });
-        }
-        
         // 初始化测试模式
         console.log(`GameManager: 检查测试模式状态 - testMode: ${this.testMode}`);
         if (this.manualTestMode) {
@@ -1070,7 +1061,13 @@ export class GameManager extends Component {
      * @param enemyType 怪物类型
      */
     public spawnTestEnemy(enemyType: string): void {
-        console.log(`🧪 使用新对象池系统生成测试怪物: ${enemyType}`);
+        // 【修复】此方法仅用于手动测试模式
+        if (!this.manualTestMode) {
+            console.warn(`GameManager: spawnTestEnemy只应在手动测试模式下使用。当前模式为正常模式，敌人生成由MonsterSpawner负责。`);
+            return;
+        }
+
+        console.log(`🧪 手动测试模式：生成可控制的测试怪物: ${enemyType}`);
         
         // 清除之前的测试怪物
         this.clearTestEnemy();
@@ -1082,30 +1079,16 @@ export class GameManager extends Component {
             return;
         }
 
-        // 使用新的对象池系统创建角色
-        let character: any = null;
+        // 使用新的对象池系统创建手动控制的角色
         const testPosition = new Vec3(0, 0, 0); // 屏幕中心
-
-        if (this.manualTestMode) {
-            // 手动测试模式：创建玩家控制的角色
-            character = BaseCharacterDemo.createPlayer(enemyType, testPosition);
-            console.log(`🎮 [手动测试模式] 创建手动控制角色: ${enemyType}`);
-        } else {
-            // AI测试模式：创建AI控制的角色
-            character = BaseCharacterDemo.createAIEnemy(enemyType, {
-                position: testPosition,
-                faction: 'red',
-                behaviorType: 'melee'
-            });
-            console.log(`🤖 [AI测试模式] 创建AI控制角色: ${enemyType}`);
-        }
-
+        const character = BaseCharacterDemo.createPlayer(enemyType, testPosition);
+        
         if (!character) {
             console.error(`❌ 无法从新对象池系统创建怪物: ${enemyType}`);
-            // 回退到旧系统
-            this.spawnTestEnemyFallback(enemyType);
             return;
         }
+
+        console.log(`🎮 手动测试模式：创建手动控制角色: ${enemyType}`);
 
         const enemyInstance = character.node;
         
@@ -1166,55 +1149,6 @@ export class GameManager extends Component {
         console.log('  - J: 攻击');
         console.log('  - H: 受伤测试');
         console.log('  - K: 死亡测试');
-        console.log('  - T: 切换模式');
-    }
-
-    /**
-     * 回退方案：使用旧系统生成测试怪物
-     */
-    private spawnTestEnemyFallback(enemyType: string): void {
-        console.warn(`🔄 回退到旧系统创建测试怪物: ${enemyType}`);
-        
-        // 获取敌人数据
-        const enemyData = dataManager.getEnemyData(enemyType);
-        if (!enemyData) {
-            console.error(`找不到怪物类型: ${enemyType}`);
-            return;
-        }
-        
-        // 从旧对象池获取怪物实例
-        const enemyInstance = poolManager.getEnemyInstance(enemyType, enemyData);
-        if (!enemyInstance) {
-            console.error(`无法从旧对象池获取怪物: ${enemyType}`);
-            return;
-        }
-        
-        // 【关键修复】先设置敌人类型，再进行其他操作
-        const baseDemo = enemyInstance.getComponent('BaseCharacterDemo');
-        if (baseDemo && (baseDemo as any).setEnemyType) {
-            (baseDemo as any).setEnemyType(enemyType);
-            console.log(`🎮 [回退] 已设置敌人类型: ${enemyType}`);
-        }
-        
-        // 控制模式已在创建时设置，无需重复设置
-        console.log(`🎮 [回退] 控制模式已在创建时正确设置`);
-        
-        // 设置位置和激活
-        enemyInstance.setPosition(0, 0, 0);
-        enemyInstance.active = true;
-        
-        // 添加到Canvas
-        const scene = director.getScene();
-        if (scene) {
-            const canvas = scene.getComponentInChildren('cc.Canvas');
-            if (canvas && canvas.node) {
-                canvas.node.addChild(enemyInstance);
-                enemyInstance.setSiblingIndex(1000);
-            }
-        }
-        
-        this.currentTestEnemy = enemyInstance;
-        console.log(`✅ [回退] 测试怪物已生成: ${enemyData.name}`);
     }
 
     /**
@@ -1460,73 +1394,6 @@ export class GameManager extends Component {
         });
     }
 
-
-
-    /**
-     * 测试生成所有敌人类型（调试用）
-     */
-    public testAllEnemyTypes(): void {
-        console.log('\n=== 测试所有敌人类型生成 ===');
-        
-        const testResults: { [key: string]: boolean } = {};
-        
-        for (const enemyType of this.availableEnemyTypes) {
-            try {
-                // 获取敌人数据
-                const enemyData = dataManager.getEnemyData(enemyType);
-                if (!enemyData) {
-                    console.error(`❌ ${enemyType}: 找不到敌人数据`);
-                    testResults[enemyType] = false;
-                    continue;
-                }
-                
-                // 尝试从对象池获取实例
-                const enemyInstance = poolManager.getEnemyInstance(enemyType, enemyData);
-                if (enemyInstance) {
-                    console.log(`✅ ${enemyType}: 成功从对象池获取实例`);
-                    testResults[enemyType] = true;
-                    
-                    // 立即回收，避免占用太多内存
-                    poolManager.put(enemyInstance);
-                } else {
-                    console.error(`❌ ${enemyType}: 无法从对象池获取实例`);
-                    testResults[enemyType] = false;
-                }
-            } catch (error) {
-                console.error(`❌ ${enemyType}: 生成失败`, error);
-                testResults[enemyType] = false;
-            }
-        }
-        
-        // 统计结果
-        let successCount = 0;
-        let totalCount = 0;
-        const failedTypes: string[] = [];
-        
-        for (const enemyType in testResults) {
-            if (testResults.hasOwnProperty(enemyType)) {
-                totalCount++;
-                if (testResults[enemyType]) {
-                    successCount++;
-                } else {
-                    failedTypes.push(enemyType);
-                }
-            }
-        }
-        
-        console.log(`\n=== 测试结果统计 ===`);
-        console.log(`成功: ${successCount}/${totalCount}`);
-        
-        if (failedTypes.length > 0) {
-            console.log('\n失败的敌人类型:');
-            failedTypes.forEach(enemyType => {
-                console.log(`  - ${enemyType}`);
-            });
-        }
-        
-        console.log('=================\n');
-    }
-
     /**
      * 检查资源引用完整性
      */
@@ -1547,23 +1414,6 @@ export class GameManager extends Component {
         }
         
         console.log('=== 资源检查完成 ===');
-    }
-
-    /**
-     * 资源修复建议
-     */
-    public getResourceFixSuggestions(): string[] {
-        const suggestions: string[] = [];
-        
-        if (!this.entPrefab) {
-            suggestions.push('在编辑器中为GameManager组件挂载通用敌人预制体 (assets/resources/prefabs/enemies/ent.prefab)');
-        }
-        
-        if (!this.firePrefab) {
-            suggestions.push('在编辑器中为GameManager组件挂载火球预制体 (assets/resources/prefabs/effects/fire.prefab)');
-        }
-        
-        return suggestions;
     }
 
     /**
@@ -1603,25 +1453,6 @@ export class GameManager extends Component {
             console.log('=== 资源修复完成 ===');
         } catch (error) {
             console.error('资源修复过程中出现错误:', error);
-        }
-    }
-
-    /**
-     * 调试命令：手动触发资源检查和修复
-     */
-    public debugResourceCheck(): void {
-        console.log('\n=== 手动资源检查 ===');
-        this.checkResourceIntegrity();
-        
-        const suggestions = this.getResourceFixSuggestions();
-        if (suggestions.length > 0) {
-            console.warn('\n修复建议:');
-            suggestions.forEach((suggestion, index) => {
-                console.warn(`  ${index + 1}. ${suggestion}`);
-            });
-            console.log('\n可以运行 GameManager.instance.attemptResourceFix() 尝试自动修复');
-        } else {
-            console.log('\n✅ 所有资源配置正常');
         }
     }
     
@@ -1703,5 +1534,81 @@ export class GameManager extends Component {
         
         const currentMode = this.normalMode ? '正常模式' : '手动测试模式';
         console.log(`GameManager: 当前模式 - ${currentMode}`);
+    }
+
+    /**
+     * 调试物理分组映射问题
+     */
+    public debugPhysicsGroupMapping(): void {
+        console.log('\n=== 🔍 物理分组映射调试 ===');
+        
+        // 1. 打印代码中的映射关系
+        console.log('📋 代码中的阵营-物理分组映射:');
+        
+        // 2. 打印具体的数值
+        console.log('🔢 具体数值映射:');
+        console.log(`RED: ${(1 << 3)} (二进制: ${(1 << 3).toString(2)})`);
+        console.log(`BLUE: ${(1 << 5)} (二进制: ${(1 << 5).toString(2)})`);
+        console.log(`GREEN: ${(1 << 7)} (二进制: ${(1 << 7).toString(2)})`);
+        console.log(`PURPLE: ${(1 << 9)} (二进制: ${(1 << 9).toString(2)})`);
+        
+        // 3. 检查当前测试怪物的分组（如果存在）
+        if (this.currentTestEnemy && this.currentTestEnemy.isValid) {
+            console.log('\n🎯 当前测试怪物信息:');
+            const baseDemo = this.currentTestEnemy.getComponent('BaseCharacterDemo');
+            if (baseDemo && (baseDemo as any).getCollisionInfo) {
+                console.log((baseDemo as any).getCollisionInfo());
+            }
+            
+            // 检查实际的物理分组
+            const collider = this.currentTestEnemy.getComponent('cc.Collider2D') as any;
+            const rigidbody = this.currentTestEnemy.getComponent('cc.RigidBody2D') as any;
+            if (collider) {
+                console.log(`实际碰撞体分组: ${collider.group}`);
+            }
+            if (rigidbody) {
+                console.log(`实际刚体分组: ${rigidbody.group}`);
+            }
+        }
+        
+        // 4. 提示检查编辑器设置
+        console.log('\n⚠️  请检查以下设置:');
+        console.log('1. 打开 Cocos Creator 编辑器');
+        console.log('2. 菜单栏 -> 项目 -> 项目设置');
+        console.log('3. 选择"物理"选项卡');
+        console.log('4. 检查"分组管理器"中的分组设置');
+        console.log('5. 确保分组顺序为:');
+        console.log('   Group 0: DEFAULT');
+        console.log('   Group 1: PLAYER');
+        console.log('   Group 2: PLAYER_PROJECTILE');
+        console.log('   Group 3: RED ← 应该是红色');
+        console.log('   Group 4: RED_PROJECTILE');
+        console.log('   Group 5: BLUE ← 应该是蓝色');
+        console.log('   Group 6: BLUE_PROJECTILE');
+        console.log('   Group 7: GREEN ← 应该是绿色');
+        console.log('   Group 8: GREEN_PROJECTILE');
+        console.log('   ...');
+        console.log('\n🎨 如果编辑器中的颜色与名称不匹配，请修改编辑器中的分组名称或颜色');
+        console.log('=========================\n');
+    }
+
+    /**
+     * 快速修复物理分组映射问题的建议
+     */
+    public suggestPhysicsGroupFix(): void {
+        console.log('\n=== 🔧 物理分组修复建议 ===');
+        console.log('问题：蓝色映射到绿色，红色映射到蓝色');
+        console.log('\n方案1: 修改编辑器中的分组颜色');
+        console.log('- 打开项目设置 -> 物理 -> 分组管理器');
+        console.log('- 将Group 3的颜色改为红色');
+        console.log('- 将Group 5的颜色改为蓝色');
+        console.log('- 将Group 7的颜色改为绿色');
+        
+        console.log('\n方案2: 修改代码中的映射关系');
+        console.log('- 如果编辑器中Group 3是蓝色，Group 5是绿色，Group 7是红色');
+        console.log('- 则需要调整FactionManager中的映射表');
+        
+        console.log('\n⚠️  推荐使用方案1，保持代码清晰');
+        console.log('======================\n');
     }
 }

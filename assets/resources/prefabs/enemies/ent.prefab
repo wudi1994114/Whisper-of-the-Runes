@@ -242,12 +242,10 @@
     "__prefab": {
       "__id__": 13
     },
-    "moveSpeed": 200,
+    "moveSpeed": 5,
     "characterId": "",
-    "enablePooling": false,
     "controlMode": 0,
     "aiFaction": "red",
-    "aiBehaviorType": "melee",
     "_id": ""
   },
   {

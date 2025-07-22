@@ -24,9 +24,9 @@
           "enemies": [
             {
               "type": "ent_normal",
-              "count": 3,
+              "count": 1,
               "spawnInterval": 2.0,
-              "maxAlive": 5,
+              "maxAlive": 1,
               "spawnDelay": 1.0,
               "respawnOnDeath": true,
               "faction": "red"
@@ -35,7 +35,7 @@
               "type": "lich_normal",
               "count": 1,
               "spawnInterval": 10.0,
-              "maxAlive": 2,
+              "maxAlive": 1,
               "spawnDelay": 5.0,
               "respawnOnDeath": true,
               "faction": "red"
@@ -52,9 +52,9 @@
           "enemies": [
             {
               "type": "ent_normal",
-              "count": 3,
+              "count": 1,
               "spawnInterval": 2.0,
-              "maxAlive": 5,
+              "maxAlive": 1,
               "spawnDelay": 1.0,
               "respawnOnDeath": true,
               "faction": "blue"
@@ -63,7 +63,7 @@
               "type": "lich_normal",
               "count": 1,
               "spawnInterval": 10.0,
-              "maxAlive": 2,
+              "maxAlive": 1,
               "spawnDelay": 5.0,
               "respawnOnDeath": true,
               "faction": "blue"

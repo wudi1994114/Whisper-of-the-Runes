@@ -133,14 +133,8 @@ export class CharacterPoolFactory {
             return null;
         }
         
-        // 【关键修复】在任何初始化回调之前先设置敌人类型
-        const baseDemo = node.getComponent('BaseCharacterDemo');
-        if (baseDemo && (baseDemo as any).setEnemyType) {
-            (baseDemo as any).setEnemyType(characterClass);
-            console.log(`[PoolFactory] ✅ 已设置敌人类型: ${characterClass}`);
-        } else {
-            console.warn(`[PoolFactory] ⚠️ 未找到BaseCharacterDemo组件或setEnemyType方法`);
-        }
+        character.setEnemyType(characterClass);
+        console.log(`[PoolFactory] ✅ 已设置敌人类型: ${characterClass}`);
         
         // 设置池化属性
         const characterId = options?.characterId || `${characterClass}_${Date.now()}`;
@@ -170,7 +164,7 @@ export class CharacterPoolFactory {
         // 加入活跃角色集合
         this.activeCharacters.add(character);
         
-        console.log(`[PoolFactory] 创建角色: ${characterClass}(${characterId}) 从池 ${config.poolName}`);
+        console.log(`[PoolFactory] 创建角色成功: ${character.aiFaction}`);
         return character;
     }
     
@@ -544,9 +538,9 @@ export class BaseCharacterDemo extends Component {
 
     @property({
         displayName: "移动速度",
-        tooltip: "角色移动速度倍数"
+        tooltip: "角色移动速度（像素/秒）"
     })
-    protected moveSpeed: number = 200;
+    protected moveSpeed: number =5;
 
     @property({
         displayName: "角色ID",
@@ -863,11 +857,6 @@ export class BaseCharacterDemo extends Component {
             const angleRadians = Math.atan2(deltaY, deltaX);
             const angleDegrees = angleRadians * 180 / Math.PI;
             
-            console.log(`[${this.getCharacterDisplayName()}] 🎯 动态瞄准目标 ${currentTarget.name}`);
-            console.log(`  位置: (${myPos.x.toFixed(1)}, ${myPos.y.toFixed(1)})`);
-            console.log(`  目标位置: (${targetPos.x.toFixed(1)}, ${targetPos.y.toFixed(1)})`);
-            console.log(`  计算角度: ${angleDegrees.toFixed(1)}°`);
-            
             return angleDegrees;
         }
         
@@ -974,7 +963,23 @@ export class BaseCharacterDemo extends Component {
      * 检查是否有移动输入
      */
     public hasMovementInput(): boolean {
-        return this.moveDirection.length() > 0;
+        const hasInput = this.moveDirection.length() > 0;
+        
+        // 如果没有移动输入，立即停止物理运动
+        if (!hasInput) {
+            this.stopPhysicalMovement();
+        }
+        
+        return hasInput;
+    }
+
+    /**
+     * 立即停止物理运动
+     */
+    public stopPhysicalMovement(): void {
+        if (this.rigidBody) {
+            this.rigidBody.linearVelocity = new Vec2(0, 0);
+        }
     }
 
     /**
@@ -1457,7 +1462,6 @@ export class BaseCharacterDemo extends Component {
             // 使用 AnimationManager 设置动画组件
             this.animationComponent = animationManager.setupAnimationComponent(this.node, animationClips);
             
-            console.log(`[${this.getCharacterDisplayName()}] 通过 AnimationManager 成功创建 ${animationClips.size} 个动画剪辑`);
         } catch (error) {
             console.error(`[${this.getCharacterDisplayName()}] 动画设置失败:`, error);
         }
@@ -1472,8 +1476,6 @@ export class BaseCharacterDemo extends Component {
             console.log(`[${this.getCharacterDisplayName()}] 数据已加载，无需等待`);
             return;
         }
-        
-        console.log(`[${this.getCharacterDisplayName()}] 等待数据加载完成...`);
         
         // 使用事件监听方式等待数据加载完成
         return new Promise((resolve) => {
@@ -1529,7 +1531,6 @@ export class BaseCharacterDemo extends Component {
         
         // 保存节点的原始位置
         this.originalPosition.set(this.node.position);
-        console.log(`[${this.getCharacterDisplayName()}] 已保存节点原始位置:`, this.originalPosition);
         
         this.animationComponent = this.getComponent(Animation) || this.addComponent(Animation);
         this.rigidBody = this.getComponent(RigidBody2D) || this.addComponent(RigidBody2D);
@@ -1551,8 +1552,8 @@ export class BaseCharacterDemo extends Component {
         // 设置为动态刚体，可以移动但受物理影响
         this.rigidBody.type = ERigidBody2DType.Dynamic;
         
-        // 设置基础物理属性
-        this.rigidBody.linearDamping = 10; // 线性阻尼，使角色停止时更快减速
+        // 设置基础物理属性 - 移除阻尼以获得恒定速度
+        this.rigidBody.linearDamping = 0; // 移除线性阻尼，保持恒定速度
         this.rigidBody.angularDamping = 10; // 角度阻尼，防止旋转
         this.rigidBody.gravityScale = 0; // 不受重力影响（2D俯视角游戏）
         this.rigidBody.allowSleep = false; // 不允许休眠，保持物理更新
@@ -1567,7 +1568,6 @@ export class BaseCharacterDemo extends Component {
         const physicsGroup = factionManager.getFactionPhysicsGroup(currentFaction);
         this.rigidBody.group = physicsGroup;
         
-        console.log(`[${this.getCharacterDisplayName()}] 刚体组件配置完成，阵营: ${currentFaction}，分组: ${physicsGroup}`);
     }
 
     /**
@@ -1604,7 +1604,6 @@ export class BaseCharacterDemo extends Component {
         const physicsGroup = factionManager.getFactionPhysicsGroup(currentFaction);
         boxCollider.group = physicsGroup;
         
-        console.log(`[${this.getCharacterDisplayName()}] 碰撞体组件配置完成，尺寸: ${boxCollider.size.width}x${boxCollider.size.height}，阵营: ${currentFaction}，分组: ${physicsGroup}`);
     }
 
     /**
@@ -1864,27 +1863,31 @@ export class BaseCharacterDemo extends Component {
      * 处理角色移动 - 由状态机调用（使用物理系统速度控制）
      */
     public handleMovement(deltaTime: number): void {
-        if (!this.enemyData || this.moveDirection.length() === 0) {
-            // 没有移动输入时，停止刚体移动
-            if (this.rigidBody) {
-                this.rigidBody.linearVelocity = new Vec2(0, 0);
-            }
-            return;
-        }
-        
         if (!this.rigidBody) {
             console.warn(`[${this.getCharacterDisplayName()}] 刚体组件未初始化，无法使用物理移动`);
             return;
         }
         
-        // 使用配置中的移动速度
-        const speed = this.enemyData.moveSpeed * this.moveSpeed;
+        // 检查是否有移动输入
+        if (this.moveDirection.length() === 0) {
+            // 没有移动输入时，立即停止
+            this.rigidBody.linearVelocity = new Vec2(0, 0);
+            return;
+        }
         
-        // 【物理移动】设置刚体的线性速度而不是直接设置位置
-        const velocity = TempVarPool.tempVec2_1;
+        // 使用直接的移动速度（像素/秒）
+        const speed = this.moveSpeed;
+        
+        // 确保移动方向已归一化（对角线移动速度一致）
+        const normalizedDirection = TempVarPool.tempVec2_1;
+        normalizedDirection.set(this.moveDirection.x, this.moveDirection.y);
+        normalizedDirection.normalize();
+        
+        // 【物理移动】设置刚体的线性速度
+        const velocity = TempVarPool.tempVec2_2;
         velocity.set(
-            this.moveDirection.x * speed,
-            this.moveDirection.y * speed
+            normalizedDirection.x * speed,
+            normalizedDirection.y * speed
         );
         
         // 应用速度到刚体
@@ -1957,7 +1960,7 @@ export class BaseCharacterDemo extends Component {
         }
         
         // 【性能优化】如果是AI模式，重新启动目标搜索定时器
-        if (this.controlMode === ControlMode.AI && this.enemyData) {
+        if (this.controlMode === ControlMode.AI) {
             const searchInterval = this.targetSearchInterval / 1000; // 转换为秒
             this.schedule(this.updateAITargetSearch, searchInterval);
             console.log(`[${this.getCharacterDisplayName()}] AI目标搜索定时器已重新启动，间隔: ${searchInterval}秒`);
@@ -2010,7 +2013,7 @@ export class BaseCharacterDemo extends Component {
         // 重置攻击时间
         this.lastAttackTime = 0;
         
-        // 重置物理状态
+        // 重置物理状态 - 立即停止所有运动
         if (this.rigidBody) {
             this.rigidBody.linearVelocity = new Vec2(0, 0);
             this.rigidBody.angularVelocity = 0;
@@ -2244,7 +2247,7 @@ export class BaseCharacterDemo extends Component {
             this.animationComponent.stop();
         }
         
-        // 清理物理组件
+        // 清理物理组件 - 立即停止所有运动
         if (this.rigidBody) {
             this.rigidBody.linearVelocity = new Vec2(0, 0);
             this.rigidBody.angularVelocity = 0;
