@@ -303,17 +303,6 @@ export class AnimationManager {
         // 播放新动画
         animationComponent.play(animationName);
         
-        console.log(`Playing animation: ${animationName}`);
-        console.log(`Sprite component found: ${spriteComponent.spriteFrame ? 'has spriteFrame' : 'no spriteFrame'}`);
-        
-        // 检查动画状态 - 使用下一帧检查
-        setTimeout(() => {
-            const state = animationComponent.getState(animationName);
-            if (state) {
-                console.log(`Animation state: playing=${state.isPlaying}, time=${state.time}, duration=${state.duration}`);
-            }
-        }, 16); // 约1帧的时间
-        
         return true;
     }
 

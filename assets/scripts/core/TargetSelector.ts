@@ -102,7 +102,7 @@ export class TargetSelector extends Component implements ITargetSelector {
     public findBestTarget(myPosition: Vec3, myFaction: Faction, detectionRange: number): TargetInfo | null {
         // 确定敌对阵营      
         const enemyFactions = this.getEnemyFactions(myFaction);
-        console.log(`[123] ${myFaction} ${enemyFactions}`);
+        // 移除频繁的调试日志
         let bestTarget: TargetInfo | null = null;
         let bestScore = -1;
         

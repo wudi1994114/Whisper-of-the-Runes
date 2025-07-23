@@ -77,11 +77,11 @@ export interface EnemyData {
     nodeScale: number;              // 节点缩放比例，用于调整敌人的视觉大小 (1.0 = 原始大小)
     
     // ===============================
-    // 预制体基础配置
+    // UI尺寸配置
     // ===============================
-    prefabSize?: {                  // 预制体基础尺寸配置（可选，用于血条比例计算）
-        width: number;              // 预制体基础宽度（像素）
-        height: number;             // 预制体基础高度（像素）
+    uiSize?: {                      // UI尺寸配置（可选，用于动态设置节点UITransform尺寸）
+        width: number;              // UI宽度（像素）
+        height: number;             // UI高度（像素）
     };
     
     // ===============================
@@ -120,7 +120,12 @@ export interface EnemyData {
     // ===============================
     // 物理碰撞配置
     // ===============================
-    colliderSize: { width: number, height: number }; // 碰撞体尺寸 (像素)，影响碰撞检测
+    colliderSize: { 
+        width: number;      // 碰撞体宽度 (像素)
+        height: number;     // 碰撞体高度 (像素)
+        xoffset?: number;   // X轴偏移 (相对于节点中心，可选)
+        yoffset?: number;   // Y轴偏移 (相对于节点底部，可选)
+    }; // 碰撞体配置，影响碰撞检测的精确位置和范围
     
     // ===============================
     // 技能系统配置 (可选)

@@ -34,13 +34,10 @@
       },
       {
         "__id__": 10
-      },
-      {
-        "__id__": 12
       }
     ],
     "_prefab": {
-      "__id__": 14
+      "__id__": 12
     },
     "_lpos": {
       "__type__": "cc.Vec3",
@@ -163,7 +160,7 @@
     "fileId": "4b55UNY8RIQKWAKbqe7ZmE"
   },
   {
-    "__type__": "cc.RigidBody2D",
+    "__type__": "4e6b7BanTFBkK3upQEI//tm",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -174,9 +171,31 @@
     "__prefab": {
       "__id__": 9
     },
+    "moveSpeed": 5,
+    "characterId": "",
+    "controlMode": 0,
+    "aiFaction": "red",
+    "_id": ""
+  },
+  {
+    "__type__": "cc.CompPrefabInfo",
+    "fileId": "97MBpZwW9GVJpleCS/cQqf"
+  },
+  {
+    "__type__": "cc.RigidBody2D",
+    "_name": "",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "node": {
+      "__id__": 1
+    },
+    "_enabled": true,
+    "__prefab": {
+      "__id__": 11
+    },
     "enabledContactListener": false,
     "bullet": false,
-    "awakeOnLoad": false,
+    "awakeOnLoad": true,
     "_group": 1,
     "_type": 2,
     "_allowSleep": true,
@@ -194,63 +213,7 @@
   },
   {
     "__type__": "cc.CompPrefabInfo",
-    "fileId": "26j7DfgoFJfKNdTSDoH/9F"
-  },
-  {
-    "__type__": "cc.BoxCollider2D",
-    "_name": "",
-    "_objFlags": 0,
-    "__editorExtras__": {},
-    "node": {
-      "__id__": 1
-    },
-    "_enabled": true,
-    "__prefab": {
-      "__id__": 11
-    },
-    "tag": 0,
-    "_group": 1,
-    "_density": 1,
-    "_sensor": false,
-    "_friction": 0.2,
-    "_restitution": 0,
-    "_offset": {
-      "__type__": "cc.Vec2",
-      "x": 0,
-      "y": 0
-    },
-    "_size": {
-      "__type__": "cc.Size",
-      "width": 128,
-      "height": 128
-    },
-    "_id": ""
-  },
-  {
-    "__type__": "cc.CompPrefabInfo",
-    "fileId": "8bpk8AaltKVJbbJ1OIZAig"
-  },
-  {
-    "__type__": "4e6b7BanTFBkK3upQEI//tm",
-    "_name": "",
-    "_objFlags": 0,
-    "__editorExtras__": {},
-    "node": {
-      "__id__": 1
-    },
-    "_enabled": true,
-    "__prefab": {
-      "__id__": 13
-    },
-    "moveSpeed": 5,
-    "characterId": "",
-    "controlMode": 0,
-    "aiFaction": "red",
-    "_id": ""
-  },
-  {
-    "__type__": "cc.CompPrefabInfo",
-    "fileId": "97MBpZwW9GVJpleCS/cQqf"
+    "fileId": "34ZXtEYnxHyYHdEQfMOtZ4"
   },
   {
     "__type__": "cc.PrefabInfo",

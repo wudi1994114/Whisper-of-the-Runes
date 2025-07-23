@@ -2,16 +2,14 @@
 
 import { _decorator, Component, Node, Prefab, Vec3, instantiate, input, Input, EventMouse, view, UITransform, Sprite, Animation, AnimationClip, animation, SpriteFrame, SpriteAtlas, Vec2, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, js } from 'cc';
 import { eventManager } from '../core/EventManager';
-import { GameEvents } from '../core/GameEvents';
 import { IProjectileController } from './ProjectileLauncher';
-import { poolManager } from '../core/PoolManager';
 import { FireballController } from '../game/FireballController';
 import { resourceManager } from '../core/ResourceManager';
 import { dataManager } from '../core/DataManager';
 import { AnimationDirection } from '../animation/AnimationConfig';
 import { Faction } from '../configs/FactionConfig';
 import { factionManager } from '../core/FactionManager';
-import { PhysicsUtils } from '../configs/PhysicsConfig';
+import { PhysicsGroup } from '../configs/PhysicsConfig';
 
 const { ccclass, property } = _decorator;
 
@@ -452,9 +450,6 @@ export class FireballLauncher extends Component implements IProjectileController
     private onCollisionEnter(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null): void {
         if (this.isDestroying) return;
         
-        // 检查碰撞对象类型
-        console.log(`FireballLauncher: 检测到碰撞，对象: ${otherCollider.node.name}`);
-        
         // 获取目标的阵营信息
         const targetCharacterStats = otherCollider.node.getComponent('CharacterStats');
         if (targetCharacterStats) {
@@ -462,11 +457,9 @@ export class FireballLauncher extends Component implements IProjectileController
             
             // 检查阵营关系 - 只有敌对阵营才造成伤害
             if (factionManager.doesAttack(this.shooterFaction, targetFaction)) {
-                console.log(`FireballLauncher: ${this.shooterFaction} 阵营的火球攻击 ${targetFaction} 阵营的目标 ${otherCollider.node.name}`);
                 this.dealDamageToTarget(otherCollider.node, this.damage);
-            } else {
-                console.log(`FireballLauncher: ${this.shooterFaction} 阵营的火球不会攻击 ${targetFaction} 阵营的目标 ${otherCollider.node.name}`);
             }
+            // 移除频繁的阵营检查日志
         } else {
             // 如果没有CharacterStats组件，可能是墙壁等障碍物，直接爆炸
             console.log(`FireballLauncher: 撞击障碍物 ${otherCollider.node.name}`);
@@ -489,13 +482,13 @@ export class FireballLauncher extends Component implements IProjectileController
         const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
         if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
             (targetCharacterDemo as any).takeDamage(damage);
-            console.log(`%c[FIREBALL] 火球对 ${target.name} 造成 ${damage} 点伤害`, 'color: orange; font-weight: bold');
+            console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
         } else {
             // 如果没有BaseCharacterDemo，尝试CharacterStats组件
             const targetStats = target.getComponent('CharacterStats');
             if (targetStats && (targetStats as any).takeDamage) {
                 (targetStats as any).takeDamage(damage);
-                console.log(`%c[FIREBALL] 火球对 ${target.name} 造成 ${damage} 点伤害 (直接命中CharacterStats)`, 'color: orange; font-weight: bold');
+                console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
             } else {
                 console.warn(`FireballLauncher: 目标 ${target.name} 没有可攻击的组件`);
             }
@@ -728,10 +721,28 @@ export class FireballLauncher extends Component implements IProjectileController
             return;
         }
 
-        const physicsGroup = PhysicsUtils.getProjectilePhysicsGroup(this.shooterFaction);
+        // 根据阵营获取对应的投射物物理分组
+        const baseGroup = factionManager.getFactionPhysicsGroup(this.shooterFaction);
+        const physicsGroup = this.getProjectilePhysicsGroupFromBase(baseGroup);
         this.rigidBody.group = physicsGroup;
         
-        console.log(`FireballLauncher: 设置投射物物理分组 - 阵营: ${this.shooterFaction}, 分组: ${physicsGroup} (${PhysicsUtils.getGroupName(physicsGroup)})`);
+        console.log(`FireballLauncher: 设置投射物物理分组 - 阵营: ${this.shooterFaction}, 分组: ${physicsGroup}`);
+    }
+
+    /**
+     * 根据基础物理分组获取对应的投射物物理分组
+     */
+    private getProjectilePhysicsGroupFromBase(baseGroup: number): number {
+        // 根据预定义的映射关系获取投射物分组
+        const projectileGroupMapping = {
+            [PhysicsGroup.PLAYER]: PhysicsGroup.PLAYER_PROJECTILE,
+            [PhysicsGroup.RED]: PhysicsGroup.RED_PROJECTILE,
+            [PhysicsGroup.BLUE]: PhysicsGroup.BLUE_PROJECTILE,
+            [PhysicsGroup.GREEN]: PhysicsGroup.GREEN_PROJECTILE,
+            [PhysicsGroup.PURPLE]: PhysicsGroup.PURPLE_PROJECTILE,
+        };
+
+        return projectileGroupMapping[baseGroup] || PhysicsGroup.DEFAULT;
     }
     
     protected onDestroy(): void {

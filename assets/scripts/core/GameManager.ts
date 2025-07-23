@@ -119,6 +119,13 @@ export class GameManager extends Component {
     })
     public testEnemyType: number = 0;
 
+    // ===== 调试配置 =====
+    @property({
+        displayName: "显示尺寸范围",
+        tooltip: "显示所有角色的UISize和碰撞体范围（调试用）"
+    })
+    public showSizeRanges: boolean = false;
+
     private _gameState: GameState = GameState.MainMenu;
 
     // 输入分发相关
@@ -260,6 +267,8 @@ export class GameManager extends Component {
             this.showCacheInfo();
             return;
         }
+
+
 
 
 
@@ -936,78 +945,6 @@ export class GameManager extends Component {
     }
 
     /**
-     * 打印血条配置信息
-     */
-    public printHealthBarConfigs(): void {
-        const configs = systemConfigManager.getHealthBarConfigs();
-        console.log('=== 血条配置信息 ===');
-        console.log('Lich血条:', configs.lich);
-        console.log('Ent血条:', configs.ent);
-        console.log('默认血条:', configs.default);
-        console.log('================');
-    }
-
-    /**
-     * 测试不同角色的血条配置
-     */
-    public testHealthBarConfigs(): void {
-        console.log('=== 角色血条配置测试 ===');
-        
-        const testCharacters = ['LichAnimationDemo', 'EntAnimationDemo', 'UnknownCharacter'];
-        testCharacters.forEach(charName => {
-            const config = systemConfigManager.getHealthBarConfigForCharacter(charName);
-            console.log(`${charName}: ${config.width}x${config.height} (Y偏移: ${config.offsetY}px)`);
-        });
-        
-        console.log('====================');
-    }
-
-    /**
-     * 测试血条配置的默认值系统
-     */
-    public testHealthBarDefaultConfigs(): void {
-        console.log('=== 测试血条配置默认值系统 ===');
-        
-        // 测试不同类型的敌人配置
-        const testCases = [
-            { id: 'ent_normal', name: '小树人' },
-            { id: 'ent_elite', name: '精英树人' },
-            { id: 'lich_normal', name: '普通巫妖' },
-            { id: 'goblin_normal', name: '哥布林' },
-            { id: 'unknown_enemy', name: '未知敌人' }
-        ];
-        
-        testCases.forEach(testCase => {
-            console.log(`\n--- ${testCase.name} (${testCase.id}) ---`);
-            
-            // 测试有完整配置的敌人数据
-            const fullEnemyData = {
-                id: testCase.id,
-                name: testCase.name,
-                healthBar: { width: 50, height: 3, offsetY: 50 }
-            };
-            
-            const configWithData = systemConfigManager.getHealthBarConfigFromEnemyData(fullEnemyData);
-            console.log(`有配置时: ${configWithData.width}x${configWithData.height}, Y=${configWithData.offsetY}`);
-            
-            // 测试没有血条配置的敌人数据
-            const simpleEnemyData = {
-                id: testCase.id,
-                name: testCase.name
-            };
-            
-            const configWithoutData = systemConfigManager.getHealthBarConfigFromEnemyData(simpleEnemyData);
-            console.log(`无配置时: ${configWithoutData.width}x${configWithoutData.height}, Y=${configWithoutData.offsetY}`);
-        });
-        
-        console.log('\n=== 默认配置规则 ===');
-        console.log('ent_normal/ent_elite: 40x2, Y=40');
-        console.log('其他敌人: 32x2, Y=32');
-        console.log('有配置时: 优先使用敌人配置');
-        console.log('======================');
-    }
-
-    /**
      * 确保预制体包含所有必要的组件（用于修复现有预制体）
      */
     public ensurePrefabComponents(): void {
@@ -1611,4 +1548,8 @@ export class GameManager extends Component {
         console.log('\n⚠️  推荐使用方案1，保持代码清晰');
         console.log('======================\n');
     }
+
+
+
+
 }

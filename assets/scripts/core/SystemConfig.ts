@@ -248,14 +248,14 @@ export class SystemConfigManager {
         enemyData?: any
     ): { width: number; height: number; offsetY: number } {
         
-        // 优先使用敌人配置中的预制体尺寸进行比例计算
+        // 优先使用敌人配置中的UI尺寸进行比例计算
         let effectiveWidth = characterWidth;
         let effectiveHeight = characterHeight;
         
-        if (enemyData?.prefabSize) {
-            effectiveWidth = enemyData.prefabSize.width;
-            effectiveHeight = enemyData.prefabSize.height;
-            console.log(`[SystemConfig] 使用配置中的预制体尺寸: ${effectiveWidth}x${effectiveHeight}px`);
+        if (enemyData?.uiSize) {
+            effectiveWidth = enemyData.uiSize.width;
+            effectiveHeight = enemyData.uiSize.height;
+            console.log(`[SystemConfig] 使用配置中的UI尺寸: ${effectiveWidth}x${effectiveHeight}px`);
         } else {
             console.log(`[SystemConfig] 使用节点实际尺寸: ${effectiveWidth}x${effectiveHeight}px`);
         }

@@ -124,8 +124,7 @@ export class FactionManager extends Component {
 
         const willAttack = relation.attacks.indexOf(targetFaction) !== -1;
         
-        // 调试日志
-        console.log(`FactionManager: ${attackerFaction} ${willAttack ? '会' : '不会'} 攻击 ${targetFaction}`);
+        // 移除频繁的调试日志
         
         return willAttack;
     }

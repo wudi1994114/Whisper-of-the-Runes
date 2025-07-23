@@ -158,6 +158,8 @@ export class CharacterPoolFactory {
         // 设置位置（在重用回调之后，确保不被重置）
         if (options?.position) {
             node.setPosition(options.position);
+            // 确保角度锁定为0
+            node.setRotationFromEuler(0, 0, 0);
             console.log(`[PoolFactory] ✅ 设置最终位置: (${options.position.x}, ${options.position.y})`);
         }
         
@@ -249,7 +251,7 @@ export abstract class State {
 // 待机状态
 export class IdleState extends State {
     enter(): void {
-        console.log('[StateMachine] 进入 Idle 状态');
+        // 移除状态转换日志
         this.character.playCurrentAnimation(AnimationState.IDLE);
     }
     
@@ -269,7 +271,7 @@ export class IdleState extends State {
     }
     
     exit(): void {
-        console.log('[StateMachine] 离开 Idle 状态');
+        // 移除状态转换日志
     }
     
     canTransitionTo(newState: CharacterState): boolean {
@@ -281,7 +283,7 @@ export class IdleState extends State {
 // 行走状态
 export class WalkingState extends State {
     enter(): void {
-        console.log('[StateMachine] 进入 Walking 状态');
+        // 移除状态转换日志
         this.character.playCurrentAnimation(AnimationState.WALK);
     }
     
@@ -302,7 +304,8 @@ export class WalkingState extends State {
     }
     
     exit(): void {
-        console.log('[StateMachine] 离开 Walking 状态');
+        // 移除状态转换日志
+        this.character.stopPhysicalMovement();
     }
     
     canTransitionTo(newState: CharacterState): boolean {
@@ -316,7 +319,7 @@ export class AttackingState extends State {
     private animationFinished: boolean = false;
     
     enter(): void {
-        console.log('[StateMachine] 进入 Attacking 状态');
+        // 移除状态转换日志
         this.animationFinished = false;
         
         // 播放攻击动画，并传入一个回调，在动画完成时设置标志
@@ -328,18 +331,14 @@ export class AttackingState extends State {
     update(deltaTime: number): void {
         // 在update中检查动画是否完成
         if (this.animationFinished) {
-            // 动画完成后，根据移动意图决定下一个状态
-            if (this.character.hasMovementInput()) {
-                this.character.transitionToState(CharacterState.WALKING);
-            } else {
-                this.character.transitionToState(CharacterState.IDLE);
-            }
+            // 动画完成后，总是先切换到闲置状态，让闲置状态在下一帧处理移动逻辑
+            this.character.transitionToState(CharacterState.IDLE);
         }
         // 攻击状态下不处理移动
     }
     
     exit(): void {
-        console.log('[StateMachine] 离开 Attacking 状态');
+        // 移除状态转换日志
         this.animationFinished = false; // 重置标志
     }
     
@@ -354,12 +353,11 @@ export class HurtState extends State {
     private animationFinished: boolean = false;
     
     enter(): void {
-        console.log('[StateMachine] 进入 Hurt 状态');
+        // 移除状态转换日志
         this.animationFinished = false;
         
         // 播放受伤动画，并注册完成回调
         this.character.playHurtAnimationWithCallback(() => {
-            console.log('[StateMachine] 受伤动画完成，准备转换状态');
             this.animationFinished = true;
             this.handleAnimationFinished();
         });
@@ -370,7 +368,7 @@ export class HurtState extends State {
     }
     
     exit(): void {
-        console.log('[StateMachine] 离开 Hurt 状态');
+        // 移除状态转换日志
         this.animationFinished = false;
     }
     
@@ -389,12 +387,10 @@ export class HurtState extends State {
         
         if (this.character.hasMovementInput()) {
             if (currentState !== CharacterState.WALKING) {
-                console.log('[StateMachine] 转换到行走状态');
                 this.character.transitionToState(CharacterState.WALKING);
             }
         } else {
             if (currentState !== CharacterState.IDLE) {
-                console.log('[StateMachine] 转换到待机状态');
                 this.character.transitionToState(CharacterState.IDLE);
             }
         }
@@ -429,7 +425,7 @@ export class DeadState extends State {
     }
     
     exit(): void {
-        console.log('[StateMachine] 离开 Dead 状态');
+        // 移除状态转换日志
         this.deathTimer = 0;
     }
     
@@ -485,12 +481,11 @@ export class StateMachine {
         // 检查是否可以转换
         if (this.currentState && !this.currentState.canTransitionTo(newState)) {
             const currentStateName = this.getCurrentStateName();
-            console.log(`[StateMachine] 无法从当前状态 ${currentStateName} 转换到 ${newState}`);
+            // 移除状态转换失败日志，减少噪音
             return false;
         }
         
         // 执行状态转换
-        const previousState = this.getCurrentStateName();
         if (this.currentState) {
             this.currentState.exit();
         }
@@ -498,7 +493,7 @@ export class StateMachine {
         this.currentState = targetState;
         this.currentState.enter();
         
-        console.log(`[StateMachine] 状态转换: ${previousState} -> ${newState}`);
+        // 移除状态转换成功日志
         return true;
     }
     
@@ -571,7 +566,7 @@ export class BaseCharacterDemo extends Component {
     protected spriteComponent: Sprite | null = null;
     protected characterStats: CharacterStats | null = null;
     protected rigidBody: RigidBody2D | null = null;
-    protected collider: Collider2D | null = null;
+    protected collider: BoxCollider2D | null = null;
     
     // 敌人配置数据
     protected enemyData: EnemyData | null = null;
@@ -712,24 +707,16 @@ export class BaseCharacterDemo extends Component {
             
             if (distance <= attackRange) {
                 targetToAttack = this.currentTarget;
-                console.log(`%c[MELEE] ${this.getCharacterDisplayName()} AI近战攻击目标: ${targetToAttack.name}`, 'color: red');
-            } else {
-                console.log(`%c[MELEE] ${this.getCharacterDisplayName()} 目标超出攻击范围 (${distance.toFixed(0)} > ${attackRange})`, 'color: orange');
             }
         }
         // 手动模式：搜索附近的敌人
         else if (this.controlMode === ControlMode.MANUAL) {
             targetToAttack = this.findNearestEnemy();
-            if (targetToAttack) {
-                console.log(`%c[MELEE] ${this.getCharacterDisplayName()} 手动近战攻击目标: ${targetToAttack.name}`, 'color: blue');
-            }
         }
 
         // 对目标造成伤害
         if (targetToAttack) {
             this.dealDamageToTarget(targetToAttack, attackDamage);
-        } else {
-            console.log(`%c[MELEE] ${this.getCharacterDisplayName()} 攻击落空 - 没有有效目标`, 'color: gray');
         }
     }
 
@@ -923,7 +910,7 @@ export class BaseCharacterDemo extends Component {
             
             // 检查阵营关系 - 只攻击敌对阵营
             if (!factionManager.doesAttack(myFaction, targetFaction)) {
-                console.log(`%c[FACTION] ${this.getCharacterDisplayName()} (${myFaction}) 不会攻击同盟/中立目标 ${target.name} (${targetFaction})`, 'color: blue; font-weight: bold');
+                // 移除频繁的阵营检查日志
                 return;
             }
         }
@@ -932,13 +919,14 @@ export class BaseCharacterDemo extends Component {
         const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
         if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
             (targetCharacterDemo as any).takeDamage(damage);
-            console.log(`%c[DAMAGE] ${this.getCharacterDisplayName()} 对 ${target.name} 造成 ${damage} 点伤害`, 'color: red; font-weight: bold');
+            // 简化伤害日志
+            console.log(`%c[DAMAGE] ${this.getCharacterDisplayName()} -> ${target.name}: ${damage}点伤害`, 'color: red');
         } else {
             // 如果没有BaseCharacterDemo，尝试CharacterStats组件
             const targetStats = target.getComponent('CharacterStats');
             if (targetStats && (targetStats as any).takeDamage) {
                 (targetStats as any).takeDamage(damage);
-                console.log(`%c[DAMAGE] ${this.getCharacterDisplayName()} 对 ${target.name} 造成 ${damage} 点伤害 (直接命中CharacterStats)`, 'color: red; font-weight: bold');
+                console.log(`%c[DAMAGE] ${this.getCharacterDisplayName()} -> ${target.name}: ${damage}点伤害`, 'color: red');
             } else {
                 console.warn(`[${this.getCharacterDisplayName()}] 目标 ${target.name} 没有可攻击的组件`);
             }
@@ -1009,11 +997,10 @@ export class BaseCharacterDemo extends Component {
             // 清除之前的监听器
             this.animationComponent.off(Animation.EventType.FINISHED);
             
-            console.log(`[${this.getCharacterDisplayName()}] 播放受伤动画: ${animationName}`);
+            // 移除受伤动画播放日志
             
             // 设置受伤动画结束回调
             this.animationComponent.once(Animation.EventType.FINISHED, () => {
-                console.log(`[${this.getCharacterDisplayName()}] 受伤动画结束: ${animationName}`);
                 if (callback) {
                     callback();
                 }
@@ -1129,8 +1116,7 @@ export class BaseCharacterDemo extends Component {
             this.healthBarGraphics.fill();
         }
         
-        console.log(`[${this.getCharacterDisplayName()}] 血条更新: ${currentHealth}/${maxHealth} (${(healthPercent * 100).toFixed(1)}%)`);
-        console.log(`- 血条尺寸: ${barWidth}x${barHeight}`);
+        // 移除血条更新日志，避免频繁输出
     }
 
 
@@ -1141,9 +1127,6 @@ export class BaseCharacterDemo extends Component {
     public takeDamage(damage: number): void {
         if (!this.characterStats) return;
         
-        const currentStateName = this.stateMachine?.getCurrentStateName() || 'unknown';
-        console.log(`[${this.getCharacterDisplayName()}] 受到 ${damage} 点伤害前，当前状态: ${currentStateName}`);
-        
         // 使用CharacterStats的takeDamage方法
         const isDead = this.characterStats.takeDamage(damage);
         
@@ -1153,19 +1136,15 @@ export class BaseCharacterDemo extends Component {
         // 更新血条
         this.updateHealthBar();
         
-        console.log(`[${this.getCharacterDisplayName()}] 伤害处理结果: isDead=${isDead}, 血量: ${this.characterStats.currentHealth}/${this.characterStats.maxHealth}`);
-        
         // 根据死亡状态决定状态转换
         if (!isDead) {
-            console.log(`[${this.getCharacterDisplayName()}] 尝试转换到受伤状态`);
             this.stateMachine?.transitionTo(CharacterState.HURT);
         } else {
-            console.log(`[${this.getCharacterDisplayName()}] 尝试转换到死亡状态`);
             const transitionResult = this.stateMachine?.transitionTo(CharacterState.DEAD);
-            console.log(`[${this.getCharacterDisplayName()}] 死亡状态转换结果: ${transitionResult}`);
         }
         
-        console.log(`[${this.getCharacterDisplayName()}] 受到 ${damage} 点伤害，当前血量: ${this.characterStats.currentHealth}/${this.characterStats.maxHealth}`);
+        // 简化伤害接收日志
+        console.log(`[${this.getCharacterDisplayName()}] 受到 ${damage} 点伤害，剩余血量: ${this.characterStats.currentHealth}/${this.characterStats.maxHealth}`);
     }
 
     /**
@@ -1279,8 +1258,6 @@ export class BaseCharacterDemo extends Component {
     private updateAITargetSearch(): void {
         if (!this.enemyData) return;
         
-        // 【性能优化】移除时间间隔检查，因为现在使用 schedule 定时调用
-
         const selector = TargetSelector.getInstance();
         if (!selector) {
             console.warn(`[${this.getCharacterDisplayName()}] 全局TargetSelector未初始化`);
@@ -1297,11 +1274,9 @@ export class BaseCharacterDemo extends Component {
             detectionRange
         );
 
-
-
-        // 更新目标
+        // 更新目标 - 只在目标变化时输出日志
         if (bestTarget && bestTarget.node !== this.currentTarget) {
-            console.log(`%c[AI] ${this.getCharacterDisplayName()} (${myFaction}) 发现新目标: ${bestTarget.node.name} (${bestTarget.faction})`, 'color: cyan');
+            // 只在目标变化时输出简化日志
             this.currentTarget = bestTarget.node;
             this.targetInfo = bestTarget;
         } else if (this.currentTarget) {
@@ -1311,7 +1286,6 @@ export class BaseCharacterDemo extends Component {
             const pursuitRange = this.enemyData.pursuitRange || 300;
 
             if (!targetStats || !targetStats.isAlive || distance > pursuitRange) {
-                console.log(`%c[AI] ${this.getCharacterDisplayName()} 目标失效，清除目标`, 'color: orange');
                 this.currentTarget = null;
                 this.targetInfo = null;
             }
@@ -1400,6 +1374,9 @@ export class BaseCharacterDemo extends Component {
         // 设置组件
         this.setupComponents();
         
+        // 显示尺寸范围（如果开关开启）
+        this.setupSizeRangeDisplay();
+        
         // 设置默认阵营（如果还未设置）
         this.setupDefaultFaction();
         
@@ -1434,11 +1411,7 @@ export class BaseCharacterDemo extends Component {
         // 注册到目标选择器
         this.registerToTargetSelector();
         
-        // 打印碰撞映射信息（调试用）
-        this.printCollisionInfo();
-        
         console.log(`[${this.getCharacterDisplayName()}] 初始化完成！`);
-        console.log('🎮 控制说明：WSAD移动，J键攻击（攻击时无法移动），H键受伤测试，K键死亡测试');
     }
 
     /**
@@ -1534,13 +1507,44 @@ export class BaseCharacterDemo extends Component {
         
         this.animationComponent = this.getComponent(Animation) || this.addComponent(Animation);
         this.rigidBody = this.getComponent(RigidBody2D) || this.addComponent(RigidBody2D);
-        this.collider = this.getComponent(Collider2D) || this.addComponent(Collider2D);
+        this.collider = this.getComponent(BoxCollider2D) || this.addComponent(BoxCollider2D);
+        
+        // // 【新增】根据配置设置UI尺寸
+        // this.setupUISize();
+        
+        // 确保节点角度锁定为0
+        this.lockNodeRotation();
         
         // 配置刚体组件
         this.setupRigidBody();
         
         // 配置碰撞体组件  
         this.setupCollider();
+    }
+
+    /**
+     * 根据配置设置UI尺寸
+     */
+    private setupUISize(): void {
+        if (!this.enemyData || !this.enemyData.uiSize) {
+            console.log(`[${this.getCharacterDisplayName()}] 未配置uiSize，保持默认UI尺寸`);
+            return;
+        }
+
+        // 获取UITransform组件
+        const uiTransform = this.node.getComponent(UITransform);
+        if (!uiTransform) {
+            console.warn(`[${this.getCharacterDisplayName()}] 缺少UITransform组件，无法设置UI尺寸`);
+            return;
+        }
+
+        const configSize = this.enemyData.uiSize;
+        const originalSize = `${uiTransform.contentSize.width}x${uiTransform.contentSize.height}`;
+        
+        // 设置新的UI尺寸
+        uiTransform.setContentSize(configSize.width, configSize.height);
+        
+        console.log(`[${this.getCharacterDisplayName()}] UI尺寸已更新: ${originalSize} → ${configSize.width}x${configSize.height}`);
     }
 
     /**
@@ -1576,24 +1580,21 @@ export class BaseCharacterDemo extends Component {
     private setupCollider(): void {
         if (!this.collider || !this.enemyData) return;
         
-        // 确保是BoxCollider2D类型
-        if (!(this.collider instanceof BoxCollider2D)) {
-            // 如果不是BoxCollider2D，移除当前碰撞体并添加新的
-            this.node.removeComponent(this.collider);
-            this.collider = this.addComponent(BoxCollider2D);
-        }
+        const boxCollider = this.collider; // BoxCollider2D类型
         
-        const boxCollider = this.collider as any; // BoxCollider2D类型
-        
-        // 根据敌人配置设置碰撞体尺寸
+        // 【修复】强制应用敌人配置中的碰撞体尺寸，覆盖预制体设置
         const colliderSize = this.enemyData.colliderSize;
         if (colliderSize) {
+            // 设置碰撞体尺寸
             boxCollider.size.width = colliderSize.width;
             boxCollider.size.height = colliderSize.height;
         } else {
-            // 默认碰撞体尺寸
+            // 默认碰撞体尺寸（应该比UI尺寸小）
             boxCollider.size.width = 50;
             boxCollider.size.height = 50;
+            boxCollider.offset.x = 0;
+            boxCollider.offset.y = 0;
+            console.log(`[${this.getCharacterDisplayName()}] 使用默认碰撞体配置: 50x50`);
         }
         
         // 设置为实体碰撞，不允许穿过
@@ -1604,6 +1605,96 @@ export class BaseCharacterDemo extends Component {
         const physicsGroup = factionManager.getFactionPhysicsGroup(currentFaction);
         boxCollider.group = physicsGroup;
         
+        console.log(`[${this.getCharacterDisplayName()}] 碰撞体组件配置完成: 分组=${physicsGroup}, 尺寸=${boxCollider.size.width}x${boxCollider.size.height}, 偏移=(${boxCollider.offset.x}, ${boxCollider.offset.y})`);
+    }
+
+    /**
+     * 设置尺寸范围显示
+     */
+    private setupSizeRangeDisplay(): void {
+        // 检查GameManager中的开关是否开启
+        if (!GameManager.instance || !GameManager.instance.showSizeRanges) {
+            return;
+        }
+
+        // 创建显示UI尺寸范围的节点
+        this.createUIRangeDisplay();
+        
+        // 创建显示碰撞体范围的节点
+        this.createColliderRangeDisplay();
+    }
+
+    /**
+     * 创建UI尺寸范围显示
+     */
+    public createUIRangeDisplay(): void {
+        // 获取UI尺寸
+        const uiTransform = this.node.getComponent(UITransform);
+        if (!uiTransform) return;
+
+        const width = uiTransform.contentSize.width;
+        const height = uiTransform.contentSize.height;
+
+        // 创建UI范围显示节点
+        const uiRangeNode = new Node('UIRange');
+        const graphics = uiRangeNode.addComponent(Graphics);
+        
+        // 绘制UI边界框 - 蓝色
+        graphics.strokeColor = Color.BLUE;
+        graphics.lineWidth = 2;
+        graphics.rect(-width / 2, -height / 2, width, height);
+        graphics.stroke();
+        
+        // 添加到角色节点
+        this.node.addChild(uiRangeNode);
+        
+        console.log(`[${this.getCharacterDisplayName()}] UI范围显示已创建: ${width}x${height}`);
+    }
+
+    /**
+     * 创建碰撞体范围显示
+     */
+    public createColliderRangeDisplay(): void {
+        if (!this.enemyData?.colliderSize) return;
+
+        const colliderSize = this.enemyData.colliderSize;
+        
+        // 创建碰撞体范围显示节点
+        const colliderRangeNode = new Node('ColliderRange');
+        const graphics = colliderRangeNode.addComponent(Graphics);
+        
+        // 绘制碰撞体边界框 - 红色
+        graphics.strokeColor = Color.RED;
+        graphics.lineWidth = 2;
+        
+        // 计算碰撞体的实际位置和尺寸
+        const width = colliderSize.width;
+        const height = colliderSize.height;
+        
+        // 计算偏移位置
+        let offsetX = colliderSize.xoffset || 0;
+        let offsetY = colliderSize.yoffset || 0;
+        
+        // 转换Y偏移（从UI坐标系转换为相对于中心的偏移）
+        if (colliderSize.yoffset !== undefined) {
+            const uiTransform = this.node.getComponent(UITransform);
+            const nodeHeight = uiTransform ? uiTransform.contentSize.height : 128;
+            offsetY = colliderSize.yoffset - (nodeHeight / 2);
+        }
+        
+        // 绘制碰撞体矩形
+        graphics.rect(
+            offsetX - width / 2,
+            offsetY - height / 2,
+            width,
+            height
+        );
+        graphics.stroke();
+        
+        // 添加到角色节点
+        this.node.addChild(colliderRangeNode);
+        
+        console.log(`[${this.getCharacterDisplayName()}] 碰撞体范围显示已创建: ${width}x${height}, 偏移(${offsetX}, ${offsetY})`);
     }
 
     /**
@@ -1676,8 +1767,7 @@ export class BaseCharacterDemo extends Component {
         this.lastAttackTime = currentTime;
         
         // 【核心修改】设置攻击意图，而不是直接转换状态
-        this.wantsToAttack = true; 
-        console.log(`[${this.getCharacterDisplayName()}] 产生攻击意图`);
+        this.wantsToAttack = true;
     }
 
     /**
@@ -1740,9 +1830,8 @@ export class BaseCharacterDemo extends Component {
         // 使用 AnimationManager 播放动画
         const success = animationManager.playAnimation(this.animationComponent, animationName);
         
-        if (success) {
-            console.log(`[${this.getCharacterDisplayName()}] 播放动画: ${animationName}`);
-        } else {
+        // 移除频繁的动画播放日志
+        if (!success) {
             console.warn(`[${this.getCharacterDisplayName()}] 动画播放失败: ${animationName}`);
         }
     }
@@ -1769,14 +1858,13 @@ export class BaseCharacterDemo extends Component {
             // 清除之前的监听器
             this.animationComponent.off(Animation.EventType.FINISHED);
             
-            console.log(`[${this.getCharacterDisplayName()}] 播放攻击动画: ${animationName}`);
+            // 移除攻击动画播放日志
             
             // 执行特殊攻击逻辑（子类可重写）
             this.performSpecialAttack();
             
             // 设置攻击动画结束回调
             this.animationComponent.once(Animation.EventType.FINISHED, () => {
-                console.log(`[${this.getCharacterDisplayName()}] 攻击动画结束: ${animationName}`);
                 // 调用传入的回调
                 if (onFinished) {
                     onFinished();
@@ -1812,6 +1900,9 @@ export class BaseCharacterDemo extends Component {
      * 更新函数 - 支持AI和手动模式
      */
     protected update(deltaTime: number): void {
+        // 锁定节点角度为0
+        this.lockNodeRotation();
+        
         // 如果是AI模式，让AI更新意图
         if (this.controlMode === ControlMode.AI && this.characterStats?.isAlive) {
             this.updateAI(deltaTime);
@@ -1966,6 +2057,9 @@ export class BaseCharacterDemo extends Component {
             console.log(`[${this.getCharacterDisplayName()}] AI目标搜索定时器已重新启动，间隔: ${searchInterval}秒`);
         }
         
+        // 确保角度锁定为0
+        this.lockNodeRotation();
+        
         console.log(`[BaseCharacterDemo] 重用完成，最终敌人类型: ${this.explicitEnemyType || '未设置'}`);
     }
 
@@ -2003,6 +2097,9 @@ export class BaseCharacterDemo extends Component {
         // 重置位置
         this.node.setPosition(this.originalPosition);
         
+        // 重置角度为0
+        this.lockNodeRotation();
+        
         // 重置方向
         this.currentDirection = AnimationDirection.FRONT;
         
@@ -2017,6 +2114,8 @@ export class BaseCharacterDemo extends Component {
         if (this.rigidBody) {
             this.rigidBody.linearVelocity = new Vec2(0, 0);
             this.rigidBody.angularVelocity = 0;
+            // 确保旋转固定
+            this.rigidBody.fixedRotation = true;
             // 唤醒刚体以确保物理更新
             this.rigidBody.wakeUp();
         }
@@ -2386,8 +2485,6 @@ export class BaseCharacterDemo extends Component {
         }
     }
 
-
-
     /**
      * 获取当前敌人类型 - 用于外部查询 (从UniversalCharacterDemo合并)
      */
@@ -2446,6 +2543,23 @@ export class BaseCharacterDemo extends Component {
             return GameManager.instance.getAvailableEnemyTypes();
         }
         return [];
+    }
+
+    /**
+     * 锁定节点角度为0（防止旋转）
+     */
+    private lockNodeRotation(): void {
+        if (this.node) {
+            this.node.setRotationFromEuler(0, 0, 0);
+        }
+    }
+
+    /**
+     * 强制重置节点角度为0
+     */
+    public resetNodeRotation(): void {
+        this.lockNodeRotation();
+        console.log(`[${this.getCharacterDisplayName()}] 节点角度已重置为0`);
     }
 }
 
@@ -2595,4 +2709,3 @@ export class CharacterPoolInitializer {
         return CharacterPoolInitializer.initializedPools.size;
     }
 }
-
