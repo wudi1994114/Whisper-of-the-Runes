@@ -1,6 +1,6 @@
 // assets/scripts/game/FireballController.ts
 
-import { _decorator, Component, Node, Sprite, Animation, Collider2D, RigidBody2D, Vec3, Vec2, AnimationClip, SpriteAtlas, JsonAsset, IPhysics2DContact, resources, Prefab, js, UITransform, Contact2DType, SpriteFrame, animation } from 'cc';
+import { _decorator, Component, Node, Sprite, Animation, Collider2D, RigidBody2D, Vec3, Vec2, AnimationClip, SpriteAtlas, JsonAsset, IPhysics2DContact, resources, Prefab, js, UITransform, Contact2DType, SpriteFrame, animation, PhysicsSystem2D } from 'cc';
 import { dataManager } from '../core/DataManager';
 import { Faction } from '../configs/FactionConfig';
 import { eventManager } from '../core/EventManager';
@@ -126,6 +126,14 @@ export class FireballController extends Component {
         
         // 获取刚体组件
         this.rigidBody = this.getComponent(RigidBody2D);
+        
+        // 【关键修复】确保刚体启用碰撞监听
+        if (this.rigidBody) {
+            this.rigidBody.enabledContactListener = true;
+            console.log('FireballController: ✅ 已启用刚体碰撞监听');
+        } else {
+            console.warn('FireballController: ⚠️ 缺少RigidBody2D组件，碰撞检测将不工作');
+        }
         
         console.log('FireballController: 组件设置完成');
     }
@@ -276,13 +284,57 @@ export class FireballController extends Component {
      * 设置碰撞检测
      */
     private setupCollisionDetection(): void {
+        // 首先检查物理引擎状态
+        this.diagnosePhysicsEngine();
+        
         if (this.colliderComponent) {
             // 监听碰撞开始事件
             this.colliderComponent.on(Contact2DType.BEGIN_CONTACT, this.onCollisionEnter, this);
-            console.log('FireballController: 碰撞检测设置完成');
+            console.log(`FireballController: 碰撞检测设置完成 - 类型: ${this.colliderComponent.constructor.name}, 分组: ${this.colliderComponent.group}, 启用: ${this.colliderComponent.enabled}`);
+            
+            // 额外检查碰撞体状态
+            console.log(`FireballController: 碰撞体详细状态 - sensor: ${this.colliderComponent.sensor}, 密度: ${this.colliderComponent.density}, 摩擦力: ${this.colliderComponent.friction}`);
         } else {
             console.warn('FireballController: 未找到碰撞体组件，无法检测碰撞');
         }
+    }
+    
+    /**
+     * 诊断物理引擎状态
+     */
+    private diagnosePhysicsEngine(): void {
+        console.log('🔍 FireballController: 诊断物理引擎状态...');
+        
+        // 检查PhysicsSystem2D
+        const physicsSystem = PhysicsSystem2D.instance;
+        if (!physicsSystem) {
+            console.error('❌ FireballController: PhysicsSystem2D实例不存在！');
+            console.error('   这意味着物理引擎没有正确启用，碰撞检测将不会工作');
+            console.error('   请检查项目设置 -> 功能剪裁 -> 物理系统中的physics-2d-box2d是否启用');
+            return;
+        }
+        
+        console.log('✅ FireballController: PhysicsSystem2D实例存在');
+        console.log(`   - 重力: (${physicsSystem.gravity.x}, ${physicsSystem.gravity.y})`);
+        
+        // 检查刚体组件
+        if (this.rigidBody) {
+            console.log(`🎯 FireballController: 刚体状态 - 类型: ${this.rigidBody.type}, 分组: ${this.rigidBody.group}, 启用碰撞监听: ${this.rigidBody.enabledContactListener}`);
+            console.log(`   - 线性速度: (${this.rigidBody.linearVelocity.x.toFixed(2)}, ${this.rigidBody.linearVelocity.y.toFixed(2)})`);
+            console.log(`   - bullet: ${this.rigidBody.bullet}, 固定旋转: ${this.rigidBody.fixedRotation}`);
+        } else {
+            console.warn('⚠️ FireballController: 缺少RigidBody2D组件');
+        }
+        
+        // 检查碰撞矩阵
+        if (physicsSystem.collisionMatrix) {
+            const myGroup = this.colliderComponent?.group || 0;
+            console.log(`📋 FireballController: 当前分组${myGroup}的碰撞矩阵值: ${physicsSystem.collisionMatrix[myGroup]}`);
+        } else {
+            console.warn('⚠️ FireballController: 碰撞矩阵未配置');
+        }
+        
+        console.log('🔍 FireballController: 物理引擎诊断完成');
     }
     
     /**
@@ -291,22 +343,35 @@ export class FireballController extends Component {
     private onCollisionEnter(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null): void {
         if (this.isDestroying) return;
         
-        // 获取目标的阵营信息
-        const targetCharacterStats = otherCollider.node.getComponent('CharacterStats');
-        if (targetCharacterStats) {
-            const targetFaction = (targetCharacterStats as any).faction;
+        // [调试日志] 打印出双方的分组信息，方便定位问题
+        const selfGroup = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === selfCollider.group) || selfCollider.group;
+        const otherGroup = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === otherCollider.group) || otherCollider.group;
+        console.log(`[Collision] 火球 (分组: ${selfGroup}) 撞到了 ${otherCollider.node.name} (分组: ${otherGroup})`);
+        console.log(`[Collision] 火球阵营: ${this.shooterFaction}, 碰撞体启用: ${selfCollider.enabled}, 目标碰撞体启用: ${otherCollider.enabled}`);
+        console.log(`[Collision] 火球位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)}), 目标位置: (${otherCollider.node.position.x.toFixed(1)}, ${otherCollider.node.position.y.toFixed(1)})`);
+        console.log(`[Collision] 火球伤害值: ${this.damage}`);
+        
+        // 【关键修复】从BaseCharacterDemo组件获取阵营信息，而不是CharacterStats
+        const targetCharacterDemo = otherCollider.node.getComponent('BaseCharacterDemo');
+        if (targetCharacterDemo) {
+            const targetFaction = (targetCharacterDemo as any).getFaction();
+            const shouldAttack = factionManager.doesAttack(this.shooterFaction, targetFaction);
+            console.log(`[Collision] 目标阵营: ${targetFaction}, 阵营关系检查: ${shouldAttack ? '敌对' : '友方'}`);
             
             // 检查阵营关系 - 只有敌对阵营才造成伤害
-            if (factionManager.doesAttack(this.shooterFaction, targetFaction)) {
+            if (shouldAttack) {
+                console.log(`✅ [Collision] 阵营关系确认为敌对，开始造成伤害`);
                 this.dealDamageToTarget(otherCollider.node, this.damage);
+            } else {
+                console.log(`⚠️ [Collision] 阵营关系为友方，不造成伤害`);
             }
-            // 移除频繁的阵营检查日志
         } else {
-            // 如果没有CharacterStats组件，可能是墙壁等障碍物，直接爆炸
-            console.log(`FireballController: 撞击障碍物 ${otherCollider.node.name}`);
+            // 如果没有BaseCharacterDemo组件，可能是墙壁等障碍物，直接爆炸
+            console.log(`FireballController: 撞击障碍物 ${otherCollider.node.name}（无BaseCharacterDemo组件）`);
         }
         
         // 触发爆炸
+        console.log(`💥 [Collision] 触发火球爆炸`);
         this.explode();
     }
 
@@ -314,26 +379,48 @@ export class FireballController extends Component {
      * 对目标造成伤害
      */
     private dealDamageToTarget(target: Node, damage: number): void {
+        console.log(`🎯 [DAMAGE] FireballController: 开始处理伤害 - 目标: ${target.name}, 伤害: ${damage}`);
+        
         if (!target || !target.isValid) {
-            console.warn(`FireballController: 无效的攻击目标`);
+            console.warn(`❌ [DAMAGE] FireballController: 无效的攻击目标`);
             return;
         }
 
         // 获取目标的BaseCharacterDemo组件来造成伤害
         const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
+        console.log(`🔍 [DAMAGE] 检查BaseCharacterDemo组件: ${targetCharacterDemo ? '存在' : '不存在'}`);
+        
         if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
-            (targetCharacterDemo as any).takeDamage(damage);
-            console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
+            console.log(`✅ [DAMAGE] 找到BaseCharacterDemo组件，调用takeDamage方法`);
+            try {
+                (targetCharacterDemo as any).takeDamage(damage);
+                console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
+                console.log(`✅ [DAMAGE] BaseCharacterDemo.takeDamage调用成功`);
+            } catch (error) {
+                console.error(`❌ [DAMAGE] BaseCharacterDemo.takeDamage调用失败:`, error);
+            }
         } else {
+            console.log(`⚠️ [DAMAGE] BaseCharacterDemo组件不可用，尝试CharacterStats组件`);
             // 如果没有BaseCharacterDemo，尝试CharacterStats组件
             const targetStats = target.getComponent('CharacterStats');
+            console.log(`🔍 [DAMAGE] 检查CharacterStats组件: ${targetStats ? '存在' : '不存在'}`);
+            
             if (targetStats && (targetStats as any).takeDamage) {
-                (targetStats as any).takeDamage(damage);
-                console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
+                console.log(`✅ [DAMAGE] 找到CharacterStats组件，调用takeDamage方法`);
+                try {
+                    (targetStats as any).takeDamage(damage);
+                    console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
+                    console.log(`✅ [DAMAGE] CharacterStats.takeDamage调用成功`);
+                } catch (error) {
+                    console.error(`❌ [DAMAGE] CharacterStats.takeDamage调用失败:`, error);
+                }
             } else {
-                console.warn(`FireballController: 目标 ${target.name} 没有可攻击的组件`);
+                console.warn(`❌ [DAMAGE] FireballController: 目标 ${target.name} 没有可攻击的组件`);
+                console.log(`🔍 [DAMAGE] 目标组件列表:`, target.components.map(c => c.constructor.name));
             }
         }
+        
+        console.log(`🎯 [DAMAGE] FireballController: 伤害处理完成`);
     }
     
     /**
@@ -629,6 +716,9 @@ export class FireballController extends Component {
      */
     public onReuseFromPool(): void {
         console.log('FireballController: 从对象池重用火球');
+        
+        // 重新设置组件引用（关键修复）
+        this.setupComponents();
         
         // 从DataManager加载默认配置
         this.loadConfigFromDataManager();

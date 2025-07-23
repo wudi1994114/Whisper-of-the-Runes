@@ -30,9 +30,6 @@ export enum FireballState {
 export class FireballLauncher extends Component implements IProjectileController {
 
     
-    @property({ tooltip: "发射冷却时间（秒）" })
-    public launchCooldown: number = 0.5;
-    
     @property({ tooltip: "默认发射角度（度），0=水平向右，90=向上，-90=向下" })
     public defaultAngle: number = 0;
 
@@ -53,7 +50,6 @@ export class FireballLauncher extends Component implements IProjectileController
     public launchAngle: number = 0;
     
     // === 发射器状态 ===
-    private lastLaunchTime: number = 0;
     private isLauncher: boolean = true; // 标识当前实例是否为发射器
     
     // === 火球控制器状态 ===
@@ -116,19 +112,18 @@ export class FireballLauncher extends Component implements IProjectileController
      * @param customDamage 自定义伤害值（可选）
      */
     public launchFireball(direction: Vec3, customDamage?: number): void {
-        if (!this.canLaunch()) {
-            console.log('FireballLauncher: 冷却中，无法发射');
-            return;
-        }
-
         const fireball = this.createFireball();
         if (!fireball) {
             console.error('FireballLauncher: 创建火球失败');
             return;
         }
 
-        // 设置火球位置为发射器位置
-        fireball.node.position = this.node.position;
+        // 计算发射角度
+        const angleDegrees = Math.atan2(direction.y, direction.x) * 180 / Math.PI;
+        
+        // 使用带偏移的发射位置
+        const launchPosition = this.calculateLaunchPositionByAngle(angleDegrees);
+        fireball.node.position = launchPosition;
 
         // 应用自定义参数
         if (customDamage !== undefined) {
@@ -138,10 +133,6 @@ export class FireballLauncher extends Component implements IProjectileController
         // 设置火球方向
         fireball.setMoveDirection(direction);
 
-        // 更新最后发射时间
-        this.lastLaunchTime = Date.now() / 1000;
-
-        console.log(`FireballLauncher: 发射火球，方向 (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)})，伤害 ${fireball.damage}，速度 ${fireball.moveSpeed}`);
     }
 
     // =================== 便利方法 ===================
@@ -187,22 +178,12 @@ export class FireballLauncher extends Component implements IProjectileController
     }
     
     /**
-     * 检查是否可以发射
-     */
-    private canLaunch(): boolean {
-        // 检查冷却时间
-        const currentTime = Date.now() / 1000;
-        return (currentTime - this.lastLaunchTime) >= this.launchCooldown;
-    }
-    
-    /**
      * 创建火球实例 - 完全依赖对象池
      */
     private createFireball(): FireballController | null {
         // 从对象池创建火球
         const poolFireball = FireballController.createFromPool('fireball');
-        if (poolFireball) {
-            console.log('FireballLauncher: 从对象池创建火球成功');
+        if (poolFireball) { 
             
             // 确保火球节点的锚点
             const uiTransform = poolFireball.node.getComponent(UITransform);
@@ -230,22 +211,6 @@ export class FireballLauncher extends Component implements IProjectileController
         console.error('FireballLauncher: 请确保火球预制体已正确注册到对象池');
         console.error('FireballLauncher: 检查 GameManager 中的预制体挂载和 DataManager 中的技能配置');
         return null;
-    }
-    
-    /**
-     * 获取剩余冷却时间
-     */
-    public getRemainingCooldown(): number {
-        const currentTime = Date.now() / 1000;
-        const timeSinceLastLaunch = currentTime - this.lastLaunchTime;
-        return Math.max(0, this.launchCooldown - timeSinceLastLaunch);
-    }
-    
-    /**
-     * 是否在冷却中
-     */
-    public isOnCooldown(): boolean {
-        return this.getRemainingCooldown() > 0;
     }
     
     // =================== 火球控制器方法 ===================
@@ -289,7 +254,13 @@ export class FireballLauncher extends Component implements IProjectileController
         // 获取刚体组件
         this.rigidBody = this.getComponent(RigidBody2D);
         
-        console.log('FireballLauncher: 火球组件设置完成');
+        // 【关键修复】确保刚体启用碰撞监听
+        if (this.rigidBody) {
+            this.rigidBody.enabledContactListener = true;
+        } else {
+            console.warn('FireballLauncher: ⚠️ 缺少RigidBody2D组件，碰撞检测将不工作');
+        }
+        
     }
     
     /**
@@ -320,7 +291,6 @@ export class FireballLauncher extends Component implements IProjectileController
             const atlas = await resourceManager.loadResource('skill/fire', SpriteAtlas);
             if (atlas) {
                 this.spriteAtlas = atlas;
-                console.log('FireballLauncher: 火球图集加载成功');
             } else {
                 throw new Error('Failed to load fire atlas');
             }
@@ -355,7 +325,6 @@ export class FireballLauncher extends Component implements IProjectileController
             if (this.explodeClip) this.animationComponent.addClip(this.explodeClip);
         }
         
-        console.log('FireballLauncher: 动画剪辑创建完成');
     }
     
     /**
@@ -419,8 +388,7 @@ export class FireballLauncher extends Component implements IProjectileController
             
             try {
                 channel.curve.assignSorted(keyframes);
-                clip.addTrack(track);
-                console.log(`FireballLauncher: 成功创建动画 ${name}，包含 ${spriteFrames.length} 帧`);
+                clip.addTrack(track);   
             } catch (error) {
                 console.error(`FireballLauncher: 动画 ${name} 关键帧设置失败`, error);
             }
@@ -438,7 +406,6 @@ export class FireballLauncher extends Component implements IProjectileController
         if (this.colliderComponent) {
             // 监听碰撞开始事件
             this.colliderComponent.on(Contact2DType.BEGIN_CONTACT, this.onCollisionEnter, this);
-            console.log('FireballLauncher: 碰撞检测设置完成');
         } else {
             console.warn('FireballLauncher: 未找到碰撞体组件，无法检测碰撞');
         }
@@ -450,19 +417,22 @@ export class FireballLauncher extends Component implements IProjectileController
     private onCollisionEnter(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null): void {
         if (this.isDestroying) return;
         
-        // 获取目标的阵营信息
-        const targetCharacterStats = otherCollider.node.getComponent('CharacterStats');
-        if (targetCharacterStats) {
-            const targetFaction = (targetCharacterStats as any).faction;
+        // [调试日志] 打印出双方的分组信息，方便定位问题
+        const selfGroup = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === selfCollider.group) || selfCollider.group;
+        const otherGroup = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === otherCollider.group) || otherCollider.group;
+        
+        // 【关键修复】从BaseCharacterDemo组件获取阵营信息，而不是CharacterStats
+        const targetCharacterDemo = otherCollider.node.getComponent('BaseCharacterDemo');
+        if (targetCharacterDemo) {
+            const targetFaction = (targetCharacterDemo as any).getFaction();
+            const shouldAttack = factionManager.doesAttack(this.shooterFaction, targetFaction);
             
             // 检查阵营关系 - 只有敌对阵营才造成伤害
-            if (factionManager.doesAttack(this.shooterFaction, targetFaction)) {
+            if (shouldAttack) {
                 this.dealDamageToTarget(otherCollider.node, this.damage);
-            }
-            // 移除频繁的阵营检查日志
+            } 
         } else {
-            // 如果没有CharacterStats组件，可能是墙壁等障碍物，直接爆炸
-            console.log(`FireballLauncher: 撞击障碍物 ${otherCollider.node.name}`);
+            // 如果没有BaseCharacterDemo组件，可能是墙壁等障碍物，直接爆炸
         }
         
         // 触发爆炸
@@ -473,26 +443,32 @@ export class FireballLauncher extends Component implements IProjectileController
      * 对目标造成伤害
      */
     private dealDamageToTarget(target: Node, damage: number): void {
+        
         if (!target || !target.isValid) {
-            console.warn(`FireballLauncher: 无效的攻击目标`);
             return;
         }
 
         // 获取目标的BaseCharacterDemo组件来造成伤害
         const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
+        
         if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
-            (targetCharacterDemo as any).takeDamage(damage);
-            console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
+            try {
+                (targetCharacterDemo as any).takeDamage(damage);
+            } catch (error) {
+            }
         } else {
             // 如果没有BaseCharacterDemo，尝试CharacterStats组件
             const targetStats = target.getComponent('CharacterStats');
+            
             if (targetStats && (targetStats as any).takeDamage) {
-                (targetStats as any).takeDamage(damage);
-                console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
+                try {
+                    (targetStats as any).takeDamage(damage);
+                } catch (error) {
+                }
             } else {
-                console.warn(`FireballLauncher: 目标 ${target.name} 没有可攻击的组件`);
             }
         }
+        
     }
     
     /**
@@ -507,14 +483,12 @@ export class FireballLauncher extends Component implements IProjectileController
         // 监听生成动画结束
         this.animationComponent.once(Animation.EventType.FINISHED, this.onSpawnAnimationFinished, this);
         
-        console.log('FireballLauncher: 开始播放生成动画');
     }
     
     /**
      * 生成动画结束回调
      */
     private onSpawnAnimationFinished(): void {
-        console.log('FireballLauncher: 生成动画结束，开始飞行动画');
         
         // 如果移动方向为默认值，使用设置的角度
         if (this.moveDirection.equals(new Vec3(1, 0, 0))) {
@@ -532,8 +506,7 @@ export class FireballLauncher extends Component implements IProjectileController
         
         this.currentState = FireballState.FLYING;
         this.animationComponent.play('fireball_flying');
-        
-        console.log('FireballLauncher: 开始播放飞行动画');
+
     }
     
     /**
@@ -561,14 +534,12 @@ export class FireballLauncher extends Component implements IProjectileController
             this.destroyFireball();
         }
         
-        console.log('FireballLauncher: 开始爆炸');
     }
     
     /**
      * 爆炸动画结束回调
      */
     private onExplodeAnimationFinished(): void {
-        console.log('FireballLauncher: 爆炸动画结束，销毁火球');
         this.destroyFireball();
     }
     
@@ -629,7 +600,6 @@ export class FireballLauncher extends Component implements IProjectileController
             // 强制让运动方向与动画方向保持一致：从视觉角度重新计算运动方向
             this.alignMovementWithVisualDirection(angleDegrees);
             
-            console.log(`FireballLauncher: 根据移动方向更新视觉角度 ${angleDegrees.toFixed(1)}°，运动方向已同步`);
         }
     }
 
@@ -650,7 +620,6 @@ export class FireballLauncher extends Component implements IProjectileController
         // 直接更新运动方向，绕过 setMoveDirection 避免循环调用
         this.moveDirection = correctedDirection;
         
-        console.log(`FireballLauncher: 运动方向已对齐至视觉方向 (${correctedDirection.x.toFixed(3)}, ${correctedDirection.y.toFixed(3)})`);
     }
     
     /**
@@ -676,7 +645,6 @@ export class FireballLauncher extends Component implements IProjectileController
             this.node.angle = angleDegrees;
         }
         
-        console.log(`FireballLauncher: 设置发射角度 ${angleDegrees}°, 方向 (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})${!this.isLauncher ? '，节点旋转 ' + angleDegrees + '°' : ''}`);
     }
     
     /**
@@ -709,7 +677,6 @@ export class FireballLauncher extends Component implements IProjectileController
             this.updateProjectilePhysicsGroup();
         }
         
-        console.log(`FireballLauncher: 设置阵营为 ${faction}`);
     }
 
     /**
@@ -726,7 +693,6 @@ export class FireballLauncher extends Component implements IProjectileController
         const physicsGroup = this.getProjectilePhysicsGroupFromBase(baseGroup);
         this.rigidBody.group = physicsGroup;
         
-        console.log(`FireballLauncher: 设置投射物物理分组 - 阵营: ${this.shooterFaction}, 分组: ${physicsGroup}`);
     }
 
     /**
@@ -755,7 +721,6 @@ export class FireballLauncher extends Component implements IProjectileController
             this.animationComponent.off(Animation.EventType.FINISHED);
         }
         
-        console.log('FireballLauncher: 火球控制器组件已销毁');
     }
 
     /**
@@ -811,7 +776,6 @@ export class FireballLauncher extends Component implements IProjectileController
             launcherPos.z
         );
         
-        console.log(`FireballLauncher: 角度 ${angleDegrees.toFixed(1)}° → 朝向 ${direction} → 偏移 (${offset.x}, ${offset.y})`);
         return adjustedPosition;
     }
 
@@ -846,13 +810,23 @@ export class FireballLauncher extends Component implements IProjectileController
      */
     private getProjectileOffsets(): any {
         try {
-            // 从DataManager获取巫妖精英的数据（默认使用这个配置）
+            // 优先从发射者节点获取敌人配置
+            if (this.shooterNode) {
+                const shooterCharacter = this.shooterNode.getComponent('BaseCharacterDemo');
+                if (shooterCharacter && (shooterCharacter as any).enemyData) {
+                    const enemyData = (shooterCharacter as any).enemyData;
+                    if (enemyData.projectileOffsets) {
+                        return enemyData.projectileOffsets;
+                    }
+                }
+            }
+            
+            // 备用方案：从DataManager获取巫妖精英的数据
             const enemyData = dataManager.getEnemyData('lich_elite');
             if (enemyData && enemyData.projectileOffsets) {
                 return enemyData.projectileOffsets;
             }
             
-            console.warn('FireballLauncher: 未找到projectileOffsets配置，使用默认位置');
             return null;
         } catch (error) {
             console.error('FireballLauncher: 获取projectileOffsets配置失败', error);

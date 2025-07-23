@@ -22,6 +22,10 @@ export class CharacterStats extends Component {
     private _baseDefense: number = 5;
     private _moveSpeed: number = 1.0;
     private _expReward: number = 0;
+    
+    // 霸体值属性
+    private _maxPoise: number = 50;
+    private _currentPoise: number = 50;
     // 阵营管理已移至BaseCharacterDemo的aiFaction属性
     
     // 组件引用
@@ -90,6 +94,14 @@ export class CharacterStats extends Component {
         return this._currentHealth > 0;
     }
     
+    public get maxPoise(): number {
+        return this._maxPoise;
+    }
+    
+    public get currentPoise(): number {
+        return this._currentPoise;
+    }
+    
     public get enemyData(): EnemyData | null {
         return this._enemyData;
     }
@@ -117,6 +129,10 @@ export class CharacterStats extends Component {
         this._moveSpeed = enemyData.moveSpeed;
         this._expReward = enemyData.expReward;
         
+        // 初始化霸体值
+        this._maxPoise = enemyData.poise || 50; // 如果配置中没有，给一个默认值
+        this._currentPoise = this._maxPoise;
+        
         // 初始化动画控制器
         if (this._animationController) {
             await this._animationController.initializeWithEnemyData(enemyData);
@@ -128,13 +144,15 @@ export class CharacterStats extends Component {
     /**
      * 手动设置属性（用于玩家或其他特殊角色）
      */
-    public setStats(maxHealth: number, baseAttack: number, baseDefense: number, moveSpeed: number, expReward: number = 0) {
+    public setStats(maxHealth: number, baseAttack: number, baseDefense: number, moveSpeed: number, expReward: number = 0, maxPoise: number = 50) {
         this._maxHealth = maxHealth;
         this._currentHealth = maxHealth;
         this._baseAttack = baseAttack;
         this._baseDefense = baseDefense;
         this._moveSpeed = moveSpeed;
         this._expReward = expReward;
+        this._maxPoise = maxPoise;
+        this._currentPoise = maxPoise;
         
         eventManager.emit(GameEvents.CHARACTER_STATS_INITIALIZED, this);
     }
@@ -142,11 +160,11 @@ export class CharacterStats extends Component {
     /**
      * 受到伤害
      * @param damage 伤害值
-     * @returns 是否死亡
+     * @returns 包含死亡和硬直信息的对象
      */
-    public takeDamage(damage: number): boolean {
+    public takeDamage(damage: number): { isDead: boolean, isStunned: boolean } {
         if (!this.isAlive) {
-            return true;
+            return { isDead: true, isStunned: false };
         }
 
         // 计算实际伤害（考虑防御力）
@@ -155,6 +173,18 @@ export class CharacterStats extends Component {
         this._currentHealth -= actualDamage;
         this._currentHealth = Math.max(0, this._currentHealth);
 
+        let isStunned = false;
+        // 只有在霸体值大于0时才扣减，否则每次都会硬直
+        if (this._currentPoise > 0) {
+            this._currentPoise -= actualDamage; // 简化处理：伤害值直接作为削韧值
+        }
+
+        // 如果霸体值被扣光，则产生硬直
+        if (this._currentPoise <= 0) {
+            isStunned = true;
+            this._currentPoise = this._maxPoise; // 硬直后立刻重置霸体值
+        }
+
         // 发送血量变化事件（用于血条组件）
         this.node.emit('health-changed', this._currentHealth, this._maxHealth);
         
@@ -162,10 +192,10 @@ export class CharacterStats extends Component {
 
         if (this._currentHealth <= 0) {
             eventManager.emit(GameEvents.CHARACTER_DIED, this);
-            return true;
+            return { isDead: true, isStunned: isStunned };
         }
 
-        return false;
+        return { isDead: false, isStunned: isStunned };
     }
 
     /**
@@ -198,6 +228,8 @@ export class CharacterStats extends Component {
      */
     public reset() {
         this._currentHealth = this._maxHealth;
+        // 重置时也要恢复霸体值
+        this._currentPoise = this._maxPoise;
         
         // 重置动画到待机状态
         if (this._animationController && this._animationController.isReady()) {
@@ -278,7 +310,7 @@ export class CharacterStats extends Component {
      * 获取属性信息字符串
      */
     public getStatsInfo(): string {
-        return `Health: ${this._currentHealth}/${this._maxHealth}, Attack: ${this._baseAttack}, Defense: ${this._baseDefense}, Speed: ${this._moveSpeed}`;
+        return `Health: ${this._currentHealth}/${this._maxHealth}, Attack: ${this._baseAttack}, Defense: ${this._baseDefense}, Speed: ${this._moveSpeed}, Poise: ${this._currentPoise}/${this._maxPoise}`;
     }
     
     /**

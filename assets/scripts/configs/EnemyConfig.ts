@@ -91,12 +91,14 @@ export interface EnemyData {
     baseAttack: number;             // 基础攻击力，影响对玩家造成的伤害
     baseDefense: number;            // 基础防御力，减少受到的伤害
     moveSpeed: number;              // 移动速度 (像素/秒)，控制敌人移动快慢
+    poise?: number;                 // 霸体值 (可选)，控制敌人是否会被击退/硬直，默认50
     
     // ===============================
     // 攻击系统配置
     // ===============================
     attackRange: number;            // 攻击距离 (像素)，敌人开始攻击的最小距离
     attackInterval: number;         // 攻击间隔时间 (秒)，控制攻击频率
+    attackDamageFrame?: number;     // 攻击动画的伤害触发帧 (可选)，默认为攻击动画的中间帧
     projectileId?: string;          // 远程攻击的投射物ID (可选)，仅远程敌人需要
     
     // ===============================

@@ -307,6 +307,50 @@ export class AnimationManager {
     }
 
     /**
+     * 播放攻击动画并在指定帧触发回调
+     * @param animationComponent 动画组件
+     * @param animationName 动画名称
+     * @param damageFrame 伤害触发帧（从1开始）
+     * @param animationSpeed 动画速度（帧/秒）
+     * @param onDamageFrame 伤害帧回调函数
+     * @param onComplete 动画完成回调函数（可选）
+     * @returns boolean 是否成功播放
+     */
+    public playAttackAnimation(
+        animationComponent: Animation, 
+        animationName: string, 
+        damageFrame: number, 
+        animationSpeed: number,
+        onDamageFrame: () => void,
+        onComplete?: () => void
+    ): boolean {
+        // 先播放动画
+        const success = this.playAnimation(animationComponent, animationName);
+        if (!success) {
+            return false;
+        }
+
+        // 计算伤害帧触发时间（秒）
+        const damageFrameTime = (damageFrame - 1) / animationSpeed; // 减1因为帧从0开始计算
+
+        // 设置伤害帧定时器
+        animationComponent.unschedule(onDamageFrame); // 清除之前的定时器
+        animationComponent.scheduleOnce(() => {
+            onDamageFrame();
+        }, damageFrameTime);
+
+        // 设置动画完成回调（如果提供）
+        if (onComplete) {
+            // 清除之前的监听器
+            animationComponent.off(Animation.EventType.FINISHED);
+            animationComponent.once(Animation.EventType.FINISHED, onComplete);
+        }
+
+        console.log(`[AnimationManager] 攻击动画 ${animationName} 已开始，伤害将在第${damageFrame}帧（${damageFrameTime.toFixed(3)}秒）触发`);
+        return true;
+    }
+
+    /**
      * 停止动画
      * @param animationComponent 动画组件
      */

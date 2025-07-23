@@ -508,7 +508,7 @@ class PoolManager {
             label = damageNode.addComponent(Label);
         }
         label.string = `-${damage}`;
-        label.fontSize = 24;
+        label.fontSize = 10;
         label.color = new Color(255, 100, 100, 255);
 
         // 重置位置和缩放（池化节点的标准状态）

@@ -2,6 +2,7 @@ import { _decorator, Component, Animation, Sprite, Vec2, Node, EventKeyboard, Ke
 import { dataManager } from '../core/DataManager';
 import { EnemyData } from '../configs/EnemyConfig';
 import { CharacterStats } from '../components/CharacterStats';
+import { HealthBarComponent } from '../components/HealthBarComponent';
 import { systemConfigManager } from '../core/SystemConfig';
 import { poolManager } from '../core/PoolManager';
 import { AnimationState, AnimationDirection } from './AnimationConfig';
@@ -9,7 +10,6 @@ import { animationManager } from './AnimationManager';
 import { Faction, FactionUtils } from '../configs/FactionConfig';
 import { TargetInfo } from '../core/MonsterAI';
 
-import { PhysicsGroup } from '../configs/PhysicsConfig';
 import { factionManager } from '../core/FactionManager';
 import { TargetSelector } from '../core/TargetSelector';
 import { GameEvents } from '../core/GameEvents';
@@ -343,8 +343,9 @@ export class AttackingState extends State {
     }
     
     canTransitionTo(newState: CharacterState): boolean {
-        // 攻击中可以被受伤或死亡打断
-        return newState === CharacterState.HURT || newState === CharacterState.DEAD || newState === CharacterState.IDLE;
+        // 攻击中只允许被死亡打断，或者动画完成后转换到IDLE
+        return newState === CharacterState.DEAD || 
+               (newState === CharacterState.IDLE && this.animationFinished);
     }
 }
 
@@ -406,6 +407,9 @@ export class DeadState extends State {
         console.log('[StateMachine] 进入 Dead 状态');
         this.deathTimer = 0;
         this.character.playDeathAnimation();
+        
+        // 立即取消碰撞检测
+        this.character.disableCollision();
         
         // 如果是池化对象，准备自动回收
         if (this.character.getIsFromPool()) {
@@ -598,6 +602,9 @@ export class BaseCharacterDemo extends Component {
     // 对象池相关
     protected isFromPool: boolean = false;
     protected poolName: string = '';
+    
+    // 无敌状态标志位
+    private isInvincible: boolean = false;
 
     // 智能攻击系统 (从UniversalCharacterDemo合并)
     private fireballLauncher: FireballLauncher | null = null;
@@ -681,9 +688,10 @@ export class BaseCharacterDemo extends Component {
 
         // 检查是否为远程攻击敌人
         if (this.isRangedAttacker) {
+            console.log(`🏹 [${this.getCharacterDisplayName()}] 执行远程攻击 - 发射火球`);
             this.performRangedAttack();
         } else {
-            console.log(`[${this.getCharacterDisplayName()}] 执行近战攻击`);
+            console.log(`⚔️ [${this.getCharacterDisplayName()}] 执行近战攻击`);
             this.performMeleeAttack();
         }
     }
@@ -701,6 +709,7 @@ export class BaseCharacterDemo extends Component {
         let attackDamage = this.characterStats.baseAttack;
 
         // AI模式：攻击当前目标
+       
         if (this.controlMode === ControlMode.AI && this.currentTarget) {
             const distance = Vec2.distance(this.node.position, this.currentTarget.position);
             const attackRange = this.enemyData?.attackRange || 60;
@@ -788,12 +797,6 @@ export class BaseCharacterDemo extends Component {
     private launchFireball(): void {
         if (!this.fireballLauncher) {
             console.warn(`[${this.getCharacterDisplayName()}] 火球发射器未初始化`);
-            return;
-        }
-
-        // 检查是否在冷却中
-        if (this.fireballLauncher.isOnCooldown()) {
-            console.log(`[${this.getCharacterDisplayName()}] 火球发射器冷却中，无法发射`);
             return;
         }
 
@@ -902,30 +905,17 @@ export class BaseCharacterDemo extends Component {
             return;
         }
 
-        // 获取目标的阵营信息并检查是否应该攻击
-        const targetCharacterStats = target.getComponent('CharacterStats');
-        if (targetCharacterStats) {
-            const myFaction = this.getFaction();
-            const targetFaction = (targetCharacterStats as any).faction;
-            
-            // 检查阵营关系 - 只攻击敌对阵营
-            if (!factionManager.doesAttack(myFaction, targetFaction)) {
-                // 移除频繁的阵营检查日志
-                return;
-            }
-        }
-
-        // 获取目标的BaseCharacterDemo组件来造成伤害
-        const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
-        if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
-            (targetCharacterDemo as any).takeDamage(damage);
-            // 简化伤害日志
+        // 获取目标的BaseCharacterDemo组件来造成伤害（优先使用类型获取，效率更高）
+        const targetCharacterDemo = target.getComponent(BaseCharacterDemo);
+        if (targetCharacterDemo && targetCharacterDemo.takeDamage) {
+            console.log(`[123]dealDamageToTarget`);
+            targetCharacterDemo.takeDamage(damage);
             console.log(`%c[DAMAGE] ${this.getCharacterDisplayName()} -> ${target.name}: ${damage}点伤害`, 'color: red');
         } else {
             // 如果没有BaseCharacterDemo，尝试CharacterStats组件
-            const targetStats = target.getComponent('CharacterStats');
-            if (targetStats && (targetStats as any).takeDamage) {
-                (targetStats as any).takeDamage(damage);
+            const targetStats = target.getComponent(CharacterStats);
+            if (targetStats && targetStats.takeDamage) {
+                targetStats.takeDamage(damage);
                 console.log(`%c[DAMAGE] ${this.getCharacterDisplayName()} -> ${target.name}: ${damage}点伤害`, 'color: red');
             } else {
                 console.warn(`[${this.getCharacterDisplayName()}] 目标 ${target.name} 没有可攻击的组件`);
@@ -1125,26 +1115,39 @@ export class BaseCharacterDemo extends Component {
      * 受到伤害
      */
     public takeDamage(damage: number): void {
-        if (!this.characterStats) return;
-        
-        // 使用CharacterStats的takeDamage方法
-        const isDead = this.characterStats.takeDamage(damage);
-        
-        // 显示伤害数字
+        // 1. 检查无敌状态，防止被连续快速伤害
+        if (this.isInvincible || !this.characterStats) {
+            return;
+        }
+
+        // 2. 从CharacterStats获取详细的伤害结果
+        const result = this.characterStats.takeDamage(damage);
+
+        // 3. 触发短暂的无敌时间 (无论是硬直还是闪红，都应该有无敌)
+        // 硬直的无敌时间可以长一点，闪红的短一点
+        const invincibilityDuration = result.isStunned ? 0.6 : 0.2;
+        this.activateInvincibility(invincibilityDuration);
+
+        // 4. 显示伤害数字和更新血条（这部分逻辑不变）
         this.showDamageText(damage);
-        
-        // 更新血条
         this.updateHealthBar();
-        
-        // 根据死亡状态决定状态转换
-        if (!isDead) {
+
+        // 5. 根据结果执行不同的表现
+        if (result.isDead) {
+            // 角色死亡
+            this.stateMachine?.transitionTo(CharacterState.DEAD);
+        } else if (result.isStunned) {
+            // 霸体值为0，产生硬直 -> 播放完整受伤动画
+            console.log(`[${this.getCharacterDisplayName()}] 霸体被击破，进入HURT状态！`);
             this.stateMachine?.transitionTo(CharacterState.HURT);
         } else {
-            const transitionResult = this.stateMachine?.transitionTo(CharacterState.DEAD);
+            // 霸体值>0，不产生硬直 -> 仅播放闪红特效
+            console.log(`[${this.getCharacterDisplayName()}] 霸体抵抗，播放闪红特效。`);
+            this.playRedFlashEffect();
         }
-        
-        // 简化伤害接收日志
-        console.log(`[${this.getCharacterDisplayName()}] 受到 ${damage} 点伤害，剩余血量: ${this.characterStats.currentHealth}/${this.characterStats.maxHealth}`);
+
+        // 简化日志
+        console.log(`[${this.getCharacterDisplayName()}] 受到 ${damage} 点伤害，剩余血量: ${this.characterStats.currentHealth}/${this.characterStats.maxHealth}，霸体值: ${this.characterStats.currentPoise}`);
     }
 
     /**
@@ -1171,20 +1174,34 @@ export class BaseCharacterDemo extends Component {
         
         // 文字内容已经在创建时设置好了，无需更新
         
-        // 重置初始缩放
+        // 重置初始缩放和透明度
         damageNode.setScale(1, 1, 1);
+        
+        // 获取Label组件以控制透明度
+        const label = damageNode.getComponent('Label') as any;
+        if (label) {
+            // 重置为完全不透明
+            label.color = new Color(255, 100, 100, 255);
+        }
         
         // 【性能优化】复用静态临时变量进行动画效果
         const moveOffset = TempVarPool.tempVec2_1;
-        const scaleTarget = TempVarPool.tempVec2_2;
         moveOffset.set(0, 50);
-        scaleTarget.set(0.5, 0.5);
         
-        // 动画效果：向上飘动并逐渐消失
+        // 动画效果：向上飘动并逐渐消失（固定大小，只改变透明度）
         tween(damageNode)
             .parallel(
                 tween().by(0.5, { position: moveOffset }),
-                tween().delay(0.1).to(0.4, { scale: scaleTarget })
+                tween().delay(0.1).to(0.4, {}, { 
+                    onUpdate: (target: Node, ratio?: number) => {
+                        // 透明度从255渐变到0
+                        const label = target.getComponent('Label') as any;
+                        if (label && ratio !== undefined) {
+                            const alpha = Math.floor(255 * (1 - ratio));
+                            label.color = new Color(255, 100, 100, alpha);
+                        }
+                    }
+                })
             )
             .call(() => {
                 // 归还到PoolManager
@@ -1213,10 +1230,41 @@ export class BaseCharacterDemo extends Component {
         console.log(`[${this.getCharacterDisplayName()}] 执行死亡测试`);
         if (this.characterStats) {
             // 直接造成致命伤害
-            this.characterStats.takeDamage(this.characterStats.maxHealth);
+            const result = this.characterStats.takeDamage(this.characterStats.maxHealth);
             this.updateHealthBar();
-            this.stateMachine?.transitionTo(CharacterState.DEAD);
+            if (result.isDead) {
+                this.stateMachine?.transitionTo(CharacterState.DEAD);
+            }
         }
+    }
+
+    /**
+     * 激活无敌帧
+     * @param duration 无敌持续时间（秒）
+     */
+    public activateInvincibility(duration: number): void {
+        if (this.isInvincible) return; // 如果已经是无敌的，则不重置计时器
+
+        this.isInvincible = true;
+        this.scheduleOnce(() => {
+            this.isInvincible = false;
+        }, duration);
+    }
+
+    /**
+     * 播放身体闪红的特效
+     */
+    private playRedFlashEffect(): void {
+        if (!this.spriteComponent) return;
+
+        // 停止可能正在进行的旧的闪烁动画，防止冲突
+        tween(this.spriteComponent).stop();
+
+        // 将颜色设置为红色，然后用0.1秒缓动回白色
+        this.spriteComponent.color = Color.RED;
+        tween(this.spriteComponent)
+            .to(0.1, { color: Color.WHITE })
+            .start();
     }
 
 
@@ -1387,7 +1435,7 @@ export class BaseCharacterDemo extends Component {
         await this.setupAnimationsWithManager();
         
         // 检查是否已有HealthBarComponent，如果没有则创建内置血条
-        const healthBarComponent = this.node.getComponent('HealthBarComponent');
+        const healthBarComponent = this.node.getComponent(HealthBarComponent);
         if (!healthBarComponent) {
             this.createHealthBar();
         } else {
@@ -1510,7 +1558,7 @@ export class BaseCharacterDemo extends Component {
         this.collider = this.getComponent(BoxCollider2D) || this.addComponent(BoxCollider2D);
         
         // // 【新增】根据配置设置UI尺寸
-        // this.setupUISize();
+        this.setupUISize();
         
         // 确保节点角度锁定为0
         this.lockNodeRotation();
@@ -1606,6 +1654,42 @@ export class BaseCharacterDemo extends Component {
         boxCollider.group = physicsGroup;
         
         console.log(`[${this.getCharacterDisplayName()}] 碰撞体组件配置完成: 分组=${physicsGroup}, 尺寸=${boxCollider.size.width}x${boxCollider.size.height}, 偏移=(${boxCollider.offset.x}, ${boxCollider.offset.y})`);
+    }
+
+    /**
+     * 禁用碰撞检测 - 角色死亡时调用
+     */
+    public disableCollision(): void {
+        // 禁用碰撞体组件
+        if (this.collider) {
+            this.collider.enabled = false;
+            console.log(`[${this.getCharacterDisplayName()}] 碰撞体已禁用`);
+        }
+        
+        // 禁用刚体的碰撞监听
+        if (this.rigidBody) {
+            this.rigidBody.enabledContactListener = false;
+            // 停止所有物理运动
+            this.rigidBody.linearVelocity = new Vec2(0, 0);
+            console.log(`[${this.getCharacterDisplayName()}] 刚体碰撞监听已禁用，运动已停止`);
+        }
+    }
+
+    /**
+     * 启用碰撞检测 - 角色复活时调用
+     */
+    public enableCollision(): void {
+        // 启用碰撞体组件
+        if (this.collider) {
+            this.collider.enabled = true;
+            console.log(`[${this.getCharacterDisplayName()}] 碰撞体已启用`);
+        }
+        
+        // 启用刚体的碰撞监听
+        if (this.rigidBody) {
+            this.rigidBody.enabledContactListener = true;
+            console.log(`[${this.getCharacterDisplayName()}] 刚体碰撞监听已启用`);
+        }
     }
 
     /**
@@ -1758,8 +1842,6 @@ export class BaseCharacterDemo extends Component {
         // 检查攻击冷却时间
         const currentTime = Date.now() / 1000;
         if (currentTime - this.lastAttackTime < this.attackCooldown) {
-            const remainingCooldown = this.attackCooldown - (currentTime - this.lastAttackTime);
-            console.log(`[${this.getCharacterDisplayName()}] 攻击冷却中，剩余时间: ${remainingCooldown.toFixed(1)}秒`);
             return;
         }
         
@@ -1851,33 +1933,42 @@ export class BaseCharacterDemo extends Component {
         // 构建完整的动画名称
         const animationName = `${this.enemyData.assetNamePrefix}_${AnimationState.ATTACK}_${this.currentDirection}`;
 
-        // 使用 AnimationManager 播放攻击动画
-        const success = animationManager.playAnimation(this.animationComponent, animationName);
+        // 获取攻击伤害帧配置
+        const damageFrame = this.enemyData.attackDamageFrame || 5; // 默认第5帧
+        const animSpeed = this.enemyData.animationSpeed || 8; // 默认8帧/秒
+
+        // 使用 AnimationManager 播放攻击动画，带帧事件支持
+        const success = animationManager.playAttackAnimation(
+            this.animationComponent,
+            animationName,
+            damageFrame,
+            animSpeed,
+            () => this.onAttackDamageFrame(), // 伤害帧回调
+            onFinished // 动画完成回调
+        );
         
-        if (success) {
-            // 清除之前的监听器
-            this.animationComponent.off(Animation.EventType.FINISHED);
-            
-            // 移除攻击动画播放日志
-            
-            // 执行特殊攻击逻辑（子类可重写）
-            this.performSpecialAttack();
-            
-            // 设置攻击动画结束回调
-            this.animationComponent.once(Animation.EventType.FINISHED, () => {
-                // 调用传入的回调
-                if (onFinished) {
-                    onFinished();
-                }
-                // 不再需要默认的状态决策，AttackingState 会自己处理
-            });
-        } else {
+        if (!success) {
             console.warn(`[${this.getCharacterDisplayName()}] 攻击动画播放失败: ${animationName}`);
             // 如果动画播放失败，也立即调用回调
             if (onFinished) {
                 onFinished();
             }
         }
+    }
+
+    /**
+     * 攻击伤害帧回调 - 在动画的指定帧触发实际攻击逻辑
+     * 这个方法在攻击动画的伤害帧被调用，负责执行实际的攻击效果
+     */
+    protected onAttackDamageFrame(): void {
+        const damageFrame = this.enemyData?.attackDamageFrame || 5;
+        const animSpeed = this.enemyData?.animationSpeed || 8;
+        const actualDelay = (damageFrame - 1) / animSpeed;
+        
+        console.log(`🎯 [${this.getCharacterDisplayName()}] 攻击伤害帧触发！配置帧:${damageFrame}, 实际延迟:${actualDelay.toFixed(3)}秒`);
+        
+        // 执行实际的攻击逻辑（之前在playAttackAnimation中立即执行的逻辑）
+        this.performSpecialAttack();
     }
 
 
@@ -1934,7 +2025,7 @@ export class BaseCharacterDemo extends Component {
                 // 在攻击范围内 -> 产生攻击意图
                 this.moveDirection.set(0, 0);
                 this.updateDirectionTowards(this.currentTarget.position);
-                this.wantsToAttack = true; // 设置攻击意图
+                this.tryAttack();
             } else {
                 // 不在攻击范围 -> 产生移动意图
                 this.setAIMoveDirection(this.currentTarget.position);
@@ -2057,9 +2148,6 @@ export class BaseCharacterDemo extends Component {
             console.log(`[${this.getCharacterDisplayName()}] AI目标搜索定时器已重新启动，间隔: ${searchInterval}秒`);
         }
         
-        // 确保角度锁定为0
-        this.lockNodeRotation();
-        
         console.log(`[BaseCharacterDemo] 重用完成，最终敌人类型: ${this.explicitEnemyType || '未设置'}`);
     }
 
@@ -2085,9 +2173,6 @@ export class BaseCharacterDemo extends Component {
         if (this.stateMachine) {
             this.stateMachine.reset();
         }
-        
-        // 重置位置和状态
-        this.resetCharacterState();
     }
 
     /**
@@ -2125,6 +2210,9 @@ export class BaseCharacterDemo extends Component {
             this.characterStats.reset();
             this.updateHealthBar();
         }
+        
+        // 重新启用碰撞检测
+        this.enableCollision();
         
         console.log(`[${this.getCharacterDisplayName()}] 角色状态已重置`);
     }
@@ -2448,15 +2536,6 @@ export class BaseCharacterDemo extends Component {
             return;
         }
 
-        // 设置基础攻击间隔作为发射冷却时间
-        this.fireballLauncher.launchCooldown = this.enemyData.attackInterval;
-        
-        // 查找火球技能配置
-        const fireballSkill = this.enemyData.skills?.find(skill => skill.id === 'fireball');
-        if (fireballSkill) {
-            this.fireballLauncher.launchCooldown = Math.min(this.enemyData.attackInterval, fireballSkill.cooldown);
-        }
-
         // 设置火球基础伤害（从怪物配置获取）
         this.fireballLauncher.damage = this.enemyData.baseAttack;
 
@@ -2464,7 +2543,7 @@ export class BaseCharacterDemo extends Component {
         const currentFaction = this.getFaction();
         this.fireballLauncher.setFactionInfo(currentFaction, this.node);
 
-        console.log(`[${this.getCharacterDisplayName()}] 火球发射器配置完成: 冷却=${this.fireballLauncher.launchCooldown}s, 伤害=${this.fireballLauncher.damage}, 阵营=${currentFaction}`);
+        console.log(`[${this.getCharacterDisplayName()}] 火球发射器配置完成: 伤害=${this.fireballLauncher.damage}, 阵营=${currentFaction}`);
     }
 
     /**

@@ -495,9 +495,14 @@ export class GameManager extends Component {
         // 初始化关卡管理器
         await levelManager.initialize();
 
+        // 【关键修复】检查并启用物理引擎
+        this.checkAndEnablePhysicsEngine();
+
         // 设置物理碰撞组
         if (PhysicsSystem2D.instance) {
             setupPhysicsGroupCollisions();
+        } else {
+            console.error('GameManager: PhysicsSystem2D实例不存在，无法设置碰撞关系');
         }
 
         // 注册挂载的预制体到对象池
@@ -1135,12 +1140,12 @@ export class GameManager extends Component {
         const characterStats = this.currentTestEnemy.getComponent('CharacterStats') as any;
         if (characterStats) {
             const beforeHealth = characterStats.currentHealth;
-            const isDead = characterStats.takeDamage(damage);
+            const result = characterStats.takeDamage(damage);
             const afterHealth = characterStats.currentHealth;
             
             console.log(`💥 造成伤害: ${damage}, 血量: ${beforeHealth} -> ${afterHealth}`);
             
-            if (isDead) {
+            if (result.isDead) {
                 console.log('💀 测试怪物死亡');
                 // 延迟清除，让死亡动画播放完
                 setTimeout(() => {
@@ -1549,7 +1554,48 @@ export class GameManager extends Component {
         console.log('======================\n');
     }
 
-
+    /**
+     * 检查并启用物理引擎
+     */
+    private checkAndEnablePhysicsEngine(): void {
+        console.log('GameManager: 检查物理引擎状态...');
+        
+        // 检查PhysicsSystem2D是否存在
+        const physicsSystem = PhysicsSystem2D.instance;
+        if (!physicsSystem) {
+            console.error('❌ GameManager: PhysicsSystem2D实例不存在！这通常意味着：');
+            console.error('   1. 项目设置中physics-2d模块未启用');
+            console.error('   2. 具体的物理引擎实现(如physics-2d-box2d)未启用');
+            console.error('   3. 请检查项目设置 -> 功能剪裁 -> 物理系统');
+            return;
+        }
+        
+        // 检查物理引擎是否启用
+        console.log(`✅ GameManager: PhysicsSystem2D实例存在`);
+        console.log(`📊 GameManager: 物理引擎状态详情:`);
+        console.log(`   - 重力: (${physicsSystem.gravity.x}, ${physicsSystem.gravity.y})`);
+        console.log(`   - 时间步长: ${physicsSystem.fixedTimeStep}`);
+        console.log(`   - 速度迭代: ${physicsSystem.velocityIterations}`);
+        console.log(`   - 位置迭代: ${physicsSystem.positionIterations}`);
+        
+        // 强制启用物理引擎（如果支持）
+        try {
+            // 设置合适的物理参数以确保2D俯视角游戏正常工作
+            physicsSystem.gravity = new Vec2(0, 0); // 2D俯视角游戏通常不需要重力
+            console.log('🔧 GameManager: 已设置重力为(0,0)，适合2D俯视角游戏');
+            
+            // 输出碰撞矩阵状态
+            if (physicsSystem.collisionMatrix) {
+                console.log('📋 GameManager: 碰撞矩阵已配置');
+            } else {
+                console.warn('⚠️ GameManager: 碰撞矩阵未配置');
+            }
+        } catch (error) {
+            console.error('❌ GameManager: 设置物理引擎参数失败', error);
+        }
+        
+        console.log('✅ GameManager: 物理引擎检查完成');
+    }
 
 
 }
