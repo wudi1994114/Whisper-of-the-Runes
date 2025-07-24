@@ -123,8 +123,9 @@ export interface EnemyData {
     // 物理碰撞配置
     // ===============================
     colliderSize: { 
-        width: number;      // 碰撞体宽度 (像素)
-        height: number;     // 碰撞体高度 (像素)
+        radius?: number;    // 圆形碰撞体半径 (像素，优先使用)
+        width?: number;     // 碰撞体宽度 (像素，兼容旧配置)
+        height?: number;    // 碰撞体高度 (像素，兼容旧配置)
         xoffset?: number;   // X轴偏移 (相对于节点中心，可选)
         yoffset?: number;   // Y轴偏移 (相对于节点底部，可选)
     }; // 碰撞体配置，影响碰撞检测的精确位置和范围

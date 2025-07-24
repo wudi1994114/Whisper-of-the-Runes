@@ -1,4 +1,4 @@
-import { _decorator, Component, Animation, Sprite, Vec2, Node, EventKeyboard, KeyCode, input, Input, find, Graphics, Color, Collider2D, RigidBody2D, Enum, UITransform, instantiate, Prefab, Label, tween, director, Vec3, ERigidBody2DType, BoxCollider2D } from 'cc';
+import { _decorator, Component, Animation, Sprite, Vec2, Node, EventKeyboard, KeyCode, input, Input, find, Graphics, Color, Collider2D, RigidBody2D, Enum, UITransform, instantiate, Prefab, Label, tween, director, Vec3, ERigidBody2DType, BoxCollider2D, CircleCollider2D } from 'cc';
 import { dataManager } from '../core/DataManager';
 import { EnemyData } from '../configs/EnemyConfig';
 import { CharacterStats } from '../components/CharacterStats';
@@ -17,7 +17,7 @@ import { eventManager } from '../core/EventManager';
 import { FireballLauncher } from '../launcher/FireballLauncher';
 import { GameManager } from '../core/GameManager';
 import { damageDisplayController } from '../core/DamageDisplayController';
-import { crowdingSystem, ICrowdableCharacter } from '../core/CrowdingSystem';
+import { getCrowdingSystem, ICrowdableCharacter } from '../core/CrowdingSystem';
 
 const { ccclass, property } = _decorator;
 class TempVarPool {
@@ -573,7 +573,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
     protected spriteComponent: Sprite | null = null;
     protected characterStats: CharacterStats | null = null;
     protected rigidBody: RigidBody2D | null = null;
-    protected collider: BoxCollider2D | null = null;
+    protected collider: CircleCollider2D | null = null;
     
     // 敌人配置数据
     protected enemyData: EnemyData | null = null;
@@ -1497,7 +1497,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
         
         this.animationComponent = this.getComponent(Animation) || this.addComponent(Animation);
         this.rigidBody = this.getComponent(RigidBody2D) || this.addComponent(RigidBody2D);
-        this.collider = this.getComponent(BoxCollider2D) || this.addComponent(BoxCollider2D);
+        this.collider = this.getComponent(CircleCollider2D) || this.addComponent(CircleCollider2D);
         
         // // 【新增】根据配置设置UI尺寸
         this.setupUISize();
@@ -1565,37 +1565,51 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
     }
 
     /**
-     * 配置碰撞体组件
+     * 配置碰撞体组件 - 圆形碰撞体
      */
     private setupCollider(): void {
         if (!this.collider || !this.enemyData) return;
         
-        const boxCollider = this.collider; // BoxCollider2D类型
+        const circleCollider = this.collider; // CircleCollider2D类型
         
         // 【修复】强制应用敌人配置中的碰撞体尺寸，覆盖预制体设置
         const colliderSize = this.enemyData.colliderSize;
         if (colliderSize) {
-            // 设置碰撞体尺寸
-            boxCollider.size.width = colliderSize.width;
-            boxCollider.size.height = colliderSize.height;
+            // 检查是否有新的radius配置
+            if (colliderSize.radius !== undefined) {
+                // 直接使用radius配置
+                circleCollider.radius = colliderSize.radius;
+            } else if (colliderSize.width !== undefined && colliderSize.height !== undefined) {
+                // 兼容旧的width/height配置（使用平均值）
+                const avgSize = (colliderSize.width + colliderSize.height) / 2;
+                circleCollider.radius = avgSize / 2; // 半径为平均尺寸的一半
+                console.log(`[${this.getCharacterDisplayName()}] 兼容模式: 从width/height计算半径=${circleCollider.radius}`);
+            } else {
+                // 使用默认半径
+                circleCollider.radius = 25;
+                console.log(`[${this.getCharacterDisplayName()}] 配置缺失，使用默认半径=25`);
+            }
+            
+            // 设置偏移
+            circleCollider.offset.x = colliderSize.xoffset || 0;
+            circleCollider.offset.y = colliderSize.yoffset || 0;
         } else {
-            // 默认碰撞体尺寸（应该比UI尺寸小）
-            boxCollider.size.width = 50;
-            boxCollider.size.height = 50;
-            boxCollider.offset.x = 0;
-            boxCollider.offset.y = 0;
-            console.log(`[${this.getCharacterDisplayName()}] 使用默认碰撞体配置: 50x50`);
+            // 默认圆形碰撞体半径
+            circleCollider.radius = 25; // 半径25，相当于50x50的方形
+            circleCollider.offset.x = 0;
+            circleCollider.offset.y = 0;
+            console.log(`[${this.getCharacterDisplayName()}] 使用默认圆形碰撞体配置: 半径=25`);
         }
         
         // 设置为实体碰撞，不允许穿过
-        boxCollider.sensor = false;
+        circleCollider.sensor = false;
         
         // 根据当前阵营设置物理分组
         const currentFaction = this.getFaction();
         const physicsGroup = factionManager.getFactionPhysicsGroup(currentFaction);
-        boxCollider.group = physicsGroup;
+        circleCollider.group = physicsGroup;
         
-        console.log(`[${this.getCharacterDisplayName()}] 碰撞体组件配置完成: 分组=${physicsGroup}, 尺寸=${boxCollider.size.width}x${boxCollider.size.height}, 偏移=(${boxCollider.offset.x}, ${boxCollider.offset.y})`);
+        console.log(`[${this.getCharacterDisplayName()}] 圆形碰撞体组件配置完成: 分组=${physicsGroup}, 半径=${circleCollider.radius}, 偏移=(${circleCollider.offset.x}, ${circleCollider.offset.y})`);
     }
 
     /**
@@ -1691,7 +1705,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
     }
 
     /**
-     * 创建碰撞体范围显示
+     * 创建碰撞体范围显示 - 圆形
      */
     public createColliderRangeDisplay(): void {
         if (!this.enemyData?.colliderSize) return;
@@ -1702,13 +1716,23 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
         const colliderRangeNode = new Node('ColliderRange');
         const graphics = colliderRangeNode.addComponent(Graphics);
         
-        // 绘制碰撞体边界框 - 红色
+        // 绘制碰撞体边界圆 - 红色
         graphics.strokeColor = Color.RED;
         graphics.lineWidth = 2;
         
-        // 计算碰撞体的实际位置和尺寸
-        const width = colliderSize.width;
-        const height = colliderSize.height;
+        // 计算圆形碰撞体的半径
+        let radius: number;
+        if (colliderSize.radius !== undefined) {
+            // 直接使用radius配置
+            radius = colliderSize.radius;
+        } else if (colliderSize.width !== undefined && colliderSize.height !== undefined) {
+            // 兼容旧配置：使用宽度和高度的平均值
+            const avgSize = (colliderSize.width + colliderSize.height) / 2;
+            radius = avgSize / 2;
+        } else {
+            // 默认半径
+            radius = 25;
+        }
         
         // 计算偏移位置
         let offsetX = colliderSize.xoffset || 0;
@@ -1721,19 +1745,14 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
             offsetY = colliderSize.yoffset - (nodeHeight / 2);
         }
         
-        // 绘制碰撞体矩形
-        graphics.rect(
-            offsetX - width / 2,
-            offsetY - height / 2,
-            width,
-            height
-        );
+        // 绘制碰撞体圆形
+        graphics.circle(offsetX, offsetY, radius);
         graphics.stroke();
         
         // 添加到角色节点
         this.node.addChild(colliderRangeNode);
         
-        console.log(`[${this.getCharacterDisplayName()}] 碰撞体范围显示已创建: ${width}x${height}, 偏移(${offsetX}, ${offsetY})`);
+        console.log(`[${this.getCharacterDisplayName()}] 圆形碰撞体范围显示已创建: 半径=${radius}, 偏移(${offsetX}, ${offsetY})`);
     }
 
     /**
@@ -2037,6 +2056,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
         
         // 【网格优化】通知拥挤系统位置可能发生变化
         // 这里使用异步更新，避免每帧都更新网格
+        const crowdingSystem = getCrowdingSystem();
         if (crowdingSystem) {
             crowdingSystem.updateCharacterPosition(this, oldPosition);
         }
@@ -2346,6 +2366,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
      * 注册到拥挤系统
      */
     private registerToCrowdingSystem(): void {
+        const crowdingSystem = getCrowdingSystem();
         if (crowdingSystem) {
             crowdingSystem.registerCharacter(this);
             console.log(`%c[BaseCharacterDemo] 🤝 已注册到拥挤系统: ${this.node.name} → ${this.getFaction()}`, 'color: orange');
@@ -2356,6 +2377,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
      * 从拥挤系统反注册
      */
     private unregisterFromCrowdingSystem(): void {
+        const crowdingSystem = getCrowdingSystem();
         if (crowdingSystem) {
             crowdingSystem.unregisterCharacter(this);
             console.log(`%c[BaseCharacterDemo] 🚫 已从拥挤系统反注册: ${this.node.name} ← ${this.getFaction()}`, 'color: orange');

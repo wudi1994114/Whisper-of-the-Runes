@@ -19,7 +19,7 @@ import { UITransform } from 'cc';
 import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
 import { CharacterPoolInitializer, BaseCharacterDemo, CharacterPoolFactory, ControlMode } from '../animation/BaseCharacterDemo';
 import { damageDisplayController } from './DamageDisplayController';
-import { crowdingSystem, CrowdingSystem } from './CrowdingSystem';
+import { getCrowdingSystem, CrowdingSystem } from './CrowdingSystem';
 import { gridManager, GridManager } from './GridManager';
 
 const { ccclass, property } = _decorator;
@@ -1081,6 +1081,7 @@ export class GameManager extends Component {
 
         // 打印拥挤系统状态
         setTimeout(() => {
+            const crowdingSystem = getCrowdingSystem();
             if (crowdingSystem) {
                 crowdingSystem.printStatusInfo();
             }
@@ -1105,7 +1106,10 @@ export class GameManager extends Component {
         this.clearTestEnemy();
 
         // 重置性能统计
-        crowdingSystem.resetPerformanceStats();
+        const crowdingSystem = getCrowdingSystem();
+        if (crowdingSystem) {
+            crowdingSystem.resetPerformanceStats();
+        }
         gridManager.reset();
 
         // 生成大量同阵营角色进行压力测试
@@ -1163,7 +1167,10 @@ export class GameManager extends Component {
         console.log('\n=== 📊 网格化拥挤系统性能报告 ===');
         
         // 拥挤系统性能统计
-        crowdingSystem.printStatusInfo();
+        const crowdingSystem = getCrowdingSystem();
+        if (crowdingSystem) {
+            crowdingSystem.printStatusInfo();
+        }
         
         // 网格管理器详细统计
         const gridStats = gridManager.getStats();
@@ -1844,7 +1851,7 @@ export class GameManager extends Component {
      */
     private initializeCrowdingSystem(): void {
         // 检查是否已有有效的单例实例
-        const existingInstance = crowdingSystem;
+        const existingInstance = getCrowdingSystem();
         if (existingInstance && existingInstance.node && existingInstance.node.isValid) {
             console.log(`GameManager: CrowdingSystem单例已存在，位于 ${existingInstance.node.parent?.name || 'unknown'} 下`);
             return;
@@ -2080,30 +2087,108 @@ export class GameManager extends Component {
      */
     public quickGridPerformanceCheck(): void {
         const gridStats = gridManager.getStats();
-        const crowdingStats = crowdingSystem.getPerformanceStats();
+        const crowdingSystem = getCrowdingSystem();
         
         console.log('\n=== ⚡ 快速性能检查 ===');
         console.log(`角色总数: ${gridStats.totalCharacters}`);
         console.log(`活跃网格: ${gridStats.activeGrids}`);
         console.log(`查询次数: ${gridStats.queryCount}`);
-        console.log(`平均查询时间: ${crowdingStats.avgQueryTime.toFixed(2)}ms`);
         
-        // 快速性能评级
-        const efficiency = gridStats.totalCharacters > 0 ? gridStats.queryCount / gridStats.totalCharacters : 0;
-        let rating = '⚪ 无数据';
-        
-        if (efficiency < 1) {
-            rating = '🟢 优秀';
-        } else if (efficiency < 2) {
-            rating = '🟡 良好';
-        } else if (efficiency < 5) {
-            rating = '🟠 一般';
-        } else {
-            rating = '🔴 需优化';
+        if (crowdingSystem) {
+            const crowdingStats = crowdingSystem.getPerformanceStats();
+            console.log(`平均查询时间: ${crowdingStats.avgQueryTime.toFixed(2)}ms`);
         }
         
-        console.log(`性能评级: ${rating} (查询效率: ${efficiency.toFixed(2)})`);
-        console.log('===========================\n');
+        if (gridStats.totalCharacters > 20) {
+            console.log('⚠️  角色数量较多，建议观察性能');
+        }
+        
+        if (gridStats.activeGrids > 100) {
+            console.log('⚠️  活跃网格过多，可能需要优化网格大小');
+        }
+    }
+
+    /**
+     * 高级网格性能分析
+     */
+    public advancedGridPerformanceAnalysis(): void {
+        const gridStats = gridManager.getStats();
+        const crowdingSystem = getCrowdingSystem();
+        
+        console.log('\n=== 🔬 高级网格性能分析 ===');
+        console.log('基础统计:');
+        console.log(`  角色总数: ${gridStats.totalCharacters}`);
+        console.log(`  活跃网格数: ${gridStats.activeGrids}`);
+        console.log(`  查询总数: ${gridStats.queryCount}`);
+        console.log(`  平均每网格角色数: ${gridStats.averageCharactersPerGrid.toFixed(2)}`);
+        
+        if (crowdingSystem) {
+            const crowdingStats = crowdingSystem.getPerformanceStats();
+            console.log('\n拥挤系统统计:');
+            console.log(`  平均查询时间: ${crowdingStats.avgQueryTime.toFixed(2)}ms`);
+            console.log(`  最大查询时间: ${crowdingStats.maxQueryTime.toFixed(2)}ms`);
+            console.log(`  总查询次数: ${crowdingStats.totalQueries}`);
+        }
+        
+        // 性能建议
+        console.log('\n性能建议:');
+        if (gridStats.averageCharactersPerGrid > 10) {
+            console.log('  🔧 建议减小网格尺寸以均匀分布角色');
+        }
+        if (gridStats.queryCount > gridStats.totalCharacters * 2) {
+            console.log('  🔧 查询频率过高，建议增加更新间隔');
+        }
+        
+        // 实时性能监控建议
+        console.log('\n实时监控:');
+        console.log('  使用 gameManager.quickGridPerformanceCheck() 进行快速检查');
+        console.log('  使用 gridManager.printDebugInfo() 查看详细网格信息');
+        if (crowdingSystem) {
+            console.log('  使用 getCrowdingSystem().printStatusInfo() 查看拥挤系统状态');
+        }
+    }
+
+    /**
+     * 深度系统性能分析（完整版）
+     */
+    public deepSystemPerformanceAnalysis(): void {
+        console.log('\n=== 🏗️ 深度系统性能分析 ===');
+        
+        // 网格管理器分析
+        const gridStats = gridManager.getStats();
+        console.log('1. 网格管理器:');
+        console.log(`   ✓ 角色总数: ${gridStats.totalCharacters}`);
+        console.log(`   ✓ 活跃网格: ${gridStats.activeGrids} 个`);
+        console.log(`   ✓ 网格密度: ${gridStats.averageCharactersPerGrid.toFixed(2)} 角色/网格`);
+        console.log(`   ✓ 查询效率: ${gridStats.queryCount} 次查询`);
+        
+        // 拥挤系统分析
+        const crowdingSystem = getCrowdingSystem();
+        if (crowdingSystem) {
+            const crowdingStats = crowdingSystem.getPerformanceStats();
+            console.log('\n2. 拥挤系统:');
+            console.log(`   ✓ 角色数量: ${crowdingStats.lastUpdateCharacterCount}`);
+            console.log(`   ✓ 平均查询: ${crowdingStats.avgQueryTime.toFixed(2)}ms`);
+            console.log(`   ✓ 峰值查询: ${crowdingStats.maxQueryTime.toFixed(2)}ms`);
+            console.log(`   ✓ 总查询数: ${crowdingStats.totalQueries}`);
+        }
+        
+        // 性能建议
+        console.log('\n性能建议:');
+        if (gridStats.averageCharactersPerGrid > 10) {
+            console.log('  🔧 建议减小网格尺寸以均匀分布角色');
+        }
+        if (gridStats.queryCount > gridStats.totalCharacters * 2) {
+            console.log('  🔧 查询频率过高，建议增加更新间隔');
+        }
+        
+        // 实时性能监控建议
+        console.log('\n实时监控:');
+        console.log('  使用 gameManager.quickGridPerformanceCheck() 进行快速检查');
+        console.log('  使用 gridManager.printDebugInfo() 查看详细网格信息');
+        if (crowdingSystem) {
+            console.log('  使用 getCrowdingSystem().printStatusInfo() 查看拥挤系统状态');
+        }
     }
 
     /**
@@ -2120,7 +2205,8 @@ export class GameManager extends Component {
             }
             
             const gridStats = gridManager.getStats();
-            const crowdingStats = crowdingSystem.getPerformanceStats();
+            const crowdingSystem = getCrowdingSystem();
+            const crowdingStats = crowdingSystem?.getPerformanceStats();
             
             const timestamp = new Date().toLocaleTimeString();
             console.log(`[${timestamp}] 📊 角色:${gridStats.totalCharacters} | 网格:${gridStats.activeGrids} | 查询:${gridStats.queryCount} | 平均时间:${crowdingStats.avgQueryTime.toFixed(1)}ms`);
@@ -2159,7 +2245,8 @@ export class GameManager extends Component {
         console.log('\n=== 🏥 网格系统健康检查 ===');
         
         const gridStats = gridManager.getStats();
-        const crowdingStats = crowdingSystem.getPerformanceStats();
+        const crowdingSystem = getCrowdingSystem();
+        const crowdingStats = crowdingSystem?.getPerformanceStats();
         
         let healthScore = 100;
         const issues: string[] = [];
@@ -2230,6 +2317,87 @@ export class GameManager extends Component {
         }
         
         console.log('==============================\n');
+    }
+
+    // ==================== 【拥挤系统开关控制】 ====================
+    
+    /**
+     * 启用拥挤系统
+     */
+    public enableCrowdingSystem(): void {
+        const crowdingSystem = getCrowdingSystem();
+        if (crowdingSystem) {
+            crowdingSystem.enableCrowding();
+            console.log('🟢 GameManager: 拥挤系统已启用');
+        } else {
+            console.warn('⚠️ GameManager: 拥挤系统实例不存在');
+        }
+    }
+
+    /**
+     * 禁用拥挤系统
+     */
+    public disableCrowdingSystem(): void {
+        const crowdingSystem = getCrowdingSystem();
+        if (crowdingSystem) {
+            crowdingSystem.disableCrowding();
+            console.log('🔴 GameManager: 拥挤系统已禁用');
+        } else {
+            console.warn('⚠️ GameManager: 拥挤系统实例不存在');
+        }
+    }
+
+    /**
+     * 切换拥挤系统启用状态
+     */
+    public toggleCrowdingSystem(): void {
+        const crowdingSystem = getCrowdingSystem();
+        if (crowdingSystem) {
+            crowdingSystem.toggleCrowding();
+            const status = crowdingSystem.isEnabled() ? '🟢 已启用' : '🔴 已禁用';
+            console.log(`🔄 GameManager: 拥挤系统状态切换为 ${status}`);
+        } else {
+            console.warn('⚠️ GameManager: 拥挤系统实例不存在');
+        }
+    }
+
+    /**
+     * 获取拥挤系统启用状态
+     */
+    public isCrowdingSystemEnabled(): boolean {
+        const crowdingSystem = getCrowdingSystem();
+        if (crowdingSystem) {
+            return crowdingSystem.isEnabled();
+        }
+        console.warn('⚠️ GameManager: 拥挤系统实例不存在');
+        return false;
+    }
+
+    /**
+     * 拥挤系统开关控制面板
+     */
+    public crowdingSystemControlPanel(): void {
+        console.log('\n=== 🎛️ 拥挤系统控制面板 ===');
+        
+        const crowdingSystem = getCrowdingSystem();
+        if (!crowdingSystem) {
+            console.log('❌ 拥挤系统未初始化或不可用');
+            return;
+        }
+        
+        const isEnabled = crowdingSystem.isEnabled();
+        console.log(`当前状态: ${isEnabled ? '🟢 已启用' : '🔴 已禁用'}`);
+        console.log('');
+        console.log('可用命令:');
+        console.log('  GameManager.instance.enableCrowdingSystem()   - 启用拥挤系统');
+        console.log('  GameManager.instance.disableCrowdingSystem()  - 禁用拥挤系统');
+        console.log('  GameManager.instance.toggleCrowdingSystem()   - 切换启用状态');
+        console.log('  GameManager.instance.isCrowdingSystemEnabled() - 查看状态');
+        console.log('');
+        console.log('状态查看:');
+        console.log('  getCrowdingSystem().printStatusInfo()        - 查看详细状态');
+        console.log('  getCrowdingSystem().getStatusInfo()          - 获取状态字符串');
+        console.log('===========================\n');
     }
 
 }

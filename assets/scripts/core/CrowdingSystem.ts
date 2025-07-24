@@ -16,102 +16,111 @@ export interface ICrowdableCharacter {
 }
 
 /**
- * 拥挤系统 - 实现所有角色之间的排斥效果
- * 让所有角色在靠近时产生自然的推挤感，避免重叠（不分阵营）
+ * Boids群聚系统 - 实现基于Boids算法的群体行为
+ * 包含分离(Separation)、对齐(Alignment)、聚合(Cohesion)三个核心规则
  * 【网格优化版】使用GridManager实现O(k)复杂度的邻居查询
  */
 @ccclass('CrowdingSystem')
 export class CrowdingSystem extends Component {
     private static _instance: CrowdingSystem;
     
-    // 拥挤参数配置
-    private readonly CROWDING_RADIUS = 80;        // 拥挤检测半径
-    private readonly REPULSION_FORCE = 150;       // 排斥力强度
-    private readonly MAX_REPULSION_DISTANCE = 60; // 最大排斥距离
-    private readonly SMOOTH_FACTOR = 0.8;         // 平滑系数，避免抖动
+    // Boids算法参数配置
+    private readonly NEIGHBOR_RADIUS = 60;           // 邻居检测半径
+    private readonly SEPARATION_RADIUS = 30;         // 分离行为半径
+    
+    // Boids三个规则的权重
+    private readonly SEPARATION_WEIGHT = 2.0;        // 分离权重（避免碰撞）
+    private readonly ALIGNMENT_WEIGHT = 1.0;         // 对齐权重（方向一致）
+    private readonly COHESION_WEIGHT = 1.0;          // 聚合权重（向群体中心）
+    
+    // 物理参数
+    private readonly MAX_FORCE = 8.0;                // 最大施加力
+    private readonly MAX_SPEED_MULTIPLIER = 1.5;     // 最大速度倍数
+    private readonly SMOOTH_FACTOR = 0.8;            // 平滑系数
+    
+    // 【开关控制】系统启用状态
+    private _isEnabled = true;
     
     // 性能优化：缓存和临时变量
     private readonly tempVec2_1 = new Vec2();
     private readonly tempVec2_2 = new Vec2();
+    private readonly tempVec2_3 = new Vec2();
     private readonly tempVec3_1 = new Vec3();
     
-    // 【网格优化】角色缓存 - 不再按阵营分组，统一管理所有角色
+    // 角色缓存
     private allCharacters: ICrowdableCharacter[] = [];
     private lastUpdateTime = 0;
-    private readonly UPDATE_INTERVAL = 0.1; // 每0.1秒更新一次，减少性能消耗
+    private readonly UPDATE_INTERVAL = 0.1; // 每0.1秒更新一次
     
-    // 【网格优化】性能统计
+    // 性能统计
     private performanceStats = {
         lastUpdateCharacterCount: 0,
         avgQueryTime: 0,
         maxQueryTime: 0,
-        totalQueries: 0
+        totalQueries: 0,
+        separationCalculations: 0,
+        alignmentCalculations: 0,
+        cohesionCalculations: 0
     };
 
-    public static get instance(): CrowdingSystem {
-        if (!this._instance) {
-            this._instance = new CrowdingSystem();
-        }
+    public static get instance(): CrowdingSystem | null {
         return this._instance;
     }
 
     protected onLoad() {
         if (CrowdingSystem._instance && CrowdingSystem._instance !== this) {
+            console.warn('Boids群聚系统: 实例已存在，销毁重复实例');
             this.destroy();
             return;
         }
         CrowdingSystem._instance = this;
         
-        console.log('CrowdingSystem: 网格优化版拥挤系统已初始化（全角色拥挤模式）');
-        console.log(`CrowdingSystem: 集成GridManager，预期性能提升: O(n²) → O(k)`);
+        console.log('Boids群聚系统: 已初始化（分离+对齐+聚合）');
+        console.log(`Boids群聚系统: 集成GridManager，性能优化: O(n²) → O(k)`);
     }
 
     /**
-     * 注册角色到拥挤系统
-     * 【网格优化】同时注册到GridManager - 不分阵营，所有角色统一处理
+     * 注册角色到Boids系统
      */
     public registerCharacter(character: ICrowdableCharacter): void {
         if (this.allCharacters.indexOf(character) === -1) {
             this.allCharacters.push(character);
-            
-            // 【网格优化】注册到GridManager
             gridManager.addCharacter(character);
             
             const faction = character.getFaction();
-            console.log(`CrowdingSystem: 注册角色 (${faction})，总角色数量: ${this.allCharacters.length}`);
+            console.log(`Boids系统: 注册角色 (${faction})，总数: ${this.allCharacters.length}`);
         }
     }
 
     /**
-     * 从拥挤系统移除角色
-     * 【网格优化】同时从GridManager移除
+     * 从Boids系统移除角色
      */
     public unregisterCharacter(character: ICrowdableCharacter): void {
         const index = this.allCharacters.indexOf(character);
         if (index !== -1) {
             this.allCharacters.splice(index, 1);
-            
-            // 【网格优化】从GridManager移除
             gridManager.removeCharacter(character);
             
             const faction = character.getFaction();
-            console.log(`CrowdingSystem: 移除角色 (${faction})，剩余角色数量: ${this.allCharacters.length}`);
+            console.log(`Boids系统: 移除角色 (${faction})，剩余: ${this.allCharacters.length}`);
         }
     }
 
     /**
-     * 更新角色位置（当角色移动时调用）
-     * 【网格优化】通知GridManager更新角色位置
+     * 更新角色位置
      */
     public updateCharacterPosition(character: ICrowdableCharacter, oldPos?: Vec3): void {
         gridManager.updateCharacterPosition(character, oldPos);
     }
 
     /**
-     * 更新拥挤效果
-     * 【网格优化】使用GridManager减少计算量 - 对所有角色统一处理
+     * 主更新循环 - 应用Boids算法
      */
     protected update(deltaTime: number): void {
+        if (!this._isEnabled) {
+            return;
+        }
+        
         const currentTime = Date.now() / 1000;
         
         // 性能优化：限制更新频率
@@ -120,20 +129,18 @@ export class CrowdingSystem extends Component {
         }
         this.lastUpdateTime = currentTime;
 
-        // 【网格优化】对所有角色统一计算拥挤效果，不分阵营
+        // 应用Boids算法到所有角色
         if (this.allCharacters.length > 1) {
-            this.applyCrowdingForAllCharacters(this.allCharacters, deltaTime);
+            this.applyBoidsAlgorithm(deltaTime);
         }
         
-        // 更新性能统计
         this.updatePerformanceStats();
     }
 
     /**
-     * 【网格优化】为所有角色应用拥挤效果 - 不分阵营统一处理
+     * 应用Boids算法的核心实现
      */
-    private applyCrowdingForAllCharacters(characters: ICrowdableCharacter[], deltaTime: number): void {
-        // 清理无效角色
+    private applyBoidsAlgorithm(deltaTime: number): void {
         this.cleanupInvalidCharacters();
         
         if (this.allCharacters.length <= 1) return;
@@ -141,50 +148,50 @@ export class CrowdingSystem extends Component {
         const startTime = performance.now();
         let queryCount = 0;
 
-        // 【网格优化】对每个角色，查询其附近的所有角色（不分阵营）
+        // 重置统计计数器
+        this.performanceStats.separationCalculations = 0;
+        this.performanceStats.alignmentCalculations = 0;
+        this.performanceStats.cohesionCalculations = 0;
+
         for (const character of this.allCharacters) {
-            console.log('拥挤-1')
             if (!character || !character.node || !character.node.isValid || !character.isAlive()) {
                 continue;
             }
-            console.log('拥挤-2')
-            // 【关键优化】使用GridManager查询附近的所有角色（移除阵营过滤）
-            const nearbyCharacters = gridManager.getNearbyCharacters(
+
+            // 使用GridManager查询邻居
+            const neighbors = gridManager.getNearbyCharacters(
                 character.node.position,
-                this.CROWDING_RADIUS
-                // 注意：这里移除了faction参数，查询所有阵营的角色
+                this.NEIGHBOR_RADIUS
             );
             queryCount++;
-            console.log('拥挤-3')
-            if (nearbyCharacters.length <= 1) {
-                continue; // 只有自己，无需计算排斥力
-            }
-            console.log('拥挤-4')
-            // 计算该角色受到的总排斥力
-            const totalRepulsion = this.tempVec2_1;
-            totalRepulsion.set(0, 0);
 
-            for (const otherCharacter of nearbyCharacters) {
-                if (character === otherCharacter) continue;
-                
-                if (!otherCharacter || !otherCharacter.node || !otherCharacter.node.isValid || !otherCharacter.isAlive()) {
-                    continue;
-                }
+            if (neighbors.length <= 1) continue; // 只有自己
 
-                // 计算两个角色之间的排斥力（不考虑阵营）
-                const repulsion = this.calculateRepulsionForce(character, otherCharacter);
-                totalRepulsion.add(repulsion);
-            }
-            console.log('拥挤-5')    
-            // 应用排斥力到角色移动
-            if (totalRepulsion.length() > 0) {
-                console.log('拥挤-6')
-                this.applyRepulsionToCharacter(character, totalRepulsion, deltaTime);
-                
-                // 【网格优化】通知GridManager角色可能移动了
-                // 注意：这里不立即更新位置，而是让GridManager在下一帧检查
-                // 这样可以避免同一帧内多次位置更新
-            }
+            // 计算Boids三个规则的力
+            const separationForce = this.calculateSeparation(character, neighbors);
+            const alignmentForce = this.calculateAlignment(character, neighbors);
+            const cohesionForce = this.calculateCohesion(character, neighbors);
+
+            // 组合所有力
+            const totalForce = this.tempVec2_1;
+            totalForce.set(0, 0);
+            
+            // 应用权重并组合力
+            totalForce.add2f(
+                separationForce.x * this.SEPARATION_WEIGHT,
+                separationForce.y * this.SEPARATION_WEIGHT
+            );
+            totalForce.add2f(
+                alignmentForce.x * this.ALIGNMENT_WEIGHT,
+                alignmentForce.y * this.ALIGNMENT_WEIGHT
+            );
+            totalForce.add2f(
+                cohesionForce.x * this.COHESION_WEIGHT,
+                cohesionForce.y * this.COHESION_WEIGHT
+            );
+
+            // 应用力到角色
+            this.applyForceToCharacter(character, totalForce, deltaTime);
         }
 
         // 记录性能数据
@@ -196,67 +203,170 @@ export class CrowdingSystem extends Component {
     }
 
     /**
-     * 计算两个角色之间的排斥力
+     * Boids规则1: 分离 (Separation)
+     * 避免与邻近个体过于接近
      */
-    private calculateRepulsionForce(character1: ICrowdableCharacter, character2: ICrowdableCharacter): Vec2 {
-        const pos1 = character1.node.position;
-        const pos2 = character2.node.position;
-        
-        // 计算距离向量
-        const direction = this.tempVec2_2;
-        direction.set(pos1.x - pos2.x, pos1.y - pos2.y);
-        
-        const distance = direction.length();
-        
-        // 如果距离太远，不产生排斥力
-        if (distance > this.CROWDING_RADIUS || distance < 0.1) {
-            return new Vec2(0, 0);
+    private calculateSeparation(character: ICrowdableCharacter, neighbors: ICrowdableCharacter[]): Vec2 {
+        const steer = this.tempVec2_2;
+        steer.set(0, 0);
+        let count = 0;
+
+        const characterPos = character.node.position;
+
+        for (const neighbor of neighbors) {
+            if (neighbor === character) continue;
+            if (!neighbor || !neighbor.node || !neighbor.node.isValid || !neighbor.isAlive()) continue;
+
+            const neighborPos = neighbor.node.position;
+            const distance = Vec3.distance(characterPos, neighborPos);
+
+            // 只考虑分离半径内的邻居
+            if (distance > 0 && distance < this.SEPARATION_RADIUS) {
+                const diff = this.tempVec3_1;
+                Vec3.subtract(diff, characterPos, neighborPos);
+                
+                // 标准化并根据距离加权（距离越近，力越大）
+                const magnitude = diff.length();
+                if (magnitude > 0) {
+                    diff.normalize();
+                    diff.multiplyScalar(1.0 / distance); // 距离越近，力越大
+                    steer.add2f(diff.x, diff.y);
+                    count++;
+                }
+            }
         }
 
-        // 归一化方向向量
-        direction.normalize();
+        // 平均化并限制力的大小
+        if (count > 0) {
+            steer.multiplyScalar(1.0 / count);
+            this.limitForce(steer, this.MAX_FORCE);
+            this.performanceStats.separationCalculations++;
+        }
 
-        // 计算排斥力强度（距离越近，力越大）
-        const forceStrength = this.REPULSION_FORCE * (1 - distance / this.CROWDING_RADIUS);
-        
-        // 应用平滑因子，避免抖动
-        const smoothedForce = forceStrength * this.SMOOTH_FACTOR;
-
-        // 返回排斥力向量
-        return new Vec2(direction.x * smoothedForce, direction.y * smoothedForce);
+        return steer;
     }
 
     /**
-     * 将排斥力应用到角色
+     * Boids规则2: 对齐 (Alignment)
+     * 与邻近个体保持相同的方向
      */
-    private applyRepulsionToCharacter(character: ICrowdableCharacter, repulsionForce: Vec2, deltaTime: number): void {
-        
-        console.log('挤开')// 限制排斥力的最大强度，避免角色被推得太远
-        const maxForce = this.MAX_REPULSION_DISTANCE;
-        if (repulsionForce.length() > maxForce) {
-            repulsionForce.normalize();
-            repulsionForce.multiplyScalar(maxForce);
+    private calculateAlignment(character: ICrowdableCharacter, neighbors: ICrowdableCharacter[]): Vec2 {
+        const averageVelocity = this.tempVec2_3;
+        averageVelocity.set(0, 0);
+        let count = 0;
+
+        for (const neighbor of neighbors) {
+            if (neighbor === character) continue;
+            if (!neighbor || !neighbor.node || !neighbor.node.isValid || !neighbor.isAlive()) continue;
+
+            const rigidBody = neighbor.getRigidBody();
+            if (rigidBody) {
+                const velocity = rigidBody.linearVelocity;
+                averageVelocity.add(velocity);
+                count++;
+            }
         }
 
-        // 获取角色的刚体组件
+        if (count > 0) {
+            // 计算平均速度方向
+            averageVelocity.multiplyScalar(1.0 / count);
+            
+            // 计算转向力（希望的速度 - 当前速度）
+            const currentRigidBody = character.getRigidBody();
+            if (currentRigidBody) {
+                const steer = this.tempVec2_2;
+                Vec2.subtract(steer, averageVelocity, currentRigidBody.linearVelocity);
+                this.limitForce(steer, this.MAX_FORCE);
+                this.performanceStats.alignmentCalculations++;
+                return steer;
+            }
+        }
+
+        return new Vec2(0, 0);
+    }
+
+    /**
+     * Boids规则3: 聚合 (Cohesion)
+     * 向邻近个体的重心移动
+     */
+    private calculateCohesion(character: ICrowdableCharacter, neighbors: ICrowdableCharacter[]): Vec2 {
+        const centerOfMass = this.tempVec3_1;
+        centerOfMass.set(0, 0, 0);
+        let count = 0;
+
+        for (const neighbor of neighbors) {
+            if (neighbor === character) continue;
+            if (!neighbor || !neighbor.node || !neighbor.node.isValid || !neighbor.isAlive()) continue;
+
+            centerOfMass.add(neighbor.node.position);
+            count++;
+        }
+
+        if (count > 0) {
+            // 计算重心
+            centerOfMass.multiplyScalar(1.0 / count);
+            
+            // 计算向重心的转向力
+            const characterPos = character.node.position;
+            const desired = this.tempVec2_2;
+            desired.set(centerOfMass.x - characterPos.x, centerOfMass.y - characterPos.y);
+            
+            // 标准化到期望速度
+            const maxSpeed = character.getMoveSpeed();
+            if (desired.length() > 0) {
+                desired.normalize();
+                desired.multiplyScalar(maxSpeed);
+                
+                // 计算转向力
+                const currentRigidBody = character.getRigidBody();
+                if (currentRigidBody) {
+                    const steer = this.tempVec2_3;
+                    Vec2.subtract(steer, desired, currentRigidBody.linearVelocity);
+                    this.limitForce(steer, this.MAX_FORCE);
+                    this.performanceStats.cohesionCalculations++;
+                    return steer;
+                }
+            }
+        }
+
+        return new Vec2(0, 0);
+    }
+
+    /**
+     * 限制力的大小
+     */
+    private limitForce(force: Vec2, maxForce: number): void {
+        if (force.length() > maxForce) {
+            force.normalize();
+            force.multiplyScalar(maxForce);
+        }
+    }
+
+    /**
+     * 将计算出的力应用到角色
+     */
+    private applyForceToCharacter(character: ICrowdableCharacter, force: Vec2, deltaTime: number): void {
+        if (force.length() < 0.1) return; // 忽略微小的力
+
         const rigidBody = character.getRigidBody();
         if (!rigidBody) return;
 
-        // 将排斥力转换为速度增量
-        const velocityDelta = this.tempVec2_1;
-        velocityDelta.set(repulsionForce.x * deltaTime, repulsionForce.y * deltaTime);
+        // 应用平滑因子
+        force.multiplyScalar(this.SMOOTH_FACTOR);
 
-        // 获取当前速度
+        // 转换为速度增量
+        const velocityDelta = this.tempVec2_1;
+        velocityDelta.set(force.x * deltaTime, force.y * deltaTime);
+
+        // 获取当前速度并应用增量
         const currentVelocity = rigidBody.linearVelocity;
-        
-        // 应用排斥力（叠加到当前速度上）
         const newVelocity = new Vec2(
             currentVelocity.x + velocityDelta.x,
             currentVelocity.y + velocityDelta.y
         );
 
-        // 限制最终速度，避免角色移动过快
-        const maxSpeed = character.getMoveSpeed() * 1.5; // 允许比正常移动速度快50%
+        // 限制最大速度
+        const maxSpeed = character.getMoveSpeed() * this.MAX_SPEED_MULTIPLIER;
         if (newVelocity.length() > maxSpeed) {
             newVelocity.normalize();
             newVelocity.multiplyScalar(maxSpeed);
@@ -297,6 +407,44 @@ export class CrowdingSystem extends Component {
         return this.allCharacters.length;
     }
 
+    // ==================== 【开关控制】Boids系统启用控制 ====================
+    
+    /**
+     * 启用Boids群聚系统
+     */
+    public enableBoids(): void {
+        this._isEnabled = true;
+        console.log('Boids系统: 群聚算法已启用');
+    }
+
+    /**
+     * 禁用Boids群聚系统
+     */
+    public disableBoids(): void {
+        this._isEnabled = false;
+        console.log('Boids系统: 群聚算法已禁用');
+    }
+
+    /**
+     * 切换Boids系统启用状态
+     */
+    public toggleBoids(): void {
+        this._isEnabled = !this._isEnabled;
+        console.log(`Boids系统: 群聚算法已${this._isEnabled ? '启用' : '禁用'}`);
+    }
+
+    /**
+     * 获取Boids系统启用状态
+     */
+    public isEnabled(): boolean {
+        return this._isEnabled;
+    }
+
+    // 兼容性方法（保持向后兼容）
+    public enableCrowding = this.enableBoids;
+    public disableCrowding = this.disableBoids;
+    public toggleCrowding = this.toggleBoids;
+
     /**
      * 获取指定阵营的角色数量（用于统计）
      */
@@ -315,11 +463,34 @@ export class CrowdingSystem extends Component {
     }
 
     /**
-     * 获取拥挤系统状态信息
-     * 【网格优化】包含网格统计 - 显示所有角色统计
+     * 获取当前Boids算法参数配置
+     */
+    public getBoidsConfig(): { [key: string]: number } {
+        return {
+            neighborRadius: this.NEIGHBOR_RADIUS,
+            separationRadius: this.SEPARATION_RADIUS,
+            separationWeight: this.SEPARATION_WEIGHT,
+            alignmentWeight: this.ALIGNMENT_WEIGHT,
+            cohesionWeight: this.COHESION_WEIGHT,
+            maxForce: this.MAX_FORCE,
+            maxSpeedMultiplier: this.MAX_SPEED_MULTIPLIER,
+            smoothFactor: this.SMOOTH_FACTOR,
+            updateInterval: this.UPDATE_INTERVAL
+        };
+    }
+
+    // 兼容性方法
+    public getCrowdingConfig = this.getBoidsConfig;
+
+    /**
+     * 获取Boids群聚系统状态信息
+     * 【网格优化】包含网格统计和Boids算法统计
      */
     public getStatusInfo(): string {
-        let info = 'CrowdingSystem 状态 (全角色拥挤模式):\n';
+        let info = 'Boids群聚系统状态 (分离+对齐+聚合):\n';
+        
+        // 系统启用状态
+        info += `系统状态: ${this._isEnabled ? '🟢 已启用' : '🔴 已禁用'}\n`;
         
         // 总角色数
         info += `总角色数: ${this.allCharacters.length}\n`;
@@ -336,9 +507,16 @@ export class CrowdingSystem extends Component {
             info += `  ${faction}: ${count} 个角色\n`;
         });
         
+        info += `\n=== Boids算法参数 ===\n`;
         info += `更新间隔: ${this.UPDATE_INTERVAL}s\n`;
-        info += `拥挤半径: ${this.CROWDING_RADIUS}px\n`;
-        info += `排斥力强度: ${this.REPULSION_FORCE}\n`;
+        info += `邻居检测半径: ${this.NEIGHBOR_RADIUS}px\n`;
+        info += `分离行为半径: ${this.SEPARATION_RADIUS}px\n`;
+        info += `分离权重: ${this.SEPARATION_WEIGHT} (避免碰撞)\n`;
+        info += `对齐权重: ${this.ALIGNMENT_WEIGHT} (方向一致)\n`;
+        info += `聚合权重: ${this.COHESION_WEIGHT} (向群体中心)\n`;
+        info += `最大施加力: ${this.MAX_FORCE}\n`;
+        info += `最大速度倍数: ${this.MAX_SPEED_MULTIPLIER}x\n`;
+        info += `平滑系数: ${this.SMOOTH_FACTOR}\n`;
         
         // 【网格优化】添加性能信息
         const perfStats = this.getPerformanceStats();
@@ -347,6 +525,11 @@ export class CrowdingSystem extends Component {
         info += `平均查询时间: ${perfStats.avgQueryTime.toFixed(2)}ms\n`;
         info += `最大查询时间: ${perfStats.maxQueryTime.toFixed(2)}ms\n`;
         info += `总查询次数: ${perfStats.totalQueries}\n`;
+        
+        info += `\n=== Boids算法统计 ===\n`;
+        info += `分离计算次数: ${perfStats.separationCalculations}\n`;
+        info += `对齐计算次数: ${perfStats.alignmentCalculations}\n`;
+        info += `聚合计算次数: ${perfStats.cohesionCalculations}\n`;
         
         // 网格统计
         const gridStats = perfStats.gridStats;
@@ -359,8 +542,8 @@ export class CrowdingSystem extends Component {
     }
 
     /**
-     * 打印状态信息
-     * 【网格优化】包含详细的性能分析
+     * 打印Boids系统状态信息
+     * 【网格优化】包含详细的性能分析和Boids算法统计
      */
     public printStatusInfo(): void {
         console.log(this.getStatusInfo());
@@ -376,7 +559,10 @@ export class CrowdingSystem extends Component {
         this.performanceStats.avgQueryTime = 0;
         this.performanceStats.maxQueryTime = 0;
         this.performanceStats.totalQueries = 0;
-        console.log('CrowdingSystem: 性能统计已重置');
+        this.performanceStats.separationCalculations = 0;
+        this.performanceStats.alignmentCalculations = 0;
+        this.performanceStats.cohesionCalculations = 0;
+        console.log('Boids系统: 性能统计已重置');
     }
 
     /**
@@ -391,7 +577,7 @@ export class CrowdingSystem extends Component {
                 updateCount++;
             }
         });
-        console.log(`CrowdingSystem: 批量更新了 ${updateCount} 个角色的网格位置`);
+        console.log(`Boids系统: 批量更新了 ${updateCount} 个角色的网格位置`);
     }
 
     protected onDestroy() {
@@ -401,5 +587,12 @@ export class CrowdingSystem extends Component {
     }
 }
 
-// 全局实例导出
-export const crowdingSystem = CrowdingSystem.instance;
+// 全局实例访问器 - 安全获取Boids系统单例实例
+export function getCrowdingSystem(): CrowdingSystem | null {
+    return CrowdingSystem.instance;
+}
+
+// Boids系统访问器别名
+export function getBoidsSystem(): CrowdingSystem | null {
+    return CrowdingSystem.instance;
+}
