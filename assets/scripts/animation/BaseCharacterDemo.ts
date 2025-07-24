@@ -1635,6 +1635,19 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
     }
 
     /**
+     * 根据Y轴位置更新Z轴深度 - 实现深度效果
+     */
+    private updateZDepthBasedOnY(): void {
+        const currentPosition = this.node.position;
+        const newZDepth = -currentPosition.y * 0.1; // Y轴每增加10像素，Z轴减少1
+        
+        // 只有当Z轴值发生变化时才更新，避免不必要的设置
+        if (Math.abs(currentPosition.z - newZDepth) > 0.01) {
+            this.node.setPosition(currentPosition.x, currentPosition.y, newZDepth);
+        }
+    }
+
+    /**
      * 设置尺寸范围显示
      */
     private setupSizeRangeDisplay(): void {
@@ -2019,6 +2032,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
         // 应用速度到刚体
         this.rigidBody.linearVelocity = velocity;
         
+        // 【深度效果】根据Y轴位置更新Z轴深度
+        this.updateZDepthBasedOnY();
+        
         // 【网格优化】通知拥挤系统位置可能发生变化
         // 这里使用异步更新，避免每帧都更新网格
         if (crowdingSystem) {
@@ -2138,6 +2154,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter 
     protected resetCharacterState(): void {
         // 重置位置
         this.node.setPosition(this.originalPosition);
+        
+        // 【深度效果】根据Y轴位置更新Z轴深度
+        this.updateZDepthBasedOnY();
         
         // 重置角度为0
         this.lockNodeRotation();

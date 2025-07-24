@@ -224,10 +224,14 @@ export class MonsterSpawner extends Component {
             y += randomOffsetY;
         }
         
+        // 根据Y轴位置计算Z轴深度：Y轴越高，Z轴越低（更靠前）
+        const finalY = this.node.position.y + y;
+        const zDepth = -finalY * 0.1; // Y轴每增加10像素，Z轴减少1
+        
         return new Vec3(
             this.node.position.x + x,
-            this.node.position.y + y,
-            0
+            finalY,
+            zDepth
         );
     }
     
