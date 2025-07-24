@@ -533,9 +533,10 @@ export class StateMachine {
  * 角色演示基类
  * 支持对象池管理的角色演示系统
  * 现在集成了智能攻击系统和完整的角色功能
+ * 【网格优化】实现ICrowdableCharacter接口，支持网格化拥挤系统
  */
 @ccclass('BaseCharacterDemo')
-export class BaseCharacterDemo extends Component {
+export class BaseCharacterDemo extends Component implements ICrowdableCharacter {
 
     @property({
         displayName: "移动速度",
@@ -1982,12 +1983,16 @@ export class BaseCharacterDemo extends Component {
 
     /**
      * 处理角色移动 - 由状态机调用（使用物理系统速度控制）
+     * 【网格优化】在移动后通知拥挤系统更新位置
      */
     public handleMovement(deltaTime: number): void {
         if (!this.rigidBody) {
             console.warn(`[${this.getCharacterDisplayName()}] 刚体组件未初始化，无法使用物理移动`);
             return;
         }
+        
+        // 记录移动前的位置
+        const oldPosition = this.node.position.clone();
         
         // 检查是否有移动输入
         if (this.moveDirection.length() === 0) {
@@ -2013,6 +2018,12 @@ export class BaseCharacterDemo extends Component {
         
         // 应用速度到刚体
         this.rigidBody.linearVelocity = velocity;
+        
+        // 【网格优化】通知拥挤系统位置可能发生变化
+        // 这里使用异步更新，避免每帧都更新网格
+        if (crowdingSystem) {
+            crowdingSystem.updateCharacterPosition(this, oldPosition);
+        }
         
         // 注释：边界检查现在由物理系统和碰撞体处理
         // 如果需要硬性边界，可以在场景中添加不可见的墙壁碰撞体
@@ -2045,8 +2056,12 @@ export class BaseCharacterDemo extends Component {
 
     /**
      * 回收到对象池
+     * 【网格优化】回收时从拥挤系统反注册
      */
     public returnToPool(): void {
+        // 【网格优化】从拥挤系统反注册
+        this.unregisterFromCrowdingSystem();
+        
         if (this.isFromPool && this.poolName) {
             // 使用CharacterPoolFactory进行回收
             CharacterPoolFactory.getInstance().recycleCharacter(this);
@@ -2057,6 +2072,7 @@ export class BaseCharacterDemo extends Component {
 
     /**
      * 从池中重用时的回调 - 整合了UniversalCharacterDemo的功能
+     * 【网格优化】重用时重新注册到拥挤系统
      */
     public onReuseFromPool(): void {
         
@@ -2077,6 +2093,9 @@ export class BaseCharacterDemo extends Component {
         if (this.stateMachine) {
             this.stateMachine.start();
         }
+        
+        // 【网格优化】重新注册到拥挤系统
+        this.registerToCrowdingSystem();
         
         // 【性能优化】如果是AI模式，重新启动目标搜索定时器
         if (this.controlMode === ControlMode.AI) {
@@ -2398,15 +2417,19 @@ export class BaseCharacterDemo extends Component {
         return CharacterPoolFactory.getInstance().getActiveCharacterCount();
     }
 
-    onDestroy() {
-        // 【性能优化】清理AI目标搜索定时器
+    /**
+     * 组件销毁时的清理
+     * 【网格优化】销毁时从拥挤系统反注册
+     */
+    protected onDestroy(): void {
+        // 【网格优化】从拥挤系统反注册
+        this.unregisterFromCrowdingSystem();
+        
+        // 停止AI定时器
         this.unschedule(this.updateAITargetSearch);
         
         // 从目标选择器反注册
         this.deregisterFromTargetSelector();
-        
-        // 从拥挤系统反注册
-        this.unregisterFromCrowdingSystem();
         
         // 清理输入监听
         this.cleanupInput();
@@ -2426,7 +2449,7 @@ export class BaseCharacterDemo extends Component {
             this.rigidBody.angularVelocity = 0;
         }
         
-        console.log(`[${this.getCharacterDisplayName()}] 组件已清理（包括定时器和物理组件清理）`);
+        console.log(`[${this.getCharacterDisplayName()}] 角色已销毁并清理完成`);
     }
 
     /**
@@ -2551,80 +2574,12 @@ export class BaseCharacterDemo extends Component {
     }
 
     /**
-     * 获取当前敌人类型 - 用于外部查询 (从UniversalCharacterDemo合并)
-     */
-    public getCurrentEnemyType(): string {
-        return this.getEnemyConfigId();
-    }
-
-    /**
-     * 检查当前敌人是否为远程攻击类型 (从UniversalCharacterDemo合并)
-     */
-    public isCurrentEnemyRanged(): boolean {
-        return this.isRangedAttacker;
-    }
-
-    /**
-     * 获取攻击类型描述 (从UniversalCharacterDemo合并)
-     */
-    public getAttackTypeDescription(): string {
-        if (this.isRangedAttacker) {
-            return `远程攻击 (${this.hasRangedSkills ? this.getRemoteSkillNames() : '基于敌人类型判断'})`;
-        } else {
-            return '近战攻击';
-        }
-    }
-
-    /**
-     * 获取角色的碰撞信息（调试用）
-     */
-    public getCollisionInfo(): string {
-        const currentFaction = this.getFaction();
-        const physicsGroup = factionManager.getFactionPhysicsGroup(currentFaction);
-        const enemyGroups = factionManager.getEnemyPhysicsGroups(currentFaction);
-        const friendlyGroups = factionManager.getFriendlyPhysicsGroups(currentFaction);
-        
-        let info = `=== ${this.getCharacterDisplayName()} 碰撞信息 ===\n`;
-        info += `阵营: ${currentFaction}\n`;
-        info += `物理分组: ${physicsGroup}\n`;
-        info += `敌对分组: [${enemyGroups.join(', ')}]\n`;
-        info += `友好分组: [${friendlyGroups.join(', ')}]\n`;
-        
-        return info;
-    }
-
-    /**
-     * 打印碰撞信息到控制台（调试用）
-     */
-    public printCollisionInfo(): void {
-        console.log(this.getCollisionInfo());
-    }
-
-    /**
-     * 获取所有可用的敌人类型（用于调试）(从UniversalCharacterDemo合并)
-     */
-    public getAvailableEnemyTypes(): string[] {
-        if (GameManager.instance) {
-            return GameManager.instance.getAvailableEnemyTypes();
-        }
-        return [];
-    }
-
-    /**
      * 锁定节点角度为0（防止旋转）
      */
     private lockNodeRotation(): void {
         if (this.node) {
             this.node.setRotationFromEuler(0, 0, 0);
         }
-    }
-
-    /**
-     * 强制重置节点角度为0
-     */
-    public resetNodeRotation(): void {
-        this.lockNodeRotation();
-        console.log(`[${this.getCharacterDisplayName()}] 节点角度已重置为0`);
     }
 }
 

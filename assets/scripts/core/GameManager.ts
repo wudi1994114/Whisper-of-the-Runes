@@ -20,6 +20,7 @@ import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
 import { CharacterPoolInitializer, BaseCharacterDemo, CharacterPoolFactory, ControlMode } from '../animation/BaseCharacterDemo';
 import { damageDisplayController } from './DamageDisplayController';
 import { crowdingSystem, CrowdingSystem } from './CrowdingSystem';
+import { gridManager, GridManager } from './GridManager';
 
 const { ccclass, property } = _decorator;
 
@@ -1090,6 +1091,266 @@ export class GameManager extends Component {
     }
 
     /**
+     * 【网格优化】测试网格化拥挤系统性能
+     */
+    public testGridBasedCrowdingPerformance(): void {
+        console.log('=== 🚀 网格化拥挤系统性能测试 ===');
+        
+        if (!this.manualTestMode) {
+            console.warn('性能测试需要在手动测试模式下进行，请先切换模式');
+            return;
+        }
+
+        // 清除现有测试怪物
+        this.clearTestEnemy();
+
+        // 重置性能统计
+        crowdingSystem.resetPerformanceStats();
+        gridManager.reset();
+
+        // 生成大量同阵营角色进行压力测试
+        const testCount = 50; // 50个角色
+        const testPositions: Vec3[] = [];
+        const testRadius = 200; // 在200px半径内随机分布
+        
+        console.log(`生成 ${testCount} 个角色进行网格性能测试...`);
+
+        // 生成随机位置
+        for (let i = 0; i < testCount; i++) {
+            const angle = (Math.PI * 2 * i) / testCount + Math.random() * 0.5;
+            const radius = Math.random() * testRadius;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+            testPositions.push(new Vec3(x, y, 0));
+        }
+
+        // 创建角色
+        const createdCharacters: Node[] = [];
+        testPositions.forEach((position, index) => {
+            const enemyType = 'ent_normal'; // 使用轻量级角色
+            const character = this.spawnTestEnemyAtPosition(enemyType, position, `perf_test_${index}`);
+            if (character) {
+                createdCharacters.push(character);
+            }
+        });
+
+        console.log(`✅ 成功创建 ${createdCharacters.length} 个测试角色`);
+
+        // 等待几秒让系统稳定，然后输出性能报告
+        setTimeout(() => {
+            this.printGridPerformanceReport();
+            
+            // 清理测试角色
+            setTimeout(() => {
+                console.log('🧹 清理测试角色...');
+                createdCharacters.forEach(character => {
+                    if (character && character.isValid) {
+                        const demo = character.getComponent('BaseCharacterDemo');
+                        if (demo && (demo as any).returnToPool) {
+                            (demo as any).returnToPool();
+                        }
+                    }
+                });
+                console.log('✅ 性能测试完成，角色已清理');
+            }, 3000);
+        }, 5000);
+    }
+
+    /**
+     * 【网格优化】打印网格性能报告
+     */
+    public printGridPerformanceReport(): void {
+        console.log('\n=== 📊 网格化拥挤系统性能报告 ===');
+        
+        // 拥挤系统性能统计
+        crowdingSystem.printStatusInfo();
+        
+        // 网格管理器详细统计
+        const gridStats = gridManager.getStats();
+        console.log('\n🏗️ 网格详细统计:');
+        console.log(`- 网格尺寸: 120px × 120px`);
+        console.log(`- 总网格数: ${gridStats.totalGrids}`);
+        console.log(`- 活跃网格数: ${gridStats.activeGrids}`);
+        console.log(`- 网格利用率: ${gridStats.totalGrids > 0 ? ((gridStats.activeGrids / gridStats.totalGrids) * 100).toFixed(1) : 0}%`);
+        console.log(`- 总角色数: ${gridStats.totalCharacters}`);
+        console.log(`- 平均每网格角色数: ${gridStats.averageCharactersPerGrid.toFixed(2)}`);
+        console.log(`- 最大单网格角色数: ${gridStats.maxCharactersInGrid}`);
+        console.log(`- 查询总次数: ${gridStats.queryCount}`);
+        
+        // 性能效益分析
+        const avgCharactersPerGrid = gridStats.averageCharactersPerGrid;
+        const totalCharacters = gridStats.totalCharacters;
+        
+        console.log('\n⚡ 性能效益分析:');
+        if (totalCharacters > 1) {
+            const oldComplexity = totalCharacters * (totalCharacters - 1); // O(n²)
+            const newComplexity = gridStats.queryCount * avgCharactersPerGrid; // O(k)
+            const improvement = oldComplexity > 0 ? (oldComplexity / newComplexity).toFixed(1) : 'N/A';
+            
+            console.log(`- 传统方式计算量: ${oldComplexity} (O(n²))`);
+            console.log(`- 网格方式计算量: ${newComplexity.toFixed(0)} (O(k))`);
+            console.log(`- 性能提升倍数: ${improvement}x`);
+            console.log(`- 内存使用: ${gridStats.totalGrids} 个网格 + ${totalCharacters} 个角色引用`);
+        }
+        
+        console.log('\n💡 优化建议:');
+        if (gridStats.maxCharactersInGrid > 20) {
+            console.log('- ⚠️ 某些网格角色过多，考虑减小网格尺寸');
+        }
+        if (gridStats.averageCharactersPerGrid < 2) {
+            console.log('- ⚠️ 网格利用率较低，考虑增大网格尺寸');
+        }
+        if (gridStats.activeGrids / gridStats.totalGrids < 0.3) {
+            console.log('- ✅ 网格分布合理，空间利用效率良好');
+        }
+        
+        console.log('=====================================\n');
+    }
+
+    /**
+     * 【网格优化】启用网格可视化调试
+     */
+    public enableGridVisualization(): void {
+        console.log('🔍 启用网格可视化调试...');
+        
+        const visualData = gridManager.getGridVisualizationData();
+        console.log(`📊 当前有 ${visualData.length} 个活跃网格:`);
+        
+        visualData.forEach(grid => {
+            const worldX = grid.x * 120; // CELL_SIZE = 120
+            const worldY = grid.y * 120;
+            console.log(`  网格 ${grid.key}: 世界坐标(${worldX}, ${worldY}), 角色数: ${grid.count}`);
+        });
+        
+        // 打印网格热点分析
+        if (visualData.length > 0) {
+            const maxCount = Math.max(...visualData.map(g => g.count));
+            const hotGrids = visualData.filter(g => g.count === maxCount);
+            
+            console.log(`🔥 热点网格分析:`);
+            console.log(`- 最大角色数: ${maxCount}`);
+            console.log(`- 热点网格数: ${hotGrids.length}`);
+            hotGrids.forEach(grid => {
+                const worldX = grid.x * 120;
+                const worldY = grid.y * 120;
+                console.log(`  🔥 热点 ${grid.key}: (${worldX}, ${worldY})`);
+            });
+        }
+    }
+
+    /**
+     * 【网格优化】对比测试：传统模式 vs 网格模式
+     */
+    public compareTraditionalVsGridPerformance(): void {
+        console.log('=== ⚖️ 传统模式 vs 网格模式性能对比 ===');
+        
+        if (!this.manualTestMode) {
+            console.warn('性能对比测试需要在手动测试模式下进行');
+            return;
+        }
+
+        // 模拟传统O(n²)算法的计算量
+        const characterCount = gridManager.getStats().totalCharacters;
+        if (characterCount < 5) {
+            console.warn('角色数量太少，请先创建更多角色进行有意义的对比');
+            return;
+        }
+
+        console.log(`📊 当前角色数量: ${characterCount}`);
+        
+        // 计算理论复杂度
+        const traditionalComplexity = characterCount * (characterCount - 1);
+        const gridComplexity = gridManager.getStats().queryCount * gridManager.getStats().averageCharactersPerGrid;
+        
+        console.log('\n📈 算法复杂度对比:');
+        console.log(`传统遍历法: O(n²) = ${traditionalComplexity} 次计算`);
+        console.log(`网格查询法: O(k) ≈ ${gridComplexity.toFixed(0)} 次计算`);
+        
+        if (traditionalComplexity > 0) {
+            const improvement = traditionalComplexity / gridComplexity;
+            console.log(`🚀 理论性能提升: ${improvement.toFixed(1)}x`);
+            
+            // 性能等级评估
+            if (improvement > 10) {
+                console.log('🏆 性能等级: 优秀 (>10x提升)');
+            } else if (improvement > 5) {
+                console.log('🥈 性能等级: 良好 (5-10x提升)');
+            } else if (improvement > 2) {
+                console.log('🥉 性能等级: 一般 (2-5x提升)');
+            } else {
+                console.log('⚠️ 性能等级: 需优化 (<2x提升)');
+            }
+        }
+        
+        // 内存使用对比
+        const gridMemory = gridManager.getStats().totalGrids * 32 + characterCount * 16; // 估算字节
+        const traditionalMemory = characterCount * 8; // 简单数组
+        
+        console.log('\n💾 内存使用对比:');
+        console.log(`传统方式: ~${traditionalMemory} 字节`);
+        console.log(`网格方式: ~${gridMemory} 字节`);
+        console.log(`内存开销: ${(gridMemory / traditionalMemory).toFixed(1)}x`);
+        
+        // 推荐使用场景
+        console.log('\n💡 推荐使用场景:');
+        if (characterCount > 20) {
+            console.log('✅ 角色数量较多，强烈推荐使用网格优化');
+        } else if (characterCount > 10) {
+            console.log('✅ 角色数量中等，推荐使用网格优化');
+        } else {
+            console.log('⚪ 角色数量较少，网格优化效果有限');
+        }
+        
+        console.log('==========================================\n');
+    }
+
+    /**
+     * 【网格优化】动态调整网格参数测试
+     */
+    public testDynamicGridParameters(): void {
+        console.log('=== 🔧 动态网格参数测试 ===');
+        
+        const currentStats = gridManager.getStats();
+        console.log(`当前状态: ${currentStats.totalCharacters} 个角色，${currentStats.activeGrids} 个活跃网格`);
+        
+        if (currentStats.totalCharacters < 10) {
+            console.warn('角色数量太少，请先创建更多角色进行参数测试');
+            return;
+        }
+        
+        // 分析当前网格密度
+        const avgDensity = currentStats.averageCharactersPerGrid;
+        const maxDensity = currentStats.maxCharactersInGrid;
+        
+        console.log('\n📊 当前网格密度分析:');
+        console.log(`平均密度: ${avgDensity.toFixed(2)} 角色/网格`);
+        console.log(`最大密度: ${maxDensity} 角色/网格`);
+        
+        // 给出调优建议
+        console.log('\n💡 参数调优建议:');
+        
+        if (avgDensity > 8) {
+            console.log('📏 建议减小网格尺寸 (当前120px → 建议80px)');
+            console.log('   原因: 网格密度过高，影响查询效率');
+        } else if (avgDensity < 2) {
+            console.log('📏 建议增大网格尺寸 (当前120px → 建议160px)');
+            console.log('   原因: 网格密度过低，空间浪费');
+        } else {
+            console.log('✅ 当前网格尺寸 (120px) 较为合适');
+        }
+        
+        if (maxDensity > 15) {
+            console.log('⚠️ 存在热点网格，考虑增加拥挤半径限制');
+        }
+        
+        if (currentStats.activeGrids / currentStats.totalGrids > 0.8) {
+            console.log('📈 网格利用率很高，系统运行高效');
+        }
+        
+        console.log('================================\n');
+    }
+
+    /**
      * 在指定位置生成测试敌人
      */
     private spawnTestEnemyAtPosition(enemyType: string, position: Vec3, characterId?: string): Node | null {
@@ -1777,5 +2038,198 @@ export class GameManager extends Component {
         console.log('✅ GameManager: 物理引擎检查完成');
     }
 
+    /**
+     * 【网格优化】完整的网格拥挤系统调试套件
+     */
+    public debugGridCrowdingSystem(): void {
+        console.log('\n=== 🔧 网格拥挤系统调试套件 ===');
+        console.log('可用的调试命令:');
+        console.log('');
+        console.log('📊 性能测试:');
+        console.log('  GameManager.instance.testGridBasedCrowdingPerformance()');
+        console.log('  - 生成50个角色进行压力测试');
+        console.log('');
+        console.log('📈 性能报告:');
+        console.log('  GameManager.instance.printGridPerformanceReport()');
+        console.log('  - 显示详细的性能统计');
+        console.log('');
+        console.log('🔍 可视化调试:');
+        console.log('  GameManager.instance.enableGridVisualization()');
+        console.log('  - 显示网格分布和热点');
+        console.log('');
+        console.log('⚖️ 性能对比:');
+        console.log('  GameManager.instance.compareTraditionalVsGridPerformance()');
+        console.log('  - 对比传统算法和网格算法');
+        console.log('');
+        console.log('🔧 参数调优:');
+        console.log('  GameManager.instance.testDynamicGridParameters()');
+        console.log('  - 分析并建议网格参数');
+        console.log('');
+        console.log('🧹 系统清理:');
+        console.log('  gridManager.reset()');
+        console.log('  crowdingSystem.resetPerformanceStats()');
+        console.log('');
+        console.log('📋 快速状态:');
+        console.log('  crowdingSystem.printStatusInfo()');
+        console.log('  gridManager.printDebugInfo()');
+        console.log('================================\n');
+    }
+
+    /**
+     * 【网格优化】快速性能检查
+     */
+    public quickGridPerformanceCheck(): void {
+        const gridStats = gridManager.getStats();
+        const crowdingStats = crowdingSystem.getPerformanceStats();
+        
+        console.log('\n=== ⚡ 快速性能检查 ===');
+        console.log(`角色总数: ${gridStats.totalCharacters}`);
+        console.log(`活跃网格: ${gridStats.activeGrids}`);
+        console.log(`查询次数: ${gridStats.queryCount}`);
+        console.log(`平均查询时间: ${crowdingStats.avgQueryTime.toFixed(2)}ms`);
+        
+        // 快速性能评级
+        const efficiency = gridStats.totalCharacters > 0 ? gridStats.queryCount / gridStats.totalCharacters : 0;
+        let rating = '⚪ 无数据';
+        
+        if (efficiency < 1) {
+            rating = '🟢 优秀';
+        } else if (efficiency < 2) {
+            rating = '🟡 良好';
+        } else if (efficiency < 5) {
+            rating = '🟠 一般';
+        } else {
+            rating = '🔴 需优化';
+        }
+        
+        console.log(`性能评级: ${rating} (查询效率: ${efficiency.toFixed(2)})`);
+        console.log('===========================\n');
+    }
+
+    /**
+     * 【网格优化】实时监控模式
+     */
+    public startGridRealTimeMonitoring(): void {
+        console.log('🔄 启动网格系统实时监控...');
+        console.log('监控间隔: 3秒，输入 GameManager.instance.stopGridMonitoring() 停止');
+        
+        this.gridMonitoringActive = true;
+        this.gridMonitoringInterval = setInterval(() => {
+            if (!this.gridMonitoringActive) {
+                return;
+            }
+            
+            const gridStats = gridManager.getStats();
+            const crowdingStats = crowdingSystem.getPerformanceStats();
+            
+            const timestamp = new Date().toLocaleTimeString();
+            console.log(`[${timestamp}] 📊 角色:${gridStats.totalCharacters} | 网格:${gridStats.activeGrids} | 查询:${gridStats.queryCount} | 平均时间:${crowdingStats.avgQueryTime.toFixed(1)}ms`);
+            
+            // 异常检测
+            if (crowdingStats.maxQueryTime > 10) {
+                console.warn(`⚠️ [${timestamp}] 检测到慢查询: ${crowdingStats.maxQueryTime.toFixed(2)}ms`);
+            }
+            
+            if (gridStats.maxCharactersInGrid > 25) {
+                console.warn(`⚠️ [${timestamp}] 检测到网格过载: ${gridStats.maxCharactersInGrid} 个角色`);
+            }
+        }, 3000);
+    }
+
+    /**
+     * 【网格优化】停止实时监控
+     */
+    public stopGridMonitoring(): void {
+        this.gridMonitoringActive = false;
+        if (this.gridMonitoringInterval) {
+            clearInterval(this.gridMonitoringInterval);
+            this.gridMonitoringInterval = null;
+        }
+        console.log('🛑 网格系统实时监控已停止');
+    }
+
+    // 监控相关属性
+    private gridMonitoringActive = false;
+    private gridMonitoringInterval: any = null;
+
+    /**
+     * 【网格优化】网格系统健康检查
+     */
+    public gridSystemHealthCheck(): void {
+        console.log('\n=== 🏥 网格系统健康检查 ===');
+        
+        const gridStats = gridManager.getStats();
+        const crowdingStats = crowdingSystem.getPerformanceStats();
+        
+        let healthScore = 100;
+        const issues: string[] = [];
+        const suggestions: string[] = [];
+        
+        // 检查1：网格利用率
+        const utilizationRate = gridStats.totalGrids > 0 ? gridStats.activeGrids / gridStats.totalGrids : 0;
+        if (utilizationRate < 0.1) {
+            healthScore -= 20;
+            issues.push('网格利用率过低');
+            suggestions.push('考虑增大网格尺寸或减少网格数量');
+        } else if (utilizationRate > 0.9) {
+            healthScore -= 10;
+            issues.push('网格利用率过高');
+            suggestions.push('考虑增加网格数量或优化角色分布');
+        }
+        
+        // 检查2：网格密度
+        if (gridStats.averageCharactersPerGrid > 10) {
+            healthScore -= 15;
+            issues.push('网格密度过高');
+            suggestions.push('减小网格尺寸以提高查询效率');
+        } else if (gridStats.averageCharactersPerGrid < 1) {
+            healthScore -= 10;
+            issues.push('网格密度过低');
+            suggestions.push('增大网格尺寸以减少内存开销');
+        }
+        
+        // 检查3：查询性能
+        if (crowdingStats.avgQueryTime > 5) {
+            healthScore -= 25;
+            issues.push('查询性能较差');
+            suggestions.push('检查网格参数设置或减少角色数量');
+        }
+        
+        // 检查4：热点问题
+        if (gridStats.maxCharactersInGrid > gridStats.averageCharactersPerGrid * 3) {
+            healthScore -= 15;
+            issues.push('存在热点网格');
+            suggestions.push('优化角色分布或调整游戏逻辑');
+        }
+        
+        // 输出结果
+        console.log(`🏥 健康评分: ${healthScore}/100`);
+        
+        if (healthScore >= 90) {
+            console.log('🟢 系统状态: 优秀');
+        } else if (healthScore >= 70) {
+            console.log('🟡 系统状态: 良好');
+        } else if (healthScore >= 50) {
+            console.log('🟠 系统状态: 需要关注');
+        } else {
+            console.log('🔴 系统状态: 需要优化');
+        }
+        
+        if (issues.length > 0) {
+            console.log('\n⚠️ 发现的问题:');
+            issues.forEach((issue, index) => {
+                console.log(`  ${index + 1}. ${issue}`);
+            });
+        }
+        
+        if (suggestions.length > 0) {
+            console.log('\n💡 优化建议:');
+            suggestions.forEach((suggestion, index) => {
+                console.log(`  ${index + 1}. ${suggestion}`);
+            });
+        }
+        
+        console.log('==============================\n');
+    }
 
 }
