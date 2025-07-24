@@ -2,71 +2,332 @@
   "levels": [
     {
       "id": 0,
-      "name": "普通测试场景",
+      "name": "全怪物测试场景",
       "backgroundImage": "textures/backgrounds/test_arena",
-      "mapSize": { "width": 1600, "height": 1000 },
+      "mapSize": { "width": 2000, "height": 1500 },
       "playerSpawn": { "x": 0, "y": 0 },
       
       "factionRelationships": {
-        "player": { "attacks": [] },
-        "red": { "attacks": ["blue"] },
-        "blue": { "attacks": ["red"] }
+        "player": { "attacks": ["red", "blue", "green", "purple"] },
+        "red": { "attacks": ["player", "blue", "green", "purple"] },
+        "blue": { "attacks": ["player", "red", "green", "purple"] },
+        "green": { "attacks": ["player", "red", "blue", "purple"] },
+        "purple": { "attacks": ["player", "red", "blue", "green"] }
       },
       
       "monsterSpawners": [
         {
-          "id": "red_left_spawner",
-          "position": { "x": -200, "y": 0 },
-          "spawnRadius": 80,
+          "id": "ent_spawner",
+          "position": { "x": -300, "y": 200 },
+          "spawnRadius": 50,
           "spawnType": "circle",
           "faction": "red",
-          "randomOffset": { "x": 50, "y": 50 },
           "enemies": [
             {
               "type": "ent_normal",
-              "count": 10,
-              "spawnInterval": 2.0,
-              "maxAlive": 100,
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
               "spawnDelay": 1.0,
-              "respawnOnDeath": true,
+              "respawnOnDeath": false,
               "faction": "red"
             },
             {
-              "type": "lich_normal",
-              "count": 10,
-              "spawnInterval": 10.0,
-              "maxAlive": 10,
-              "spawnDelay": 5.0,
-              "respawnOnDeath": true,
+              "type": "ent_elite",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 2.0,
+              "respawnOnDeath": false,
+              "faction": "red"
+            },
+            {
+              "type": "ent_boss",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 3.0,
+              "respawnOnDeath": false,
               "faction": "red"
             }
           ]
         },
         {
-          "id": "blue_right_spawner",
-          "position": { "x": 200, "y": 0 },
-          "spawnRadius": 80,
+          "id": "lich_spawner",
+          "position": { "x": 300, "y": 200 },
+          "spawnRadius": 50,
           "spawnType": "circle",
           "faction": "blue",
-          "randomOffset": { "x": 50, "y": 50 },
           "enemies": [
             {
-              "type": "ent_normal",
-              "count": 10,
-              "spawnInterval": 2.0,
-              "maxAlive": 100,
+              "type": "lich_normal",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
               "spawnDelay": 1.0,
-              "respawnOnDeath": true,
+              "respawnOnDeath": false,
               "faction": "blue"
             },
             {
-              "type": "lich_normal",
-              "count": 10,
-              "spawnInterval": 10.0,
-              "maxAlive": 10,
-              "spawnDelay": 5.0,
-              "respawnOnDeath": true,
+              "type": "lich_elite",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 2.0,
+              "respawnOnDeath": false,
               "faction": "blue"
+            },
+            {
+              "type": "lich_boss",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 3.0,
+              "respawnOnDeath": false,
+              "faction": "blue"
+            }
+          ]
+        },
+        {
+          "id": "skeleton_spawner",
+          "position": { "x": -300, "y": -200 },
+          "spawnRadius": 50,
+          "spawnType": "circle",
+          "faction": "green",
+          "enemies": [
+            {
+              "type": "skeleton_normal",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 1.0,
+              "respawnOnDeath": false,
+              "faction": "green"
+            },
+            {
+              "type": "skeleton_elite",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 2.0,
+              "respawnOnDeath": false,
+              "faction": "green"
+            },
+            {
+              "type": "skeleton_boss",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 3.0,
+              "respawnOnDeath": false,
+              "faction": "green"
+            }
+          ]
+        },
+        {
+          "id": "orc_spawner",
+          "position": { "x": 300, "y": -200 },
+          "spawnRadius": 50,
+          "spawnType": "circle",
+          "faction": "purple",
+          "enemies": [
+            {
+              "type": "orc_normal",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 1.0,
+              "respawnOnDeath": false,
+              "faction": "purple"
+            },
+            {
+              "type": "orc_elite",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 2.0,
+              "respawnOnDeath": false,
+              "faction": "purple"
+            },
+            {
+              "type": "orc_boss",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 3.0,
+              "respawnOnDeath": false,
+              "faction": "purple"
+            }
+          ]
+        },
+        {
+          "id": "goblin_spawner",
+          "position": { "x": -500, "y": 0 },
+          "spawnRadius": 50,
+          "spawnType": "circle",
+          "faction": "red",
+          "enemies": [
+            {
+              "type": "goblin_normal",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 4.0,
+              "respawnOnDeath": false,
+              "faction": "red"
+            },
+            {
+              "type": "goblin_elite",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 5.0,
+              "respawnOnDeath": false,
+              "faction": "red"
+            },
+            {
+              "type": "goblin_boss",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 6.0,
+              "respawnOnDeath": false,
+              "faction": "red"
+            }
+          ]
+        },
+        {
+          "id": "slime_basic_spawner",
+          "position": { "x": 500, "y": 0 },
+          "spawnRadius": 80,
+          "spawnType": "circle",
+          "faction": "blue",
+          "enemies": [
+            {
+              "type": "slime_normal",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 4.0,
+              "respawnOnDeath": false,
+              "faction": "blue"
+            },
+            {
+              "type": "slime_fire",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 5.0,
+              "respawnOnDeath": false,
+              "faction": "blue"
+            },
+            {
+              "type": "slime_ice",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 6.0,
+              "respawnOnDeath": false,
+              "faction": "blue"
+            },
+            {
+              "type": "slime_bomb",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 7.0,
+              "respawnOnDeath": false,
+              "faction": "blue"
+            },
+            {
+              "type": "slime_ghost",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 8.0,
+              "respawnOnDeath": false,
+              "faction": "blue"
+            }
+          ]
+        },
+        {
+          "id": "slime_advanced_spawner",
+          "position": { "x": -600, "y": 300 },
+          "spawnRadius": 80,
+          "spawnType": "circle",
+          "faction": "green",
+          "enemies": [
+            {
+              "type": "slime_lightning",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 9.0,
+              "respawnOnDeath": false,
+              "faction": "green"
+            },
+            {
+              "type": "slime_crystal",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 10.0,
+              "respawnOnDeath": false,
+              "faction": "green"
+            },
+            {
+              "type": "slime_devil",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 11.0,
+              "respawnOnDeath": false,
+              "faction": "green"
+            },
+            {
+              "type": "slime_lava",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 12.0,
+              "respawnOnDeath": false,
+              "faction": "green"
+            }
+          ]
+        },
+        {
+          "id": "golem_spawner",
+          "position": { "x": 600, "y": 300 },
+          "spawnRadius": 50,
+          "spawnType": "circle",
+          "faction": "purple",
+          "enemies": [
+            {
+              "type": "golem_normal",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 13.0,
+              "respawnOnDeath": false,
+              "faction": "purple"
+            },
+            {
+              "type": "golem_elite",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 14.0,
+              "respawnOnDeath": false,
+              "faction": "purple"
+            },
+            {
+              "type": "golem_boss",
+              "count": 1,
+              "spawnInterval": 1.0,
+              "maxAlive": 1,
+              "spawnDelay": 15.0,
+              "respawnOnDeath": false,
+              "faction": "purple"
             }
           ]
         }
@@ -75,12 +336,12 @@
       "objectives": [
         {
           "type": "test",
-          "description": "普通对战测试"
+          "description": "全怪物类型碰撞测试 - 26种怪物全展示"
         }
       ],
       
-      "duration": 300,
-      "description": "普通测试场景 - 红蓝两阵营对抗"
+      "duration": 600,
+      "description": "全怪物测试场景 - 包含所有26种怪物类型，测试碰撞和阵营系统"
     },
     {
       "id": 1,

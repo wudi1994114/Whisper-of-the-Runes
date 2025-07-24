@@ -1,7 +1,7 @@
 // assets/scripts/animation/AnimationManager.ts
 
 import { _decorator, SpriteAtlas, SpriteFrame, AnimationClip, Animation, Node, animation, Sprite, js } from 'cc';
-import { AnimationState, AnimationDirection, AnimationFrameData, getAnimationConfigByPrefix, animationConfigDatabase } from './AnimationConfig';
+import { AnimationState, AnimationDirection, AnimationFrameData, getAnimationConfigByPrefix, animationConfigDatabase, ProjectileAnimationState, ProjectileAnimationConfig, getProjectileAnimationConfig } from './AnimationConfig';
 import { EnemyData } from '../configs/EnemyConfig';
 import { dataManager } from '../core/DataManager';
 import { resourceManager } from '../core/ResourceManager';
@@ -298,7 +298,9 @@ export class AnimationManager {
         }
 
         // 停止当前动画
-        animationComponent.stop();
+        if (animationComponent.isValid) {
+            animationComponent.stop();
+        }
         
         // 播放新动画
         animationComponent.play(animationName);
@@ -346,7 +348,6 @@ export class AnimationManager {
             animationComponent.once(Animation.EventType.FINISHED, onComplete);
         }
 
-        console.log(`[AnimationManager] 攻击动画 ${animationName} 已开始，伤害将在第${damageFrame}帧（${damageFrameTime.toFixed(3)}秒）触发`);
         return true;
     }
 
@@ -355,7 +356,9 @@ export class AnimationManager {
      * @param animationComponent 动画组件
      */
     public stopAnimation(animationComponent: Animation): void {
-        animationComponent.stop();
+        if (animationComponent && animationComponent.isValid) {
+            animationComponent.stop();
+        }
     }
 
     /**
@@ -363,7 +366,9 @@ export class AnimationManager {
      * @param animationComponent 动画组件
      */
     public pauseAnimation(animationComponent: Animation): void {
-        animationComponent.pause();
+        if (animationComponent && animationComponent.isValid) {
+            animationComponent.pause();
+        }
     }
 
     /**
@@ -371,7 +376,9 @@ export class AnimationManager {
      * @param animationComponent 动画组件
      */
     public resumeAnimation(animationComponent: Animation): void {
-        animationComponent.resume();
+        if (animationComponent && animationComponent.isValid) {
+            animationComponent.resume();
+        }
     }
 
     /**
@@ -515,6 +522,141 @@ export class AnimationManager {
         });
         
         return info;
+    }
+
+    // ============= 投射物动画管理 =============
+
+    /**
+     * 创建投射物动画帧序列（支持指定起始帧索引）
+     * @param atlas 精灵图集
+     * @param framePrefix 帧前缀
+     * @param startFrame 起始帧索引
+     * @param frameCount 帧数量
+     * @param frameRate 帧率
+     * @returns 动画帧数据数组
+     */
+    private createProjectileAnimationFrames(
+        atlas: SpriteAtlas, 
+        framePrefix: string, 
+        startFrame: number,
+        frameCount: number, 
+        frameRate: number
+    ): AnimationFrameData[] {
+        const frames: AnimationFrameData[] = [];
+        const frameDuration = 1 / frameRate;
+
+        for (let i = 0; i < frameCount; i++) {
+            const frameIndex = this.formatFrameIndex(startFrame + i);
+            const frameName = `${framePrefix}${frameIndex}`;
+            
+            const spriteFrame = this.getSpriteFrame(atlas, frameName);
+            if (spriteFrame) {
+                frames.push({
+                    name: frameName,
+                    spriteFrame: spriteFrame,
+                    duration: frameDuration
+                });
+            } else {
+                console.warn(`Projectile frame not found: ${frameName}, skipping...`);
+            }
+        }
+
+        return frames;
+    }
+
+    /**
+     * 根据投射物配置创建所有动画剪辑
+     * @param projectileId 投射物ID
+     * @returns Promise<Map<string, AnimationClip>>
+     */
+    public async createProjectileAnimationClips(projectileId: string): Promise<Map<string, AnimationClip>> {
+        const clips = new Map<string, AnimationClip>();
+        
+        try {
+            // 获取投射物动画配置
+            const config = getProjectileAnimationConfig(projectileId);
+            if (!config) {
+                console.error(`AnimationManager: 投射物动画配置未找到: ${projectileId}`);
+                return clips;
+            }
+            
+            console.log(`AnimationManager: 创建投射物动画 ${projectileId}`, config);
+            
+            // 加载精灵图集
+            const atlas = await this.loadSpriteAtlas(config.plistUrl);
+            
+            // 遍历所有投射物动画状态
+            for (const stateName in config.animations) {
+                const stateConfig = config.animations[stateName as ProjectileAnimationState];
+                if (!stateConfig) continue;
+                
+                let frames: AnimationFrameData[] = [];
+                
+                // 根据投射物状态计算起始帧
+                if (stateName === ProjectileAnimationState.SPAWN) {
+                    // 生成动画：只有第0帧
+                    frames = this.createProjectileAnimationFrames(
+                        atlas,
+                        stateConfig.framePrefix,
+                        0, // 起始帧为0
+                        stateConfig.frameCount,
+                        stateConfig.frameRate
+                    );
+                } else if (stateName === ProjectileAnimationState.FLYING) {
+                    // 飞行动画：第1-3帧
+                    frames = this.createProjectileAnimationFrames(
+                        atlas,
+                        stateConfig.framePrefix,
+                        1, // 起始帧为1
+                        stateConfig.frameCount,
+                        stateConfig.frameRate
+                    );
+                } else if (stateName === ProjectileAnimationState.EXPLODING) {
+                    // 爆炸动画：第4-7帧
+                    frames = this.createProjectileAnimationFrames(
+                        atlas,
+                        stateConfig.framePrefix,
+                        4, // 起始帧为4
+                        stateConfig.frameCount,
+                        stateConfig.frameRate
+                    );
+                }
+                
+                if (frames.length > 0) {
+                    // 创建动画剪辑
+                    const animationName = `${config.assetNamePrefix}_${stateName}`;
+                    const clip = this.createAnimationClip(
+                        animationName, 
+                        frames, 
+                        stateConfig.loop
+                    );
+                    clips.set(animationName, clip);
+                    console.log(`AnimationManager: 创建投射物动画剪辑 ${animationName}，帧数: ${frames.length}`);
+                }
+            }
+            
+            return clips;
+            
+        } catch (error) {
+            console.error(`AnimationManager: 创建投射物动画失败 ${projectileId}`, error);
+            throw error;
+        }
+    }
+
+    /**
+     * 播放投射物动画
+     * @param animationComponent 动画组件
+     * @param projectileId 投射物ID
+     * @param state 投射物动画状态
+     * @returns boolean 是否成功播放
+     */
+    public playProjectileAnimation(
+        animationComponent: Animation, 
+        projectileId: string, 
+        state: ProjectileAnimationState
+    ): boolean {
+        const animationName = `${projectileId}_${state}`;
+        return this.playAnimation(animationComponent, animationName);
     }
 
 }

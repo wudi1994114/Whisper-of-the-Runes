@@ -35,6 +35,15 @@ export enum AnimationState {
 }
 
 /**
+ * 投射物动画状态枚举
+ */
+export enum ProjectileAnimationState {
+    SPAWN = 'spawn',        // 生成
+    FLYING = 'flying',      // 飞行
+    EXPLODING = 'exploding' // 爆炸
+}
+
+/**
  * 动画方向枚举
  */
 export enum AnimationDirection {
@@ -1322,4 +1331,62 @@ export const animationStateMapping: Record<string, AnimationState> = {
  */
 export function getMappedAnimationState(state: string): AnimationState {
     return animationStateMapping[state] || AnimationState.IDLE;
-} 
+}
+
+// ============= 投射物动画配置 =============
+
+/**
+ * 投射物动画配置接口
+ */
+export interface ProjectileAnimationConfig {
+    plistUrl: string;       // 图集路径
+    assetNamePrefix: string; // 资源名前缀
+    animations: {
+        [key in ProjectileAnimationState]?: {
+            framePrefix: string;
+            frameCount: number;
+            frameRate: number;
+            loop: boolean;
+        }
+    };
+}
+
+/**
+ * 投射物动画配置数据库
+ */
+export const projectileAnimationConfigDatabase: Record<string, ProjectileAnimationConfig> = {
+    // 火球配置
+    'fireball': {
+        plistUrl: 'skill/fire',
+        assetNamePrefix: 'fireball',
+        animations: {
+            [ProjectileAnimationState.SPAWN]: { 
+                framePrefix: 'Fire_right', 
+                frameCount: 1, // 只有第0帧
+                frameRate: 12, 
+                loop: false 
+            },
+            [ProjectileAnimationState.FLYING]: { 
+                framePrefix: 'Fire_right', 
+                frameCount: 3, // 第1-3帧
+                frameRate: 12, 
+                loop: true 
+            },
+            [ProjectileAnimationState.EXPLODING]: { 
+                framePrefix: 'Fire_right', 
+                frameCount: 4, // 第4-7帧
+                frameRate: 12, 
+                loop: false 
+            }
+        }
+    }
+};
+
+/**
+ * 根据投射物ID获取动画配置
+ * @param projectileId 投射物ID
+ * @returns 投射物动画配置
+ */
+export function getProjectileAnimationConfig(projectileId: string): ProjectileAnimationConfig | null {
+    return projectileAnimationConfigDatabase[projectileId] || null;
+}

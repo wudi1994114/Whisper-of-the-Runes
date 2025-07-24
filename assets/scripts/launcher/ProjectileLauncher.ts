@@ -334,7 +334,7 @@ export class ProjectileLauncher extends Component {
             {
                 name: 'fireball',
                 prefab: this.fireballPrefab,
-                poolConfig: { poolName: 'fireball', maxSize: 30, preloadCount: 5 }
+                poolConfig: { poolName: 'fireball', maxSize: 100, preloadCount: 20 }
             },
             {
                 name: 'thunder',

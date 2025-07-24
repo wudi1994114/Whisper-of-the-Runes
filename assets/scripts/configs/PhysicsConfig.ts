@@ -59,6 +59,7 @@ export function setupPhysicsGroupCollisions() {
 
     // 3. 红色阵营的碰撞关系
     // 红色阵营与玩家、蓝色、绿色、紫色阵营及其投射物碰撞
+    // 注意：移除了 PhysicsGroup.RED，同阵营不再碰撞，避免叠到一起
     collisionMatrix[PhysicsGroup.RED] = 
         PhysicsGroup.PLAYER | PhysicsGroup.PLAYER_PROJECTILE |
         PhysicsGroup.BLUE | PhysicsGroup.BLUE_PROJECTILE |
@@ -74,6 +75,7 @@ export function setupPhysicsGroupCollisions() {
         PhysicsGroup.WORLD_OBSTACLE;
 
     // 5. 蓝色阵营的碰撞关系
+    // 注意：移除了 PhysicsGroup.BLUE，同阵营不再碰撞
     collisionMatrix[PhysicsGroup.BLUE] = 
         PhysicsGroup.PLAYER | PhysicsGroup.PLAYER_PROJECTILE |
         PhysicsGroup.RED | PhysicsGroup.RED_PROJECTILE |
@@ -88,6 +90,7 @@ export function setupPhysicsGroupCollisions() {
         PhysicsGroup.WORLD_OBSTACLE;
     
     // 7. 绿色阵营的碰撞关系
+    // 注意：移除了 PhysicsGroup.GREEN，同阵营不再碰撞
     collisionMatrix[PhysicsGroup.GREEN] = 
         PhysicsGroup.PLAYER | PhysicsGroup.PLAYER_PROJECTILE |
         PhysicsGroup.RED | PhysicsGroup.RED_PROJECTILE |
@@ -102,7 +105,7 @@ export function setupPhysicsGroupCollisions() {
         PhysicsGroup.WORLD_OBSTACLE;
 
     // 9. 紫色阵营的碰撞关系
-    collisionMatrix[PhysicsGroup.PURPLE] = 
+    collisionMatrix[PhysicsGroup.PURPLE] = PhysicsGroup.PURPLE |
         PhysicsGroup.PLAYER | PhysicsGroup.PLAYER_PROJECTILE |
         PhysicsGroup.RED | PhysicsGroup.RED_PROJECTILE |
         PhysicsGroup.BLUE | PhysicsGroup.BLUE_PROJECTILE |

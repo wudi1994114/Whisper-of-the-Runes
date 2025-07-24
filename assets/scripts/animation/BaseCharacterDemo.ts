@@ -16,6 +16,8 @@ import { GameEvents } from '../core/GameEvents';
 import { eventManager } from '../core/EventManager';
 import { FireballLauncher } from '../launcher/FireballLauncher';
 import { GameManager } from '../core/GameManager';
+import { damageDisplayController } from '../core/DamageDisplayController';
+import { crowdingSystem, ICrowdableCharacter } from '../core/CrowdingSystem';
 
 const { ccclass, property } = _decorator;
 class TempVarPool {
@@ -681,17 +683,14 @@ export class BaseCharacterDemo extends Component {
      */
     protected performSpecialAttack(): void {
         if (!this.enemyData) {
-            console.log(`[${this.getCharacterDisplayName()}] 无敌人配置数据，使用基础攻击`);
             this.performMeleeAttack();
             return;
         }
 
         // 检查是否为远程攻击敌人
         if (this.isRangedAttacker) {
-            console.log(`🏹 [${this.getCharacterDisplayName()}] 执行远程攻击 - 发射火球`);
             this.performRangedAttack();
         } else {
-            console.log(`⚔️ [${this.getCharacterDisplayName()}] 执行近战攻击`);
             this.performMeleeAttack();
         }
     }
@@ -738,29 +737,28 @@ export class BaseCharacterDemo extends Component {
             return;
         }
 
-        // 在攻击动画的合适帧触发火球
-        const fireballTriggerTime = this.calculateFireballTriggerTime();
+        // 🔥 【重要修改】直接发射火球，不再使用额外的延迟
+        // 因为此方法现在只会在 onAttackDamageFrame() 中被调用，已经有正确的时机控制
+        console.log(`[${this.getCharacterDisplayName()}] 立即触发远程攻击 - 发射火球`);
         
-        setTimeout(() => {
-            console.log(`[${this.getCharacterDisplayName()}] 触发远程攻击 - 发射火球`);
-            
-            // 根据当前状态调整火球参数
-            this.adjustFireballParamsBasedOnState();
-            
-            // 发射火球
-            this.launchFireball();
-        }, fireballTriggerTime);
+        // 根据当前状态调整火球参数
+        this.adjustFireballParamsBasedOnState();
+        
+        // 直接发射火球
+        this.launchFireball();
     }
 
     /**
      * 计算火球触发时间（基于动画帧率和敌人配置）
+     * 🗑️ 【已废弃】此方法不再使用，因为火球现在直接在 attackDamageFrame 帧触发
      */
     private calculateFireballTriggerTime(): number {
         if (!this.enemyData) return 333; // 默认值
 
-        // 基于动画速度和帧数计算合适的触发时间
+        // ⚠️ 注意：此方法已废弃，保留仅为向后兼容
+        // 现在火球发射时机完全由 attackDamageFrame 控制
         const frameRate = this.enemyData.animationSpeed || 12;
-        const triggerFrame = 5; // 通常在第5帧触发
+        const triggerFrame = this.enemyData.attackDamageFrame || 5; // 🔧 修复：使用 attackDamageFrame
         return (triggerFrame / frameRate) * 1000; // 转换为毫秒
     }
 
@@ -908,15 +906,12 @@ export class BaseCharacterDemo extends Component {
         // 获取目标的BaseCharacterDemo组件来造成伤害（优先使用类型获取，效率更高）
         const targetCharacterDemo = target.getComponent(BaseCharacterDemo);
         if (targetCharacterDemo && targetCharacterDemo.takeDamage) {
-            console.log(`[123]dealDamageToTarget`);
             targetCharacterDemo.takeDamage(damage);
-            console.log(`%c[DAMAGE] ${this.getCharacterDisplayName()} -> ${target.name}: ${damage}点伤害`, 'color: red');
         } else {
             // 如果没有BaseCharacterDemo，尝试CharacterStats组件
             const targetStats = target.getComponent(CharacterStats);
             if (targetStats && targetStats.takeDamage) {
                 targetStats.takeDamage(damage);
-                console.log(`%c[DAMAGE] ${this.getCharacterDisplayName()} -> ${target.name}: ${damage}点伤害`, 'color: red');
             } else {
                 console.warn(`[${this.getCharacterDisplayName()}] 目标 ${target.name} 没有可攻击的组件`);
             }
@@ -1046,12 +1041,6 @@ export class BaseCharacterDemo extends Component {
         // 绘制血条
         this.updateHealthBar();
         
-        console.log(`[${this.getCharacterDisplayName()}] 血条已创建`);
-        console.log(`- 角色类型: ${characterName}`);
-        console.log(`- 血条配置: ${finalConfig.width}x${finalConfig.height}`);
-        console.log(`- 血条位置: Y=${finalConfig.offsetY}px`);
-        console.log(`- 角色尺寸: ${characterWidth}x${characterHeight}px`);
-        console.log(`- 配置来源: ${baseConfig.width !== undefined ? '固定像素值' : '比例计算'}`);
     }
 
     /**
@@ -1116,7 +1105,7 @@ export class BaseCharacterDemo extends Component {
      */
     public takeDamage(damage: number): void {
         // 1. 检查无敌状态，防止被连续快速伤害
-        if (this.isInvincible || !this.characterStats) {
+        if (!this.characterStats) {
             return;
         }
 
@@ -1138,76 +1127,30 @@ export class BaseCharacterDemo extends Component {
             this.stateMachine?.transitionTo(CharacterState.DEAD);
         } else if (result.isStunned) {
             // 霸体值为0，产生硬直 -> 播放完整受伤动画
-            console.log(`[${this.getCharacterDisplayName()}] 霸体被击破，进入HURT状态！`);
             this.stateMachine?.transitionTo(CharacterState.HURT);
         } else {
             // 霸体值>0，不产生硬直 -> 仅播放闪红特效
-            console.log(`[${this.getCharacterDisplayName()}] 霸体抵抗，播放闪红特效。`);
             this.playRedFlashEffect();
         }
 
-        // 简化日志
-        console.log(`[${this.getCharacterDisplayName()}] 受到 ${damage} 点伤害，剩余血量: ${this.characterStats.currentHealth}/${this.characterStats.maxHealth}，霸体值: ${this.characterStats.currentPoise}`);
     }
 
     /**
-     * 显示伤害数字（使用PoolManager的伤害文字池）
+     * 显示伤害数字（通过全局频率控制器，0.1秒最多显示3个）
      */
     private showDamageText(damage: number): void {
-        // 从PoolManager获取伤害文字节点
-        const damageNode = poolManager.getDamageTextNode(damage);
+        // 通过全局频率控制器请求显示伤害数字
+        const displayed = damageDisplayController.requestDamageDisplay(
+            damage,
+            this.node.position,
+            this.node.parent || this.node,
+            this.getCharacterDisplayName()
+        );
         
-        if (!damageNode) {
-            console.error(`[${this.getCharacterDisplayName()}] 无法从PoolManager获取伤害值 ${damage} 的显示节点`);
-            return;
+        if (!displayed) {
+            // 如果由于频率限制未能显示，可以在这里添加其他反馈（如音效）
+            console.log(`[${this.getCharacterDisplayName()}] 伤害 ${damage} 因频率限制未显示`);
         }
-        
-        // 设置父节点
-        damageNode.setParent(this.node.parent || this.node);
-        
-        // 激活节点
-        damageNode.active = true;
-        
-        // 设置位置（在角色上方随机偏移）
-        const randomX = (Math.random() - 0.5) * 40;
-        damageNode.setPosition(this.node.position.x + randomX, this.node.position.y + 60, 0);
-        
-        // 文字内容已经在创建时设置好了，无需更新
-        
-        // 重置初始缩放和透明度
-        damageNode.setScale(1, 1, 1);
-        
-        // 获取Label组件以控制透明度
-        const label = damageNode.getComponent('Label') as any;
-        if (label) {
-            // 重置为完全不透明
-            label.color = new Color(255, 100, 100, 255);
-        }
-        
-        // 【性能优化】复用静态临时变量进行动画效果
-        const moveOffset = TempVarPool.tempVec2_1;
-        moveOffset.set(0, 50);
-        
-        // 动画效果：向上飘动并逐渐消失（固定大小，只改变透明度）
-        tween(damageNode)
-            .parallel(
-                tween().by(0.5, { position: moveOffset }),
-                tween().delay(0.1).to(0.4, {}, { 
-                    onUpdate: (target: Node, ratio?: number) => {
-                        // 透明度从255渐变到0
-                        const label = target.getComponent('Label') as any;
-                        if (label && ratio !== undefined) {
-                            const alpha = Math.floor(255 * (1 - ratio));
-                            label.color = new Color(255, 100, 100, alpha);
-                        }
-                    }
-                })
-            )
-            .call(() => {
-                // 归还到PoolManager
-                poolManager.returnDamageTextNode(damageNode);
-            })
-            .start();
     }
 
     /**
@@ -1215,7 +1158,6 @@ export class BaseCharacterDemo extends Component {
      */
     private testDamage(): void {
         if (this.stateMachine?.isInState(CharacterState.DEAD)) {
-            console.log(`[${this.getCharacterDisplayName()}] 角色已死亡，无法受伤`);
             return;
         }
         
@@ -1227,7 +1169,6 @@ export class BaseCharacterDemo extends Component {
      * 死亡测试 - 按K键触发
      */
     private testDeath(): void {
-        console.log(`[${this.getCharacterDisplayName()}] 执行死亡测试`);
         if (this.characterStats) {
             // 直接造成致命伤害
             const result = this.characterStats.takeDamage(this.characterStats.maxHealth);
@@ -1281,12 +1222,10 @@ export class BaseCharacterDemo extends Component {
         // 保存初始位置用于AI回归
         this.originalPosition.set(this.node.position);
 
-        console.log(`[${this.getCharacterDisplayName()}] AI配置已初始化 - 探测范围: ${this.enemyData.detectionRange || 200}, 攻击范围: ${this.enemyData.attackRange || 60}`);
         
         // 【性能优化】使用定时器进行目标搜索，避免在每帧update中执行
         const searchInterval = this.targetSearchInterval / 1000; // 转换为秒
         this.schedule(this.updateAITargetSearch, searchInterval);
-        console.log(`[${this.getCharacterDisplayName()}] AI目标搜索定时器已启动，间隔: ${searchInterval}秒`);
         
         // 【修复】通知全局TargetSelector有新的AI角色加入
         this.scheduleOnce(() => {
@@ -1391,7 +1330,6 @@ export class BaseCharacterDemo extends Component {
         this.loadEnemyConfig();
         
         const enemyType = this.getEnemyConfigId();
-        console.log(`[BaseCharacterDemo] 使用敌人类型: ${enemyType}`);
         
         // 分析敌人类型并设置攻击系统
         this.analyzeEnemyAttackType();
@@ -1458,6 +1396,9 @@ export class BaseCharacterDemo extends Component {
 
         // 注册到目标选择器
         this.registerToTargetSelector();
+        
+        // 注册到拥挤系统
+        this.registerToCrowdingSystem();
         
         console.log(`[${this.getCharacterDisplayName()}] 初始化完成！`);
     }
@@ -1965,8 +1906,6 @@ export class BaseCharacterDemo extends Component {
         const animSpeed = this.enemyData?.animationSpeed || 8;
         const actualDelay = (damageFrame - 1) / animSpeed;
         
-        console.log(`🎯 [${this.getCharacterDisplayName()}] 攻击伤害帧触发！配置帧:${damageFrame}, 实际延迟:${actualDelay.toFixed(3)}秒`);
-        
         // 执行实际的攻击逻辑（之前在playAttackAnimation中立即执行的逻辑）
         this.performSpecialAttack();
     }
@@ -2120,9 +2059,7 @@ export class BaseCharacterDemo extends Component {
      * 从池中重用时的回调 - 整合了UniversalCharacterDemo的功能
      */
     public onReuseFromPool(): void {
-        console.log(`[${this.getCharacterDisplayName()}] 从对象池重用 ID: ${this.characterId}, 敌人类型: ${this.explicitEnemyType}`);
         
-        // 【关键修复】如果还没有设置敌人类型，记录警告但不影响执行
         if (!this.explicitEnemyType) {
             console.warn(`[BaseCharacterDemo] ⚠️ 重用时未发现预设敌人类型，将在后续初始化中确定`);
         }
@@ -2145,10 +2082,7 @@ export class BaseCharacterDemo extends Component {
         if (this.controlMode === ControlMode.AI) {
             const searchInterval = this.targetSearchInterval / 1000; // 转换为秒
             this.schedule(this.updateAITargetSearch, searchInterval);
-            console.log(`[${this.getCharacterDisplayName()}] AI目标搜索定时器已重新启动，间隔: ${searchInterval}秒`);
         }
-        
-        console.log(`[BaseCharacterDemo] 重用完成，最终敌人类型: ${this.explicitEnemyType || '未设置'}`);
     }
 
     /**
@@ -2165,8 +2099,12 @@ export class BaseCharacterDemo extends Component {
         this.cleanupInput();
         
         // 停止动画
-        if (this.animationComponent) {
-            this.animationComponent.stop();
+        if (this.animationComponent && this.animationComponent.isValid) {
+            try {
+                this.animationComponent.stop();
+            } catch (error) {
+                console.warn(`[${this.getCharacterDisplayName()}] 动画组件停止失败:`, error);
+            }
         }
         
         // 重置状态机
@@ -2318,6 +2256,27 @@ export class BaseCharacterDemo extends Component {
         // 直接从aiFaction属性获取阵营信息
         return FactionUtils.stringToFaction(this.aiFaction);
     }
+
+    /**
+     * 获取刚体组件（供拥挤系统使用）
+     */
+    public getRigidBody(): RigidBody2D | null {
+        return this.rigidBody;
+    }
+
+    /**
+     * 获取移动速度（供拥挤系统使用）
+     */
+    public getMoveSpeed(): number {
+        return this.moveSpeed;
+    }
+
+    /**
+     * 检查角色是否存活（供拥挤系统使用）
+     */
+    public isAlive(): boolean {
+        return this.characterStats ? this.characterStats.isAlive : true;
+    }
     
     /**
      * 向目标选择器注册当前角色
@@ -2342,6 +2301,26 @@ export class BaseCharacterDemo extends Component {
             const faction = this.getFaction();
             selector.deregisterTarget(this.node, faction);
             console.log(`%c[BaseCharacterDemo] 🗑️ 已从目标选择器反注册: ${this.node.name} ← ${faction}`, 'color: red');
+        }
+    }
+
+    /**
+     * 注册到拥挤系统
+     */
+    private registerToCrowdingSystem(): void {
+        if (crowdingSystem) {
+            crowdingSystem.registerCharacter(this);
+            console.log(`%c[BaseCharacterDemo] 🤝 已注册到拥挤系统: ${this.node.name} → ${this.getFaction()}`, 'color: orange');
+        }
+    }
+
+    /**
+     * 从拥挤系统反注册
+     */
+    private unregisterFromCrowdingSystem(): void {
+        if (crowdingSystem) {
+            crowdingSystem.unregisterCharacter(this);
+            console.log(`%c[BaseCharacterDemo] 🚫 已从拥挤系统反注册: ${this.node.name} ← ${this.getFaction()}`, 'color: orange');
         }
     }
 
@@ -2426,12 +2405,19 @@ export class BaseCharacterDemo extends Component {
         // 从目标选择器反注册
         this.deregisterFromTargetSelector();
         
+        // 从拥挤系统反注册
+        this.unregisterFromCrowdingSystem();
+        
         // 清理输入监听
         this.cleanupInput();
         
         // 停止动画
-        if (this.animationComponent) {
-            this.animationComponent.stop();
+        if (this.animationComponent && this.animationComponent.isValid) {
+            try {
+                this.animationComponent.stop();
+            } catch (error) {
+                console.warn(`[${this.getCharacterDisplayName()}] 动画组件停止失败:`, error);
+            }
         }
         
         // 清理物理组件 - 立即停止所有运动

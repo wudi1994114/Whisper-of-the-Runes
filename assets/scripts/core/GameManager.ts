@@ -17,7 +17,9 @@ import { targetSelector } from './TargetSelector';
 import { TargetSelector } from './TargetSelector';
 import { UITransform } from 'cc';
 import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
-import { CharacterPoolInitializer, BaseCharacterDemo } from '../animation/BaseCharacterDemo';
+import { CharacterPoolInitializer, BaseCharacterDemo, CharacterPoolFactory, ControlMode } from '../animation/BaseCharacterDemo';
+import { damageDisplayController } from './DamageDisplayController';
+import { crowdingSystem, CrowdingSystem } from './CrowdingSystem';
 
 const { ccclass, property } = _decorator;
 
@@ -201,6 +203,9 @@ export class GameManager extends Component {
 
     protected onDestroy(): void {
         this.cleanupInputDispatcher();
+        
+        // 清理伤害显示频率控制器
+        damageDisplayController.destroy();
     }
 
     protected update(deltaTime: number): void {
@@ -511,6 +516,9 @@ export class GameManager extends Component {
         // 【关键修复】提前初始化目标选择器，确保在角色生成前可用
         this.initializeTargetSelector();
         
+        // 初始化拥挤系统
+        this.initializeCrowdingSystem();
+        
         // 初始化伤害文字池系统
         poolManager.initializeDamageTextPool();
         
@@ -722,12 +730,12 @@ export class GameManager extends Component {
                 this.firePrefab,
                 {
                     poolName: 'fireball',
-                    maxSize: 30,
-                    preloadCount: 5
+                    maxSize: 100,  // 大幅增加最大大小
+                    preloadCount: 20  // 增加预加载数量
                 }
             );
             if (success) {
-                console.log('✅ GameManager: 火球预制体注册成功');
+                console.log('✅ GameManager: 火球预制体注册成功（优化配置：最大100，预加载20）');
             } else {
                 console.error('❌ GameManager: 火球预制体注册失败');
             }
@@ -886,6 +894,64 @@ export class GameManager extends Component {
     }
 
     /**
+     * 打印伤害显示频率控制器状态
+     */
+    public printDamageDisplayControllerStats(): void {
+        const stats = damageDisplayController.getStats();
+        console.log('=== 伤害显示频率控制器统计 ===');
+        console.log(`当前窗口显示数量: ${stats.currentWindowCount}/${stats.maxPerWindow}`);
+        console.log(`时间窗口: ${stats.timeWindow}秒`);
+        console.log(`可以显示: ${stats.canDisplay ? '是' : '否'}`);
+        console.log('=============================');
+    }
+
+    /**
+     * 重置伤害显示频率控制器
+     */
+    public resetDamageDisplayController(): void {
+        damageDisplayController.reset();
+        console.log('伤害显示频率控制器已重置');
+    }
+
+    /**
+     * 测试伤害显示频率控制（快速连续造成伤害，验证频率限制）
+     */
+    public testDamageDisplayRateLimit(): void {
+        if (!this.currentTestEnemy || !this.currentTestEnemy.isValid) {
+            console.warn('没有可用的测试怪物，无法测试伤害显示频率');
+            return;
+        }
+        
+        console.log('=== 开始测试伤害显示频率控制 ===');
+        console.log('将在0.05秒内连续造成6次伤害，预期只显示前3个');
+        
+        const characterStats = this.currentTestEnemy.getComponent('CharacterStats') as any;
+        if (!characterStats) {
+            console.error('测试怪物没有CharacterStats组件');
+            return;
+        }
+        
+        // 快速连续造成6次伤害，每次间隔0.01秒
+        for (let i = 0; i < 6; i++) {
+            setTimeout(() => {
+                const damage = (i + 1) * 10; // 10, 20, 30, 40, 50, 60
+                console.log(`测试伤害 #${i + 1}: ${damage}点伤害`);
+                
+                // 直接调用takeDamage，这会触发showDamageText
+                characterStats.takeDamage(damage);
+                
+                if (i === 5) {
+                    // 最后一次伤害后，显示统计信息
+                    setTimeout(() => {
+                        this.printDamageDisplayControllerStats();
+                        console.log('=== 伤害显示频率控制测试完成 ===');
+                    }, 200);
+                }
+            }, i * 10); // 每10ms一次
+        }
+    }
+
+    /**
      * 测试不同配置
      */
     public testDamageTextPoolConfigs(): void {
@@ -979,6 +1045,70 @@ export class GameManager extends Component {
             }
             
             entNode.destroy();
+        }
+    }
+
+    /**
+     * 测试拥挤系统 - 生成多个同阵营角色验证拥挤效果
+     */
+    public testCrowdingSystem(): void {
+        console.log('=== 开始测试拥挤系统 ===');
+        
+        if (!this.manualTestMode) {
+            console.warn('拥挤系统测试需要在手动测试模式下进行');
+            return;
+        }
+
+        // 清除现有测试怪物
+        this.clearTestEnemy();
+
+        // 生成5个同阵营的角色在相近位置
+        const testPositions = [
+            new Vec3(0, 0, 0),
+            new Vec3(20, 10, 0),
+            new Vec3(-15, 5, 0),
+            new Vec3(10, -20, 0),
+            new Vec3(-10, -10, 0)
+        ];
+
+        const enemyType = this.getEnemyTypeFromIndex(this.testEnemyType);
+        console.log(`生成5个 ${enemyType} 角色测试拥挤效果`);
+
+        testPositions.forEach((position, index) => {
+            this.spawnTestEnemyAtPosition(enemyType, position, `test_crowd_${index}`);
+        });
+
+        // 打印拥挤系统状态
+        setTimeout(() => {
+            if (crowdingSystem) {
+                crowdingSystem.printStatusInfo();
+            }
+        }, 1000);
+
+        console.log('=== 拥挤系统测试完成 ===');
+        console.log('观察角色是否会相互推开，避免重叠');
+    }
+
+    /**
+     * 在指定位置生成测试敌人
+     */
+    private spawnTestEnemyAtPosition(enemyType: string, position: Vec3, characterId?: string): Node | null {
+        const factory = CharacterPoolFactory.getInstance();
+        
+        const character = factory.createCharacter(enemyType, {
+            characterId: characterId || `${enemyType}_${Date.now()}`,
+            position: position,
+            controlMode: ControlMode.AI,
+            aiFaction: 'red', // 同阵营测试
+            aiBehaviorType: 'melee'
+        });
+
+        if (character) {
+            console.log(`✅ 在位置 (${position.x}, ${position.y}) 生成角色: ${characterId}`);
+            return character.node;
+        } else {
+            console.error(`❌ 在位置 (${position.x}, ${position.y}) 生成角色失败`);
+            return null;
         }
     }
 
@@ -1446,6 +1576,56 @@ export class GameManager extends Component {
         
         console.log(`GameManager: ✅ 全局TargetSelector已创建并添加到 ${canvasNode.name} 下`);
         console.log(`GameManager: 所有AI角色将共享此TargetSelector实例`);
+    }
+
+    /**
+     * 初始化拥挤系统（全局单例）
+     */
+    private initializeCrowdingSystem(): void {
+        // 检查是否已有有效的单例实例
+        const existingInstance = crowdingSystem;
+        if (existingInstance && existingInstance.node && existingInstance.node.isValid) {
+            console.log(`GameManager: CrowdingSystem单例已存在，位于 ${existingInstance.node.parent?.name || 'unknown'} 下`);
+            return;
+        }
+
+        // 查找场景和Canvas节点
+        const scene = director.getScene();
+        if (!scene) {
+            console.error('GameManager: 无法获取场景');
+            return;
+        }
+        
+        let canvasNode = scene.getChildByName('Canvas');
+        if (!canvasNode) {
+            // 如果找不到Canvas，尝试查找第一个Canvas组件
+            const canvasComponent = scene.getComponentInChildren('Canvas');
+            canvasNode = canvasComponent ? canvasComponent.node : null;
+        }
+        
+        if (!canvasNode) {
+            console.warn('GameManager: 未找到Canvas节点，将CrowdingSystem放在场景根级别');
+            canvasNode = scene;
+        }
+
+        // 清理可能存在的重复CrowdingSystem节点
+        const existingSystems = canvasNode.children.filter(child => child.name === 'CrowdingSystem');
+        if (existingSystems.length > 0) {
+            console.log(`GameManager: 清理 ${existingSystems.length} 个重复的CrowdingSystem节点`);
+            existingSystems.forEach(node => {
+                if (node.isValid) {
+                    node.destroy();
+                }
+            });
+        }
+
+        // 创建新的CrowdingSystem节点
+        const crowdingSystemNode = new Node('CrowdingSystem');
+        crowdingSystemNode.addComponent(CrowdingSystem);
+        canvasNode.addChild(crowdingSystemNode);
+        
+        console.log(`GameManager: ✅ 全局CrowdingSystem已创建并添加到 ${canvasNode.name} 下`);
+        console.log(`GameManager: 同阵营角色将通过此系统实现拥挤效果`);
     }
     
     /**

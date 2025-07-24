@@ -6,21 +6,15 @@ import { IProjectileController } from './ProjectileLauncher';
 import { FireballController } from '../game/FireballController';
 import { resourceManager } from '../core/ResourceManager';
 import { dataManager } from '../core/DataManager';
-import { AnimationDirection } from '../animation/AnimationConfig';
+import { AnimationDirection, ProjectileAnimationState } from '../animation/AnimationConfig';
 import { Faction } from '../configs/FactionConfig';
 import { factionManager } from '../core/FactionManager';
 import { PhysicsGroup } from '../configs/PhysicsConfig';
+import { poolManager } from '../core/PoolManager';
 
 const { ccclass, property } = _decorator;
 
-/**
- * 火球动画状态枚举
- */
-export enum FireballState {
-    SPAWN = 'spawn',        // 生成阶段
-    FLYING = 'flying',      // 飞行阶段
-    EXPLODING = 'exploding' // 爆炸阶段
-}
+
 
 /**
  * 火球发射器和控制器
@@ -61,7 +55,7 @@ export class FireballLauncher extends Component implements IProjectileController
     
     // 动画相关
     private spriteAtlas: SpriteAtlas | null = null;
-    private currentState: FireballState = FireballState.SPAWN;
+    private currentState: ProjectileAnimationState = ProjectileAnimationState.SPAWN;
     private isInitialized: boolean = false;
     
     // 移动相关
@@ -221,13 +215,13 @@ export class FireballLauncher extends Component implements IProjectileController
     private updateFireballLogic(deltaTime: number): void {
         // 更新生命时间
         this.currentLifeTime += deltaTime;
-        if (this.currentLifeTime >= this.lifeTime && this.currentState !== FireballState.EXPLODING) {
+        if (this.currentLifeTime >= this.lifeTime && this.currentState !== ProjectileAnimationState.EXPLODING) {
             this.explode();
             return;
         }
         
         // 飞行状态下移动
-        if (this.currentState === FireballState.FLYING) {
+        if (this.currentState === ProjectileAnimationState.FLYING) {
             this.updateMovement(deltaTime);
         }
     }
@@ -477,7 +471,7 @@ export class FireballLauncher extends Component implements IProjectileController
     private startSpawnAnimation(): void {
         if (!this.animationComponent || !this.spawnClip) return;
         
-        this.currentState = FireballState.SPAWN;
+        this.currentState = ProjectileAnimationState.SPAWN;
         this.animationComponent.play('fireball_spawn');
         
         // 监听生成动画结束
@@ -504,7 +498,7 @@ export class FireballLauncher extends Component implements IProjectileController
     private startFlyingAnimation(): void {
         if (!this.animationComponent || !this.flyingClip) return;
         
-        this.currentState = FireballState.FLYING;
+        this.currentState = ProjectileAnimationState.FLYING;
         this.animationComponent.play('fireball_flying');
 
     }
@@ -513,9 +507,9 @@ export class FireballLauncher extends Component implements IProjectileController
      * 触发爆炸
      */
     public explode(): void {
-        if (this.isDestroying || this.currentState === FireballState.EXPLODING) return;
+        if (this.isDestroying || this.currentState === ProjectileAnimationState.EXPLODING) return;
         
-        this.currentState = FireballState.EXPLODING;
+        this.currentState = ProjectileAnimationState.EXPLODING;
         this.isDestroying = true;
         
         // 停止移动
@@ -544,14 +538,73 @@ export class FireballLauncher extends Component implements IProjectileController
     }
     
     /**
-     * 销毁火球
+     * 销毁火球 - 修复：回收到对象池而不是直接销毁
      */
     private destroyFireball(): void {
         // 发送火球销毁事件
         eventManager.emit('FIREBALL_DESTROYED', this.node);
         
-        // 销毁节点
-        this.node.destroy();
+        // 【性能修复】回收到对象池而不是直接销毁
+        this.returnToPool();
+    }
+    
+    /**
+     * 回收火球到对象池
+     */
+    private returnToPool(): void {
+        if (this.isDestroying) {
+            return; // 防止重复回收
+        }
+        
+        this.isDestroying = true;
+        
+        try {
+            // 清理状态 - 直接实现而不是调用不存在的方法
+            this.cleanupFireballState();
+            
+            // 回收到对象池
+            poolManager.put(this.node);
+            // 移除频繁的回收日志
+        } catch (error) {
+            // 对象池回收失败，直接销毁节点
+            console.warn('FireballLauncher: 对象池回收失败，直接销毁节点', error);
+            this.node.destroy();
+        }
+    }
+    
+    /**
+     * 清理火球状态（用于回收时）
+     */
+    private cleanupFireballState(): void {
+        // 停止所有动画
+        if (this.animationComponent && this.animationComponent.isValid) {
+            try {
+                this.animationComponent.stop();
+                this.animationComponent.off(Animation.EventType.FINISHED);
+            } catch (error) {
+                console.warn('FireballLauncher: 动画组件停止失败:', error);
+            }
+        }
+        
+        // 停止移动
+        if (this.rigidBody) {
+            this.rigidBody.linearVelocity = new Vec2(0, 0);
+        }
+        
+        // 清理碰撞监听（如果有碰撞检测逻辑）
+        if (this.colliderComponent) {
+            this.colliderComponent.off(Contact2DType.BEGIN_CONTACT);
+        }
+        
+        // 重置状态
+        this.currentState = ProjectileAnimationState.SPAWN;
+        this.currentLifeTime = 0;
+        this.isDestroying = false; // 重置销毁标志
+        this.moveDirection.set(1, 0, 0); // 重置方向
+        
+        // 重置节点状态
+        this.node.active = false;
+        this.node.angle = 0;
     }
     
     /**

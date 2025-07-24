@@ -20,8 +20,8 @@
         "prefab": "effects/fire"
       },
       "poolConfig": {
-        "maxSize": 30,
-        "preloadCount": 5,
+        "maxSize": 100,
+        "preloadCount": 20,
         "poolName": "fireball"
       },
       "physics": {

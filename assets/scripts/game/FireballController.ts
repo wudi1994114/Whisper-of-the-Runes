@@ -8,17 +8,10 @@ import { poolManager } from '../core/PoolManager';
 import { PhysicsGroup } from '../configs/PhysicsConfig';
 import { factionManager } from '../core/FactionManager';
 import { resourceManager } from '../core/ResourceManager';
+import { animationManager } from '../animation/AnimationManager';
+import { ProjectileAnimationState } from '../animation/AnimationConfig';
 
 const { ccclass, property } = _decorator;
-
-/**
- * 火球动画状态枚举
- */
-export enum FireballState {
-    SPAWN = 'spawn',        // 生成阶段
-    FLYING = 'flying',      // 飞行阶段
-    EXPLODING = 'exploding' // 爆炸阶段
-}
 
 /**
  * 火球控制器
@@ -50,8 +43,7 @@ export class FireballController extends Component {
     private rigidBody: RigidBody2D | null = null;
     
     // 动画相关
-    private spriteAtlas: SpriteAtlas | null = null;
-    private currentState: FireballState = FireballState.SPAWN;
+    private currentState: ProjectileAnimationState = ProjectileAnimationState.SPAWN;
     private isInitialized: boolean = false;
     
     // 移动相关
@@ -62,11 +54,6 @@ export class FireballController extends Component {
     // 阵营相关
     private shooterFaction: Faction = Faction.PLAYER;  // 发射者阵营
     private shooterNode: Node | null = null;            // 发射者节点
-    
-    // 动画剪辑缓存
-    private spawnClip: AnimationClip | null = null;
-    private flyingClip: AnimationClip | null = null;
-    private explodeClip: AnimationClip | null = null;
     
     // 对象池相关
     private isFromPool: boolean = false;
@@ -87,13 +74,13 @@ export class FireballController extends Component {
         
         // 更新生命时间
         this.currentLifeTime += deltaTime;
-        if (this.currentLifeTime >= this.lifeTime && this.currentState !== FireballState.EXPLODING) {
+        if (this.currentLifeTime >= this.lifeTime && this.currentState !== ProjectileAnimationState.EXPLODING) {
             this.explode();
             return;
         }
         
         // 飞行状态下移动
-        if (this.currentState === FireballState.FLYING) {
+        if (this.currentState === ProjectileAnimationState.FLYING) {
             this.updateMovement(deltaTime);
         }
     }
@@ -117,8 +104,7 @@ export class FireballController extends Component {
         // 设置火球节点的锚点，防止旋转时位置偏移
         const uiTransform = this.getComponent(UITransform);
         if (uiTransform) {
-            uiTransform.setAnchorPoint(0.5, 0.6); // 设置锚点为(0.5, 0.6)
-            console.log('FireballController: 已设置锚点为 (0.5, 0.6)');
+            uiTransform.setAnchorPoint(0.5, 0.5); 
         }
         
         // 获取碰撞体组件
@@ -130,24 +116,26 @@ export class FireballController extends Component {
         // 【关键修复】确保刚体启用碰撞监听
         if (this.rigidBody) {
             this.rigidBody.enabledContactListener = true;
-            console.log('FireballController: ✅ 已启用刚体碰撞监听');
         } else {
             console.warn('FireballController: ⚠️ 缺少RigidBody2D组件，碰撞检测将不工作');
         }
-        
-        console.log('FireballController: 组件设置完成');
     }
     
     /**
-     * 加载火球资源
+     * 加载火球资源（使用AnimationManager）
      */
     private async loadResources(): Promise<void> {
         try {
-            // 加载火球图集
-            await this.loadFireAtlas();
+            // 使用AnimationManager创建投射物动画剪辑
+            const animationClips = await animationManager.createProjectileAnimationClips('fireball');
             
-            // 创建动画剪辑
-            this.createAnimationClips();
+            if (animationClips.size === 0) {
+                console.warn('FireballController: 没有创建任何火球动画剪辑');
+                return;
+            }
+
+            // 设置动画组件
+            this.animationComponent = animationManager.setupAnimationComponent(this.node, animationClips);
             
             // 初始化完成，开始播放生成动画
             this.isInitialized = true;
@@ -159,182 +147,15 @@ export class FireballController extends Component {
     }
     
     /**
-     * 加载火球图集
-     */
-    private async loadFireAtlas(): Promise<void> {
-        try {
-            const atlas = await resourceManager.loadResource('skill/fire', SpriteAtlas);
-            if (atlas) {
-                this.spriteAtlas = atlas;
-                console.log('FireballController: 火球图集加载成功');
-            } else {
-                throw new Error('Failed to load fire atlas');
-            }
-        } catch (error) {
-            console.error('FireballController: 加载火球图集失败', error);
-            throw error;
-        }
-    }
-    
-    /**
-     * 创建所有动画剪辑
-     */
-    private createAnimationClips(): void {
-        if (!this.spriteAtlas) {
-            console.error('FireballController: 图集未加载，无法创建动画剪辑');
-            return;
-        }
-        
-        // 创建生成动画（第0帧，播放一次）
-        this.spawnClip = this.createAnimationClip('fireball_spawn', [0], false);
-        
-        // 创建飞行动画（第1-3帧，循环播放）
-        this.flyingClip = this.createAnimationClip('fireball_flying', [1, 2, 3], true);
-        
-        // 创建爆炸动画（第4-7帧，播放一次）
-        this.explodeClip = this.createAnimationClip('fireball_explode', [4, 5, 6, 7], false);
-        
-        // 添加动画剪辑到组件
-        if (this.animationComponent) {
-            if (this.spawnClip) this.animationComponent.addClip(this.spawnClip);
-            if (this.flyingClip) this.animationComponent.addClip(this.flyingClip);
-            if (this.explodeClip) this.animationComponent.addClip(this.explodeClip);
-        }
-        
-        console.log('FireballController: 动画剪辑创建完成');
-    }
-    
-    /**
-     * 创建单个动画剪辑
-     * @param name 动画名称
-     * @param frameIndices 帧索引数组
-     * @param loop 是否循环
-     */
-    private createAnimationClip(name: string, frameIndices: number[], loop: boolean): AnimationClip {
-        const clip = new AnimationClip();
-        clip.name = name;
-        clip.wrapMode = loop ? AnimationClip.WrapMode.Loop : AnimationClip.WrapMode.Normal;
-        
-        // 获取精灵帧
-        const spriteFrames: SpriteFrame[] = [];
-        for (const index of frameIndices) {
-            const frameIndex = index < 10 ? `0${index}` : `${index}`;
-            const frameName = `Fire_right${frameIndex}`;  
-            const spriteFrame = this.spriteAtlas!.getSpriteFrame(frameName);
-            if (spriteFrame) {
-                spriteFrames.push(spriteFrame);
-            } else {
-                console.warn(`FireballController: 未找到帧 ${frameName}`);
-            }
-        }
-        
-        if (spriteFrames.length === 0) {
-            console.error(`FireballController: 动画 ${name} 没有有效帧`);
-            return clip;
-        }
-        
-        // 计算动画时长
-        const frameDuration = 1 / this.frameRate;
-        clip.duration = spriteFrames.length * frameDuration;
-        
-        // 创建轨道
-        const track = new animation.ObjectTrack();
-        track.path = new animation.TrackPath()
-            .toComponent(js.getClassName(Sprite))
-            .toProperty('spriteFrame');
-        
-        // 安全获取通道
-        const channels = track.channels();
-        if (!channels) {
-            console.error(`FireballController: 无法获取动画轨道通道 ${name}`);
-            return clip;
-        }
-        
-        // 从迭代器中获取第一个通道
-        const channelIterator = channels[Symbol.iterator]();
-        const channelResult = channelIterator.next();
-        if (channelResult.done || !channelResult.value) {
-            console.error(`FireballController: 动画轨道通道为空 ${name}`);
-            return clip;
-        }
-        
-        const channel = channelResult.value;
-        if (channel && channel.curve) {
-            // 创建关键帧
-            const keyframes: [number, SpriteFrame][] = spriteFrames.map((frame, index) => [
-                index * frameDuration,
-                frame // 直接使用 spriteFrame 对象
-            ]);
-            
-            try {
-                channel.curve.assignSorted(keyframes);
-                clip.addTrack(track);
-                console.log(`FireballController: 成功创建动画 ${name}，包含 ${spriteFrames.length} 帧`);
-            } catch (error) {
-                console.error(`FireballController: 动画 ${name} 关键帧设置失败`, error);
-            }
-        } else {
-            console.error(`FireballController: 动画轨道通道无效 ${name}`);
-        }
-        
-        return clip;
-    }
-    
-    /**
      * 设置碰撞检测
      */
     private setupCollisionDetection(): void {
-        // 首先检查物理引擎状态
-        this.diagnosePhysicsEngine();
-        
         if (this.colliderComponent) {
             // 监听碰撞开始事件
             this.colliderComponent.on(Contact2DType.BEGIN_CONTACT, this.onCollisionEnter, this);
-            console.log(`FireballController: 碰撞检测设置完成 - 类型: ${this.colliderComponent.constructor.name}, 分组: ${this.colliderComponent.group}, 启用: ${this.colliderComponent.enabled}`);
-            
-            // 额外检查碰撞体状态
-            console.log(`FireballController: 碰撞体详细状态 - sensor: ${this.colliderComponent.sensor}, 密度: ${this.colliderComponent.density}, 摩擦力: ${this.colliderComponent.friction}`);
         } else {
             console.warn('FireballController: 未找到碰撞体组件，无法检测碰撞');
         }
-    }
-    
-    /**
-     * 诊断物理引擎状态
-     */
-    private diagnosePhysicsEngine(): void {
-        console.log('🔍 FireballController: 诊断物理引擎状态...');
-        
-        // 检查PhysicsSystem2D
-        const physicsSystem = PhysicsSystem2D.instance;
-        if (!physicsSystem) {
-            console.error('❌ FireballController: PhysicsSystem2D实例不存在！');
-            console.error('   这意味着物理引擎没有正确启用，碰撞检测将不会工作');
-            console.error('   请检查项目设置 -> 功能剪裁 -> 物理系统中的physics-2d-box2d是否启用');
-            return;
-        }
-        
-        console.log('✅ FireballController: PhysicsSystem2D实例存在');
-        console.log(`   - 重力: (${physicsSystem.gravity.x}, ${physicsSystem.gravity.y})`);
-        
-        // 检查刚体组件
-        if (this.rigidBody) {
-            console.log(`🎯 FireballController: 刚体状态 - 类型: ${this.rigidBody.type}, 分组: ${this.rigidBody.group}, 启用碰撞监听: ${this.rigidBody.enabledContactListener}`);
-            console.log(`   - 线性速度: (${this.rigidBody.linearVelocity.x.toFixed(2)}, ${this.rigidBody.linearVelocity.y.toFixed(2)})`);
-            console.log(`   - bullet: ${this.rigidBody.bullet}, 固定旋转: ${this.rigidBody.fixedRotation}`);
-        } else {
-            console.warn('⚠️ FireballController: 缺少RigidBody2D组件');
-        }
-        
-        // 检查碰撞矩阵
-        if (physicsSystem.collisionMatrix) {
-            const myGroup = this.colliderComponent?.group || 0;
-            console.log(`📋 FireballController: 当前分组${myGroup}的碰撞矩阵值: ${physicsSystem.collisionMatrix[myGroup]}`);
-        } else {
-            console.warn('⚠️ FireballController: 碰撞矩阵未配置');
-        }
-        
-        console.log('🔍 FireballController: 物理引擎诊断完成');
     }
     
     /**
@@ -343,35 +164,19 @@ export class FireballController extends Component {
     private onCollisionEnter(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null): void {
         if (this.isDestroying) return;
         
-        // [调试日志] 打印出双方的分组信息，方便定位问题
-        const selfGroup = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === selfCollider.group) || selfCollider.group;
-        const otherGroup = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === otherCollider.group) || otherCollider.group;
-        console.log(`[Collision] 火球 (分组: ${selfGroup}) 撞到了 ${otherCollider.node.name} (分组: ${otherGroup})`);
-        console.log(`[Collision] 火球阵营: ${this.shooterFaction}, 碰撞体启用: ${selfCollider.enabled}, 目标碰撞体启用: ${otherCollider.enabled}`);
-        console.log(`[Collision] 火球位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)}), 目标位置: (${otherCollider.node.position.x.toFixed(1)}, ${otherCollider.node.position.y.toFixed(1)})`);
-        console.log(`[Collision] 火球伤害值: ${this.damage}`);
-        
-        // 【关键修复】从BaseCharacterDemo组件获取阵营信息，而不是CharacterStats
         const targetCharacterDemo = otherCollider.node.getComponent('BaseCharacterDemo');
         if (targetCharacterDemo) {
             const targetFaction = (targetCharacterDemo as any).getFaction();
             const shouldAttack = factionManager.doesAttack(this.shooterFaction, targetFaction);
-            console.log(`[Collision] 目标阵营: ${targetFaction}, 阵营关系检查: ${shouldAttack ? '敌对' : '友方'}`);
             
             // 检查阵营关系 - 只有敌对阵营才造成伤害
             if (shouldAttack) {
-                console.log(`✅ [Collision] 阵营关系确认为敌对，开始造成伤害`);
                 this.dealDamageToTarget(otherCollider.node, this.damage);
-            } else {
-                console.log(`⚠️ [Collision] 阵营关系为友方，不造成伤害`);
             }
         } else {
             // 如果没有BaseCharacterDemo组件，可能是墙壁等障碍物，直接爆炸
             console.log(`FireballController: 撞击障碍物 ${otherCollider.node.name}（无BaseCharacterDemo组件）`);
         }
-        
-        // 触发爆炸
-        console.log(`💥 [Collision] 触发火球爆炸`);
         this.explode();
     }
 
@@ -379,8 +184,6 @@ export class FireballController extends Component {
      * 对目标造成伤害
      */
     private dealDamageToTarget(target: Node, damage: number): void {
-        console.log(`🎯 [DAMAGE] FireballController: 开始处理伤害 - 目标: ${target.name}, 伤害: ${damage}`);
-        
         if (!target || !target.isValid) {
             console.warn(`❌ [DAMAGE] FireballController: 无效的攻击目标`);
             return;
@@ -388,61 +191,57 @@ export class FireballController extends Component {
 
         // 获取目标的BaseCharacterDemo组件来造成伤害
         const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
-        console.log(`🔍 [DAMAGE] 检查BaseCharacterDemo组件: ${targetCharacterDemo ? '存在' : '不存在'}`);
         
         if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
-            console.log(`✅ [DAMAGE] 找到BaseCharacterDemo组件，调用takeDamage方法`);
             try {
                 (targetCharacterDemo as any).takeDamage(damage);
-                console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
-                console.log(`✅ [DAMAGE] BaseCharacterDemo.takeDamage调用成功`);
             } catch (error) {
                 console.error(`❌ [DAMAGE] BaseCharacterDemo.takeDamage调用失败:`, error);
             }
         } else {
-            console.log(`⚠️ [DAMAGE] BaseCharacterDemo组件不可用，尝试CharacterStats组件`);
             // 如果没有BaseCharacterDemo，尝试CharacterStats组件
             const targetStats = target.getComponent('CharacterStats');
-            console.log(`🔍 [DAMAGE] 检查CharacterStats组件: ${targetStats ? '存在' : '不存在'}`);
             
             if (targetStats && (targetStats as any).takeDamage) {
-                console.log(`✅ [DAMAGE] 找到CharacterStats组件，调用takeDamage方法`);
                 try {
                     (targetStats as any).takeDamage(damage);
-                    console.log(`%c[FIREBALL] ${target.name}: ${damage}点火球伤害`, 'color: orange');
-                    console.log(`✅ [DAMAGE] CharacterStats.takeDamage调用成功`);
                 } catch (error) {
                     console.error(`❌ [DAMAGE] CharacterStats.takeDamage调用失败:`, error);
                 }
             } else {
-                console.warn(`❌ [DAMAGE] FireballController: 目标 ${target.name} 没有可攻击的组件`);
-                console.log(`🔍 [DAMAGE] 目标组件列表:`, target.components.map(c => c.constructor.name));
+                    console.warn(`❌ [DAMAGE] FireballController: 目标 ${target.name} 没有可攻击的组件`);
             }
         }
-        
-        console.log(`🎯 [DAMAGE] FireballController: 伤害处理完成`);
     }
     
     /**
-     * 开始生成动画
+     * 开始生成动画（使用AnimationManager）
      */
     private startSpawnAnimation(): void {
-        if (!this.animationComponent || !this.spawnClip) return;
+        if (!this.animationComponent) return;
         
-        this.currentState = FireballState.SPAWN;
-        this.animationComponent.play('fireball_spawn');
+        this.currentState = ProjectileAnimationState.SPAWN;
         
-        // 监听生成动画结束
-        this.animationComponent.once(Animation.EventType.FINISHED, this.onSpawnAnimationFinished, this);
+        // 使用AnimationManager播放生成动画
+        const success = animationManager.playProjectileAnimation(
+            this.animationComponent, 
+            'fireball', 
+            ProjectileAnimationState.SPAWN
+        );
         
-        console.log('FireballController: 开始播放生成动画');
+        if (success) {
+            // 监听生成动画结束
+            this.animationComponent.once(Animation.EventType.FINISHED, this.onSpawnAnimationFinished, this);
+        } else {
+            console.warn('FireballController: 生成动画播放失败');
+        }
     }
     
     /**
      * 生成动画结束回调
      */
     private onSpawnAnimationFinished(): void {
-        console.log('FireballController: 生成动画结束，开始飞行动画');
+        // 移除动画转换日志
         
         // 如果移动方向为默认值，使用设置的角度
         if (this.moveDirection.equals(new Vec3(1, 0, 0))) {
@@ -453,24 +252,32 @@ export class FireballController extends Component {
     }
     
     /**
-     * 开始飞行动画
+     * 开始飞行动画（使用AnimationManager）
      */
     private startFlyingAnimation(): void {
-        if (!this.animationComponent || !this.flyingClip) return;
+        if (!this.animationComponent) return;
         
-        this.currentState = FireballState.FLYING;
-        this.animationComponent.play('fireball_flying');
+        this.currentState = ProjectileAnimationState.FLYING;
         
-        console.log('FireballController: 开始播放飞行动画');
+        // 使用AnimationManager播放飞行动画
+        const success = animationManager.playProjectileAnimation(
+            this.animationComponent, 
+            'fireball', 
+            ProjectileAnimationState.FLYING
+        );
+        
+        if (!success) {
+            console.warn('FireballController: 飞行动画播放失败');
+        }
     }
     
     /**
      * 触发爆炸
      */
     public explode(): void {
-        if (this.isDestroying || this.currentState === FireballState.EXPLODING) return;
+        if (this.isDestroying || this.currentState === ProjectileAnimationState.EXPLODING) return;
         
-        this.currentState = FireballState.EXPLODING;
+        this.currentState = ProjectileAnimationState.EXPLODING;
         this.isDestroying = true;
         
         // 停止移动
@@ -478,25 +285,34 @@ export class FireballController extends Component {
             this.rigidBody.linearVelocity = new Vec2(0, 0);
         }
         
-        // 播放爆炸动画
-        if (this.animationComponent && this.explodeClip) {
-            this.animationComponent.play('fireball_explode');
+        // 播放爆炸动画（使用AnimationManager）
+        if (this.animationComponent) {
+            const success = animationManager.playProjectileAnimation(
+                this.animationComponent, 
+                'fireball', 
+                ProjectileAnimationState.EXPLODING
+            );
             
-            // 监听爆炸动画结束
-            this.animationComponent.once(Animation.EventType.FINISHED, this.onExplodeAnimationFinished, this);
+            if (success) {
+                // 监听爆炸动画结束
+                this.animationComponent.once(Animation.EventType.FINISHED, this.onExplodeAnimationFinished, this);
+            } else {
+                console.warn('FireballController: 爆炸动画播放失败');
+                this.destroyFireball();
+            }
         } else {
-            // 如果没有爆炸动画，直接销毁
+            // 如果没有动画组件，直接销毁
             this.destroyFireball();
         }
         
-        console.log('FireballController: 开始爆炸');
+        // 移除爆炸日志
     }
     
     /**
      * 爆炸动画结束回调
      */
     private onExplodeAnimationFinished(): void {
-        console.log('FireballController: 爆炸动画结束，销毁火球');
+        // 移除爆炸动画结束日志
         this.destroyFireball();
     }
     
@@ -572,7 +388,7 @@ export class FireballController extends Component {
             // 强制让运动方向与动画方向保持一致：从视觉角度重新计算运动方向
             this.alignMovementWithVisualDirection(angleDegrees);
             
-            console.log(`FireballController: 根据移动方向更新视觉角度 ${angleDegrees.toFixed(1)}°，运动方向已同步`);
+            // 移除频繁的角度更新日志
         }
     }
 
@@ -593,7 +409,7 @@ export class FireballController extends Component {
         // 直接更新运动方向，绕过 setMoveDirection 避免循环调用
         this.moveDirection = correctedDirection;
         
-        console.log(`FireballController: 运动方向已对齐至视觉方向 (${correctedDirection.x.toFixed(3)}, ${correctedDirection.y.toFixed(3)})`);
+        // 移除频繁的运动方向日志
     }
 
     /**
@@ -619,7 +435,7 @@ export class FireballController extends Component {
         // 注意：如果火球朝向与期望相反，可能需要加上180度或调整角度
         this.node.angle = angleDegrees;
         
-        console.log(`FireballController: 设置发射角度 ${angleDegrees}°, 方向 (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})，节点旋转 ${angleDegrees}°`);
+        // 移除频繁的发射角度日志
     }
 
     /**
@@ -714,8 +530,7 @@ export class FireballController extends Component {
     /**
      * 从对象池重用火球时的重置方法
      */
-    public onReuseFromPool(): void {
-        console.log('FireballController: 从对象池重用火球');
+    public onReuseFromPool(): void {    
         
         // 重新设置组件引用（关键修复）
         this.setupComponents();
@@ -748,9 +563,13 @@ export class FireballController extends Component {
         console.log('FireballController: 回收火球到对象池');
         
         // 停止所有动画
-        if (this.animationComponent) {
-            this.animationComponent.stop();
-            this.animationComponent.off(Animation.EventType.FINISHED);
+        if (this.animationComponent && this.animationComponent.isValid) {
+            try {
+                this.animationComponent.stop();
+                this.animationComponent.off(Animation.EventType.FINISHED);
+            } catch (error) {
+                console.warn('FireballController: 动画组件停止失败:', error);
+            }
         }
         
         // 停止移动
@@ -797,7 +616,7 @@ export class FireballController extends Component {
      */
     private resetFireballState(): void {
         // 重置状态变量
-        this.currentState = FireballState.SPAWN;
+        this.currentState = ProjectileAnimationState.SPAWN;
         this.isDestroying = false;
         this.currentLifeTime = 0;
         this.moveDirection = new Vec3(1, 0, 0);
@@ -810,13 +629,7 @@ export class FireballController extends Component {
         this.node.setScale(1, 1, 1);
         this.node.active = false;
         
-        // 重置精灵帧
-        if (this.spriteComponent && this.spriteAtlas) {
-            const firstFrame = this.spriteAtlas.getSpriteFrame('Fire_right00');
-            if (firstFrame) {
-                this.spriteComponent.spriteFrame = firstFrame;
-            }
-        }
+        // 精灵帧重置现在由AnimationManager处理
     }
     
     /**
