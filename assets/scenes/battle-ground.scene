@@ -290,7 +290,7 @@
     "_id": "3daxRzT7BFT7AXW66SFi8N"
   },
   {
-    "__type__": "8eb0c2jXCRO3KOzWPztmjAf",
+    "__type__": "13e5aI86QBG7oZpF6CrcdR7",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -301,19 +301,19 @@
     "__prefab": null,
     "gameMode": 0,
     "entPrefab": {
-      "__uuid__": "c0c2256e-7fc9-4158-89e8-b3ea6ab108e8",
+      "__uuid__": "06759ffa-0a4a-4245-890b-91ed343fd13a",
       "__expectedType__": "cc.Prefab"
     },
     "firePrefab": {
-      "__uuid__": "b498a70d-5db7-45a8-aa66-95a48eebc64b",
+      "__uuid__": "afcd95a2-e771-4c12-9963-a618e644aa5d",
       "__expectedType__": "cc.Prefab"
     },
     "normalMode": true,
     "manualTestMode": false,
     "selectedLevelId": 0,
-    "testEnemyType": 5,
+    "testEnemyType": 0,
     "showSizeRanges": false,
-    "_id": "e5GtF+B89H2ogtsan8YIVG"
+    "_id": "ddwEkmBl5JoYA3uwzh/3O7"
   },
   {
     "__type__": "cc.Node",
@@ -453,7 +453,7 @@
     "_id": "c2l1GsGllEFrEJJBL4N90a"
   },
   {
-    "__type__": "34973YPr91Dhp4luquhUxle",
+    "__type__": "0f82a7gJCNG/JuJJws9PDa8",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -462,7 +462,7 @@
     },
     "_enabled": true,
     "__prefab": null,
-    "_id": "b24kSk1VRE+6wJj4SkdGPF"
+    "_id": "2861vlKSpJ7aJ6ciQAJ7R+"
   },
   {
     "__type__": "cc.Node",
@@ -576,7 +576,7 @@
     "_id": "70+jeBmmNEGap9JLpbtTgt"
   },
   {
-    "__type__": "57f2ebIbZ5Papw7jl96Kxyd",
+    "__type__": "71a45IUCo1P6L3B2yUwO8tW",
     "_name": "",
     "_objFlags": 0,
     "__editorExtras__": {},
@@ -585,7 +585,7 @@
     },
     "_enabled": true,
     "__prefab": null,
-    "_id": "d2dmf06VBGJ5Bhd7MZmC7F"
+    "_id": "ce9y6MuEVHs4rcVoXTz48x"
   },
   {
     "__type__": "cc.UITransform",

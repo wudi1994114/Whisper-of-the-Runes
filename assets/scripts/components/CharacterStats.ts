@@ -1,10 +1,10 @@
 // assets/scripts/components/CharacterStats.ts
 
 import { _decorator, Component, Sprite } from 'cc';
-import { MonsterAnimationController } from '../animation/MonsterAnimationController';
+import { MonsterAnimationController } from '../controllers/MonsterAnimationController';
 import { EnemyData } from '../configs/EnemyConfig';
-import { eventManager } from '../core/EventManager';
-import { GameEvents } from '../core/GameEvents';
+import { eventManager } from '../managers/EventManager';
+import { GameEvents } from './GameEvents';
 
 const { ccclass, property } = _decorator;
 

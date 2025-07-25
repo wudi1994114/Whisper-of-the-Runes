@@ -1,6 +1,6 @@
 // assets/scripts/configs/EnemyConfig.ts
 
-import { AnimationDirection } from '../animation/AnimationConfig';
+import { AnimationDirection } from './AnimationConfig';
 
 /**
  * 发射点偏移配置接口

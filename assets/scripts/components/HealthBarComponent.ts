@@ -1,7 +1,7 @@
 // assets/scripts/components/HealthBarComponent.ts
 
 import { _decorator, Component, Node, Graphics, UITransform, Color } from 'cc';
-import { systemConfigManager } from '../core/SystemConfig';
+import { systemConfigManager } from '../configs/SystemConfig';
 
 const { ccclass, property } = _decorator;
 
