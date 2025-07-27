@@ -3,7 +3,6 @@ import { EnhancedTargetSelector } from '../components/EnhancedTargetSelector';
 import { TargetSelector } from '../components/TargetSelector';
 import { PathfindingManager, PathInfo } from '../systems/PathfindingManager';
 import { OrcaAgent } from '../components/OrcaAgent';
-import { getOrcaSystem } from '../systems/OrcaSystem';
 import { Faction } from '../configs/FactionConfig';
 import { TargetInfo, ITargetSelector } from '../components/MonsterAI';
 
@@ -105,10 +104,11 @@ export class AINavigationController extends Component {
     private lastPathUpdateTime: number = 0;
     private lastBlockedCheckTime: number = 0;
     private stateEnterTime: number = 0;
+    private lastDebugTime: number = 0;
     
     // AI属性
     private aiRole: string = '';
-    private aiFaction: Faction = Faction.RED;
+    // 移除重复的aiFaction属性，统一从BaseCharacterDemo获取
     
     // 性能统计
     private performanceStats = {
@@ -223,8 +223,13 @@ export class AINavigationController extends Component {
      * 初始化AI导航参数
      */
     public initializeNavigation(role: string, faction: Faction, config?: Partial<NavigationConfig>): void {
+        console.log(`%c[TARGET_DEBUG] ⚙️ ${this.node.name} 开始初始化导航参数`, 'color: blue; font-weight: bold');
+        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 设置角色: ${role}, 阵营: ${faction}`, 'color: blue');
+        
         this.aiRole = role;
-        this.aiFaction = faction;
+        // 移除重复的aiFaction属性，统一从BaseCharacterDemo获取
+        
+        console.log(`%c[TARGET_DEBUG] 🔧 ${this.node.name} 阵营设置完成: aiFaction=${faction}`, 'color: blue');
         
         // 应用配置
         if (config) {
@@ -235,9 +240,28 @@ export class AINavigationController extends Component {
             if (config.maxPathAge !== undefined) this.maxPathAge = config.maxPathAge;
             if (config.blockedCheckInterval !== undefined) this.blockedCheckInterval = config.blockedCheckInterval;
             if (config.giveUpDistance !== undefined) this.giveUpDistance = config.giveUpDistance;
+            
+            console.log(`%c[TARGET_DEBUG] 🎛️ ${this.node.name} 配置参数: 搜索范围=${this.detectionRange}, 攻击范围=${this.attackRange}`, 'color: blue');
         }
         
-        console.log(`%c[AINavigationController] ⚙️ 导航参数已配置: ${role} -> ${faction}`, 'color: blue');
+        console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 导航参数配置完成: ${role} -> ${faction}，可以开始搜索目标`, 'color: green; font-weight: bold');
+        
+        // 【修复】阵营初始化完成后，立即开始搜索目标（如果当前是IDLE状态）
+        if (this.currentState === NavigationState.IDLE) {
+            console.log(`%c[TARGET_DEBUG] 🚀 ${this.node.name} 阵营初始化完成，立即转入SEEKING_TARGET状态`, 'color: green; font-weight: bold');
+            this.transitionToState(NavigationState.SEEKING_TARGET, Date.now() / 1000);
+        }
+    }
+    
+    /**
+     * 获取当前角色的阵营（从BaseCharacterDemo获取）
+     */
+    private getCurrentFaction(): Faction | null {
+        const baseCharacter = this.node.getComponent('BaseCharacterDemo') as any;
+        if (baseCharacter && baseCharacter.getFaction) {
+            return baseCharacter.getFaction();
+        }
+        return null;
     }
     
     /**
@@ -248,6 +272,23 @@ export class AINavigationController extends Component {
         
         // 更新导航状态机
         this.updateNavigationStateMachine(currentTime);
+        
+        // 每3秒打印一次状态信息，避免刷屏
+        if (currentTime - (this.lastDebugTime || 0) > 3.0) {
+            const currentFaction = this.getCurrentFaction();
+            console.log(`%c[TARGET_DEBUG] 🔄 ${this.node.name} AI状态: ${this.currentState}, 阵营: ${currentFaction || '未初始化'}, 有目标: ${!!this.currentTarget}`, 'color: gray');
+            
+            // 【立即调试】打印TargetSelector状态
+            const selector = TargetSelector.getInstance();
+            if (selector) {
+                console.log(`%c[TARGET_DEBUG] 📊 TargetSelector可用，立即检查注册表状态`, 'color: yellow');
+                (selector as any).printFullRegistryInfo();
+            } else {
+                console.log(`%c[TARGET_DEBUG] ❌ TargetSelector未初始化！`, 'color: red');
+            }
+            
+            this.lastDebugTime = currentTime;
+        }
         
         // 根据当前状态执行相应逻辑
         switch (this.currentState) {
@@ -314,9 +355,25 @@ export class AINavigationController extends Component {
      * 待机状态更新
      */
     private updateIdleState(currentTime: number): void {
+        // 【修复】首先检查阵营是否已初始化
+        const currentFaction = this.getCurrentFaction();
+        if (!currentFaction) {
+            if (Math.random() < 0.05) { // 只有5%的概率打印，避免刷屏
+                console.log(`%c[TARGET_DEBUG] ⏳ ${this.node.name} IDLE状态：等待阵营初始化 (无法获取阵营信息)`, 'color: orange');
+            }
+            return; // 阵营未初始化时，不要转换状态
+        }
+        
         // 定期搜索目标
         if (currentTime - this.lastTargetSearchTime > 1.0) {
+            console.log(`%c[TARGET_DEBUG] 💤 ${this.node.name} IDLE状态：时间间隔已满足，准备转入SEEKING_TARGET`, 'color: cyan');
+            console.log(`%c[TARGET_DEBUG] 🔍 ${this.node.name} IDLE -> SEEKING_TARGET`, 'color: cyan');
             this.transitionToState(NavigationState.SEEKING_TARGET, currentTime);
+        } else {
+            const timeUntilNext = 1.0 - (currentTime - this.lastTargetSearchTime);
+            if (Math.random() < 0.1) { // 只有10%的概率打印，避免刷屏
+                console.log(`%c[TARGET_DEBUG] ⏰ ${this.node.name} IDLE状态：等待搜索间隔，还需${timeUntilNext.toFixed(1)}秒`, 'color: lightgray');
+            }
         }
     }
     
@@ -324,33 +381,47 @@ export class AINavigationController extends Component {
      * 搜索目标状态更新
      */
     private updateSeekingState(currentTime: number): void {
+        console.log(`%c[TARGET_DEBUG] 🔍 ${this.node.name} 开始搜索目标`, 'color: cyan; font-weight: bold');
+        
         if (!this.targetSelector) {
-            console.warn(`%c[AINavigationController] ⚠️ 目标选择器不可用`, 'color: orange');
+            console.log(`%c[TARGET_DEBUG] ❌ ${this.node.name} 目标选择器不可用`, 'color: red');
             return;
         }
+        
+        // 【修复】从BaseCharacterDemo获取阵营信息
+        const currentFaction = this.getCurrentFaction();
+        if (!currentFaction) {
+            console.log(`%c[TARGET_DEBUG] ⚠️ ${this.node.name} 无法获取阵营信息，等待BaseCharacterDemo初始化`, 'color: orange');
+            return;
+        }
+        
+        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 阵营: ${currentFaction}, 搜索范围: ${this.detectionRange}`, 'color: blue');
         
         this.lastTargetSearchTime = currentTime;
         
         // 使用增强版目标选择器搜索目标
         const targetInfo = this.targetSelector.findBestTarget(
             this.node.position,
-            this.aiFaction,
+            currentFaction,
             this.detectionRange
         );
         
         if (targetInfo) {
             this.currentTarget = targetInfo;
             this.performanceStats.targetsFound++;
-            console.log(`%c[AINavigationController] 🎯 找到目标: ${targetInfo.node.name}`, 'color: green');
+            console.log(`%c[TARGET_DEBUG] 🎯 ${this.node.name} 找到目标: ${targetInfo.node.name}, 距离: ${targetInfo.distance.toFixed(1)}, 阵营: ${targetInfo.faction}`, 'color: green');
             
             // 检查是否在攻击范围内
             if (targetInfo.distance <= this.attackRange) {
+                console.log(`%c[TARGET_DEBUG] ⚔️ ${this.node.name} 目标在攻击范围内 (${targetInfo.distance.toFixed(1)} <= ${this.attackRange})`, 'color: green');
                 this.transitionToState(NavigationState.APPROACHING_TARGET, currentTime);
             } else {
+                console.log(`%c[TARGET_DEBUG] 🏃 ${this.node.name} 目标超出攻击范围，开始寻路 (${targetInfo.distance.toFixed(1)} > ${this.attackRange})`, 'color: yellow');
                 this.transitionToState(NavigationState.PATHFINDING, currentTime);
             }
         } else {
             // 没有找到目标，返回待机状态
+            console.log(`%c[TARGET_DEBUG] ❌ ${this.node.name} 未找到目标，返回IDLE状态 (阵营: ${currentFaction}, 搜索范围: ${this.detectionRange})`, 'color: red');
             this.transitionToState(NavigationState.IDLE, currentTime);
         }
     }
@@ -538,6 +609,7 @@ export class AINavigationController extends Component {
         if (distance < 0.1) {
             // 已经很接近，停止移动
             this.orcaAgent.prefVelocity.set(0, 0);
+            console.log(`%c[AINavigationController] 🛑 ${this.node.name} 已接近目标，停止移动`, 'color: green');
             return;
         }
         
@@ -547,6 +619,7 @@ export class AINavigationController extends Component {
         const desiredVelocity = direction.multiplyScalar(maxSpeed);
         
         this.orcaAgent.prefVelocity.set(desiredVelocity.x, desiredVelocity.y);
+        console.log(`%c[AINavigationController] 🎯 ${this.node.name} 设置期望速度: (${desiredVelocity.x.toFixed(1)}, ${desiredVelocity.y.toFixed(1)})`, 'color: blue');
     }
     
     /**
@@ -628,6 +701,32 @@ export class AINavigationController extends Component {
     }
     
     /**
+     * 【调试方法】立即强制搜索，无视时间间隔
+     */
+    public forceImmediateSearch(): void {
+        console.log(`%c[TARGET_DEBUG] 🚀 ${this.node.name} 强制立即搜索目标`, 'color: yellow; font-weight: bold');
+        
+        const currentTime = Date.now() / 1000;
+        
+        // 检查组件状态
+        const currentFaction = this.getCurrentFaction();
+        console.log(`%c[TARGET_DEBUG] 🔍 当前阵营: ${currentFaction}`, 'color: yellow');
+        
+        if (!this.targetSelector) {
+            console.log(`%c[TARGET_DEBUG] ❌ targetSelector 未初始化`, 'color: red');
+            return;
+        }
+        
+        if (!currentFaction) {
+            console.log(`%c[TARGET_DEBUG] ❌ 无法获取阵营信息`, 'color: red');
+            return;
+        }
+        
+        // 立即执行搜索逻辑
+        this.updateSeekingState(currentTime);
+    }
+    
+    /**
      * 强制重新计算路径
      */
     public forceRepath(): void {
@@ -675,4 +774,4 @@ export const aiNavigationController = {
     createForNode: (node: Node): AINavigationController | null => {
         return node.addComponent(AINavigationController);
     }
-}; 
+};

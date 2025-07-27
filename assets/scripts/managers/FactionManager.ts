@@ -155,12 +155,17 @@ export class FactionManager extends Component {
      * @returns 敌对阵营列表
      */
     public getEnemyFactions(faction: Faction): Faction[] {
+        console.log(`%c[TARGET_DEBUG] 🔍 FactionManager查询敌对阵营 - 查询者阵营: ${faction}`, 'color: darkgreen');
+        
         const enemies: Faction[] = [];
         
         // 检查当前阵营会攻击的阵营
         const relation = this._currentFactionRelationships[faction];
         if (relation) {
             enemies.push(...relation.attacks);
+            console.log(`%c[TARGET_DEBUG] ⚔️ ${faction} 主动攻击的阵营: [${relation.attacks.join(', ')}]`, 'color: darkgreen');
+        } else {
+            console.log(`%c[TARGET_DEBUG] ⚠️ 未找到阵营 ${faction} 的关系配置`, 'color: orange');
         }
 
         // 检查会攻击当前阵营的其他阵营
@@ -173,12 +178,15 @@ export class FactionManager extends Component {
                         // 避免重复添加
                         if (enemies.indexOf(otherFaction) === -1) {
                             enemies.push(otherFaction);
+                            console.log(`%c[TARGET_DEBUG] 🛡️ ${otherFaction} 会攻击 ${faction}，添加到敌对列表`, 'color: darkgreen');
                         }
                     }
                 }
             }
         }
 
+        console.log(`%c[TARGET_DEBUG] 📊 ${faction} 的最终敌对阵营列表: [${enemies.join(', ')}]`, 'color: darkgreen; font-weight: bold');
+        
         return enemies;
     }
 

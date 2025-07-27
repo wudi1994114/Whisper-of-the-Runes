@@ -1,6 +1,7 @@
 // assets/scripts/core/GameManager.ts
 
-import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Vec3, Prefab, PhysicsSystem2D } from 'cc';
+import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Vec3, Prefab, PhysicsSystem2D, UITransform, Sprite, Label, Color } from 'cc';
+import { TestControlPanelCreator } from '../test/TestControlPanelCreator';
 import { dataManager } from './DataManager';
 import { eventManager } from './EventManager';
 import { inputManager } from './InputManager';
@@ -15,13 +16,14 @@ import { AIBehaviorType } from '../components/MonsterAI';
 import { Faction } from '../configs/FactionConfig';
 import { targetSelector } from '../components/TargetSelector';
 import { TargetSelector } from '../components/TargetSelector';
-import { UITransform } from 'cc';
+import { getOrcaSystem } from '../systems/OrcaSystem';
+
 import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
 import { BaseCharacterDemo } from '../entities/BaseCharacterDemo';
 import { ControlMode } from '../state-machine/CharacterEnums';
 import { CharacterPoolInitializer, CharacterPoolFactory } from '../pool/CharacterPoolSystem';
 import { damageDisplayController } from '../controllers/DamageDisplayController';
-import { getCrowdingSystem, CrowdingSystem } from '../systems/CrowdingSystem';
+
 import { gridManager, GridManager } from '../systems/GridManager';
 
 const { ccclass, property } = _decorator;
@@ -143,6 +145,9 @@ export class GameManager extends Component {
     // 移动控制
     private currentMoveDirection: Vec2 = new Vec2(0, 0);
     private isMoving: boolean = false;
+
+    // 测试控制面板引用
+    private testControlPanel: any = null;
 
     // 便捷方法
     public get testMode(): boolean {
@@ -276,9 +281,10 @@ export class GameManager extends Component {
             return;
         }
 
-
-
-
+        if (keyCode === KeyCode.KEY_P) {
+            this.toggleTestControlPanel();
+            return;
+        }
 
         // 根据测试模式分发输入
         if (this.testMode) {
@@ -465,6 +471,191 @@ export class GameManager extends Component {
     }
 
     /**
+     * 公共接口：切换游戏模式（供外部调用）
+     */
+    public toggleGameModePublic(): void {
+        this.toggleGameMode();
+    }
+
+    /**
+     * 切换测试控制面板显示/隐藏
+     */
+    public toggleTestControlPanel(): void {
+        if (!this.testControlPanel) {
+            this.findTestControlPanel();
+        }
+        
+        if (this.testControlPanel) {
+            this.testControlPanel.togglePanel();
+            console.log('🎛️ 切换测试控制面板显示状态');
+        } else {
+            console.warn('⚠️ 未找到测试控制面板组件，正在自动创建...');
+            this.createTestControlPanel();
+        }
+    }
+
+    /**
+     * 查找测试控制面板组件
+     */
+    private findTestControlPanel(): void {
+        const scene = director.getScene();
+        if (scene) {
+            const panelComponents = scene.getComponentsInChildren('TestControlPanel');
+            if (panelComponents && panelComponents.length > 0) {
+                this.testControlPanel = panelComponents[0];
+                console.log('🎛️ 找到测试控制面板组件');
+            }
+        }
+    }
+
+    /**
+     * 注册测试控制面板
+     */
+    public registerTestControlPanel(panel: Component): void {
+        this.testControlPanel = panel;
+        console.log('🎛️ 测试控制面板已注册');
+    }
+
+    /**
+     * 公共接口：切换到下一个敌人类型
+     */
+    public switchToNextEnemyTypePublic(): void {
+        this.switchToNextEnemyType();
+    }
+
+    /**
+     * 公共接口：切换到上一个敌人类型
+     */
+    public switchToPrevEnemyTypePublic(): void {
+        this.switchToPreviousEnemyType();
+    }
+
+    /**
+     * 公共接口：清除测试敌人
+     */
+    public clearTestEnemyPublic(): void {
+        this.clearTestEnemy();
+    }
+
+    /**
+     * 自动创建InputManager节点
+     */
+    private createInputManagerNode(): void {
+        console.log('🎹 GameManager: 自动创建InputManager节点...');
+        
+        const scene = director.getScene();
+        if (!scene) {
+            console.error('❌ 无法获取当前场景');
+            return;
+        }
+        
+        // 创建InputManager节点
+        const inputManagerNode = new Node('InputManager');
+        const inputManagerComponent = inputManagerNode.addComponent('InputManager');
+        
+        // 将节点添加到场景根目录
+        scene.addChild(inputManagerNode);
+        
+        console.log('✅ InputManager节点已自动创建并添加到场景');
+        console.log('🎹 键盘输入功能现已可用，按P键显示/隐藏测试控制面板');
+    }
+
+    /**
+     * 自动创建测试控制面板
+     */
+    private createTestControlPanel(): void {
+        console.log('🎛️ GameManager: 自动创建测试控制面板...');
+        
+        const scene = director.getScene();
+        if (!scene) {
+            console.error('❌ 无法获取当前场景');
+            return;
+        }
+        
+        // 查找Canvas节点
+        let canvas = scene.getComponentInChildren('cc.Canvas');
+        if (!canvas) {
+            const canvasNode = scene.getChildByName('Canvas');
+            canvas = canvasNode ? canvasNode.getComponent('cc.Canvas') : null;
+        }
+        
+        if (!canvas) {
+            console.error('❌ 未找到Canvas节点，无法创建UI面板');
+            return;
+        }
+        
+        // 创建测试控制面板节点
+        const panelNode = new Node('TestControlPanel');
+        const panelComponent = panelNode.addComponent('TestControlPanel') as any;
+        
+        // 创建面板容器节点
+        const containerNode = new Node('PanelContainer');
+        panelNode.addChild(containerNode);
+        
+        // 设置面板组件的引用
+        (panelComponent as any).panelContainer = containerNode;
+        
+        // 将面板节点添加到Canvas
+        canvas.node.addChild(panelNode);
+        
+        // 注册到GameManager
+        this.testControlPanel = panelComponent;
+        
+        console.log('✅ 测试控制面板已自动创建并添加到Canvas');
+        console.log('🎛️ 面板功能现已可用，再次按P键可显示/隐藏面板');
+        
+        // 创建完整的UI结构
+        this.createCompleteTestControlPanelUI(containerNode, panelComponent);
+    }
+
+    /**
+     * 创建完整的测试控制面板UI
+     */
+    private createCompleteTestControlPanelUI(container: Node, panelComponent: any): void {
+        try {
+            // 使用TestControlPanelCreator创建完整UI
+            TestControlPanelCreator.createCompleteUI(container, panelComponent);
+            
+            // 创建完成后重新设置事件监听（因为UI引用已更新）
+            if (panelComponent.setupEventListeners) {
+                panelComponent.setupEventListeners();
+            }
+            
+            console.log('🎛️ 完整测试控制面板UI已创建并配置完成');
+        } catch (error) {
+            console.error('❌ 创建测试控制面板UI失败:', error);
+            // 降级到简单UI
+            this.createFallbackUI(container);
+        }
+    }
+
+    /**
+     * 创建降级UI（当UI创建器加载失败时）
+     */
+    private createFallbackUI(container: Node): void {
+        console.warn('⚠️ 使用降级UI模式');
+        
+        let uiTransform = container.getComponent(UITransform);
+        if (!uiTransform) {
+            uiTransform = container.addComponent(UITransform);
+        }
+        uiTransform.setContentSize(300, 200);
+        
+        const fallbackLabel = container.addComponent(Label);
+        fallbackLabel.string = 
+            '🎛️ 测试控制面板\n\n' +
+            '基础功能可用:\n' +
+            'P - 显示/隐藏面板\n' +
+            'T - 切换测试模式\n' +
+            'WASD - 移动 (测试模式)\n' +
+            'J - 攻击 (测试模式)\n' +
+            'H - 受伤测试 (测试模式)';
+        fallbackLabel.fontSize = 14;
+        fallbackLabel.color = new Color(220, 220, 220, 255);
+        fallbackLabel.lineHeight = 18;
+    }
+
+    /**
      * 获取当前移动方向
      */
     public getCurrentMoveDirection(): Vec2 {
@@ -485,6 +676,10 @@ export class GameManager extends Component {
         const inputMgr = inputManager.instance; // 获取InputManager实例
         if (!inputMgr) {
             console.warn('GameManager: InputManager not found. Please add InputManager component to a node in the scene.');
+            // 自动创建InputManager节点
+            this.createInputManagerNode();
+        } else {
+            console.log('GameManager: InputManager found and ready');
         }
 
         // 设置资源预加载配置
@@ -524,8 +719,8 @@ export class GameManager extends Component {
         // 【关键修复】提前初始化目标选择器，确保在角色生成前可用
         this.initializeTargetSelector();
         
-        // 初始化拥挤系统
-        this.initializeCrowdingSystem();
+        // 【关键修复】初始化ORCA避让系统，确保节点添加到场景中
+        this.initializeOrcaSystem();
         
         // 初始化伤害文字池系统
         poolManager.initializeDamageTextPool();
@@ -1056,47 +1251,7 @@ export class GameManager extends Component {
         }
     }
 
-    /**
-     * 测试拥挤系统 - 生成多个同阵营角色验证拥挤效果
-     */
-    public testCrowdingSystem(): void {
-        console.log('=== 开始测试拥挤系统 ===');
-        
-        if (!this.manualTestMode) {
-            console.warn('拥挤系统测试需要在手动测试模式下进行');
-            return;
-        }
 
-        // 清除现有测试怪物
-        this.clearTestEnemy();
-
-        // 生成5个同阵营的角色在相近位置
-        const testPositions = [
-            new Vec3(0, 0, 0),
-            new Vec3(20, 10, 0),
-            new Vec3(-15, 5, 0),
-            new Vec3(10, -20, 0),
-            new Vec3(-10, -10, 0)
-        ];
-
-        const enemyType = this.getEnemyTypeFromIndex(this.testEnemyType);
-        console.log(`生成5个 ${enemyType} 角色测试拥挤效果`);
-
-        testPositions.forEach((position, index) => {
-            this.spawnTestEnemyAtPosition(enemyType, position, `test_crowd_${index}`);
-        });
-
-        // 打印拥挤系统状态
-        setTimeout(() => {
-            const crowdingSystem = getCrowdingSystem();
-            if (crowdingSystem) {
-                crowdingSystem.printStatusInfo();
-            }
-        }, 1000);
-
-        console.log('=== 拥挤系统测试完成 ===');
-        console.log('观察角色是否会相互推开，避免重叠');
-    }
 
     /**
      * 【网格优化】测试网格化拥挤系统性能
@@ -1113,10 +1268,6 @@ export class GameManager extends Component {
         this.clearTestEnemy();
 
         // 重置性能统计
-        const crowdingSystem = getCrowdingSystem();
-        if (crowdingSystem) {
-            crowdingSystem.resetPerformanceStats();
-        }
         gridManager.reset();
 
         // 生成大量同阵营角色进行压力测试
@@ -1173,11 +1324,7 @@ export class GameManager extends Component {
     public printGridPerformanceReport(): void {
         console.log('\n=== 📊 网格化拥挤系统性能报告 ===');
         
-        // 拥挤系统性能统计
-        const crowdingSystem = getCrowdingSystem();
-        if (crowdingSystem) {
-            crowdingSystem.printStatusInfo();
-        }
+
         
         // 网格管理器详细统计
         const gridStats = gridManager.getStats();
@@ -1852,15 +1999,15 @@ export class GameManager extends Component {
         console.log(`GameManager: ✅ 全局TargetSelector已创建并添加到 ${canvasNode.name} 下`);
         console.log(`GameManager: 所有AI角色将共享此TargetSelector实例`);
     }
-
+    
     /**
-     * 初始化拥挤系统（全局单例）
+     * 初始化ORCA避让系统（全局单例）
      */
-    private initializeCrowdingSystem(): void {
-        // 检查是否已有有效的单例实例
-        const existingInstance = getCrowdingSystem();
-        if (existingInstance && existingInstance.node && existingInstance.node.isValid) {
-            console.log(`GameManager: CrowdingSystem单例已存在，位于 ${existingInstance.node.parent?.name || 'unknown'} 下`);
+    private initializeOrcaSystem(): void {
+        // 【修复】检查是否已有有效的ORCA系统实例
+        const existingOrcaSystem = getOrcaSystem();
+        if (existingOrcaSystem && existingOrcaSystem.node && existingOrcaSystem.node.isValid && existingOrcaSystem.node.parent) {
+            console.log(`GameManager: OrcaSystem已存在并已添加到场景，位于 ${existingOrcaSystem.node.parent.name} 下`);
             return;
         }
 
@@ -1879,30 +2026,37 @@ export class GameManager extends Component {
         }
         
         if (!canvasNode) {
-            console.warn('GameManager: 未找到Canvas节点，将CrowdingSystem放在场景根级别');
+            console.warn('GameManager: 未找到Canvas节点，将OrcaSystem放在场景根级别');
             canvasNode = scene;
         }
 
-        // 清理可能存在的重复CrowdingSystem节点
-        const existingSystems = canvasNode.children.filter(child => child.name === 'CrowdingSystem');
-        if (existingSystems.length > 0) {
-            console.log(`GameManager: 清理 ${existingSystems.length} 个重复的CrowdingSystem节点`);
-            existingSystems.forEach(node => {
+        // 【修复】清理可能存在的重复OrcaSystem节点
+        const existingOrcaNodes = canvasNode.children.filter(child => child.name === 'OrcaSystem');
+        if (existingOrcaNodes.length > 0) {
+            console.log(`GameManager: 清理 ${existingOrcaNodes.length} 个重复的OrcaSystem节点`);
+            existingOrcaNodes.forEach(node => {
                 if (node.isValid) {
                     node.destroy();
                 }
             });
         }
 
-        // 创建新的CrowdingSystem节点
-        const crowdingSystemNode = new Node('CrowdingSystem');
-        crowdingSystemNode.addComponent(CrowdingSystem);
-        canvasNode.addChild(crowdingSystemNode);
-        
-        console.log(`GameManager: ✅ 全局CrowdingSystem已创建并添加到 ${canvasNode.name} 下`);
-        console.log(`GameManager: 同阵营角色将通过此系统实现拥挤效果`);
+        // 【关键修复】获取OrcaSystem单例并将其节点添加到场景
+        const orcaSystem = getOrcaSystem(); // 这会创建单例实例
+        if (orcaSystem && orcaSystem.node) {
+            // 确保节点还没有父节点，避免重复添加
+            if (!orcaSystem.node.parent) {
+                canvasNode.addChild(orcaSystem.node);
+                console.log(`🔀 GameManager: ✅ OrcaSystem已初始化并添加到 ${canvasNode.name}`);
+                console.log(`🔀 GameManager: ORCA避让系统现在可以正常运行，update方法将被调用`);
+            } else {
+                console.log(`🔀 GameManager: OrcaSystem节点已有父节点: ${orcaSystem.node.parent.name}`);
+            }
+        } else {
+            console.error('GameManager: 无法创建OrcaSystem实例');
+        }
     }
-    
+
     /**
      * 设置模式（互斥）
      */
@@ -2094,17 +2248,11 @@ export class GameManager extends Component {
      */
     public quickGridPerformanceCheck(): void {
         const gridStats = gridManager.getStats();
-        const crowdingSystem = getCrowdingSystem();
         
         console.log('\n=== ⚡ 快速性能检查 ===');
         console.log(`角色总数: ${gridStats.totalCharacters}`);
         console.log(`活跃网格: ${gridStats.activeGrids}`);
         console.log(`查询次数: ${gridStats.queryCount}`);
-        
-        if (crowdingSystem) {
-            const crowdingStats = crowdingSystem.getPerformanceStats();
-            console.log(`平均查询时间: ${crowdingStats.avgQueryTime.toFixed(2)}ms`);
-        }
         
         if (gridStats.totalCharacters > 20) {
             console.log('⚠️  角色数量较多，建议观察性能');
@@ -2120,7 +2268,6 @@ export class GameManager extends Component {
      */
     public advancedGridPerformanceAnalysis(): void {
         const gridStats = gridManager.getStats();
-        const crowdingSystem = getCrowdingSystem();
         
         console.log('\n=== 🔬 高级网格性能分析 ===');
         console.log('基础统计:');
@@ -2128,14 +2275,6 @@ export class GameManager extends Component {
         console.log(`  活跃网格数: ${gridStats.activeGrids}`);
         console.log(`  查询总数: ${gridStats.queryCount}`);
         console.log(`  平均每网格角色数: ${gridStats.averageCharactersPerGrid.toFixed(2)}`);
-        
-        if (crowdingSystem) {
-            const crowdingStats = crowdingSystem.getPerformanceStats();
-            console.log('\n拥挤系统统计:');
-            console.log(`  平均查询时间: ${crowdingStats.avgQueryTime.toFixed(2)}ms`);
-            console.log(`  最大查询时间: ${crowdingStats.maxQueryTime.toFixed(2)}ms`);
-            console.log(`  总查询次数: ${crowdingStats.totalQueries}`);
-        }
         
         // 性能建议
         console.log('\n性能建议:');
@@ -2150,9 +2289,6 @@ export class GameManager extends Component {
         console.log('\n实时监控:');
         console.log('  使用 gameManager.quickGridPerformanceCheck() 进行快速检查');
         console.log('  使用 gridManager.printDebugInfo() 查看详细网格信息');
-        if (crowdingSystem) {
-            console.log('  使用 getCrowdingSystem().printStatusInfo() 查看拥挤系统状态');
-        }
     }
 
     /**
@@ -2169,16 +2305,7 @@ export class GameManager extends Component {
         console.log(`   ✓ 网格密度: ${gridStats.averageCharactersPerGrid.toFixed(2)} 角色/网格`);
         console.log(`   ✓ 查询效率: ${gridStats.queryCount} 次查询`);
         
-        // 拥挤系统分析
-        const crowdingSystem = getCrowdingSystem();
-        if (crowdingSystem) {
-            const crowdingStats = crowdingSystem.getPerformanceStats();
-            console.log('\n2. 拥挤系统:');
-            console.log(`   ✓ 角色数量: ${crowdingStats.lastUpdateCharacterCount}`);
-            console.log(`   ✓ 平均查询: ${crowdingStats.avgQueryTime.toFixed(2)}ms`);
-            console.log(`   ✓ 峰值查询: ${crowdingStats.maxQueryTime.toFixed(2)}ms`);
-            console.log(`   ✓ 总查询数: ${crowdingStats.totalQueries}`);
-        }
+
         
         // 性能建议
         console.log('\n性能建议:');
@@ -2193,9 +2320,6 @@ export class GameManager extends Component {
         console.log('\n实时监控:');
         console.log('  使用 gameManager.quickGridPerformanceCheck() 进行快速检查');
         console.log('  使用 gridManager.printDebugInfo() 查看详细网格信息');
-        if (crowdingSystem) {
-            console.log('  使用 getCrowdingSystem().printStatusInfo() 查看拥挤系统状态');
-        }
     }
 
     /**
@@ -2213,55 +2337,5 @@ export class GameManager extends Component {
     // 监控相关属性
     private gridMonitoringActive = false;
     private gridMonitoringInterval: any = null;
-    /**
-     * 启用拥挤系统
-     */
-    public enableCrowdingSystem(): void {
-        const crowdingSystem = getCrowdingSystem();
-        if (crowdingSystem) {
-            crowdingSystem.enableCrowding();
-            console.log('🟢 GameManager: 拥挤系统已启用');
-        } else {
-            console.warn('⚠️ GameManager: 拥挤系统实例不存在');
-        }
-    }
 
-    /**
-     * 禁用拥挤系统
-     */
-    public disableCrowdingSystem(): void {
-        const crowdingSystem = getCrowdingSystem();
-        if (crowdingSystem) {
-            crowdingSystem.disableCrowding();
-            console.log('🔴 GameManager: 拥挤系统已禁用');
-        } else {
-            console.warn('⚠️ GameManager: 拥挤系统实例不存在');
-        }
-    }
-
-    /**
-     * 切换拥挤系统启用状态
-     */
-    public toggleCrowdingSystem(): void {
-        const crowdingSystem = getCrowdingSystem();
-        if (crowdingSystem) {
-            crowdingSystem.toggleCrowding();
-            const status = crowdingSystem.isEnabled() ? '🟢 已启用' : '🔴 已禁用';
-            console.log(`🔄 GameManager: 拥挤系统状态切换为 ${status}`);
-        } else {
-            console.warn('⚠️ GameManager: 拥挤系统实例不存在');
-        }
-    }
-
-    /**
-     * 获取拥挤系统启用状态
-     */
-    public isCrowdingSystemEnabled(): boolean {
-        const crowdingSystem = getCrowdingSystem();
-        if (crowdingSystem) {
-            return crowdingSystem.isEnabled();
-        }
-        console.warn('⚠️ GameManager: 拥挤系统实例不存在');
-        return false;
-    }
 }

@@ -17,7 +17,7 @@ import { eventManager } from '../managers/EventManager';
 import { FireballLauncher } from '../controllers/FireballLauncher';
 import { GameManager } from '../managers/GameManager';
 import { damageDisplayController } from '../controllers/DamageDisplayController';
-import { getCrowdingSystem, ICrowdableCharacter } from '../systems/CrowdingSystem';
+import { ICrowdableCharacter } from '../systems/GridManager';
 import { OrcaAgent } from '../components/OrcaAgent';
 import { getOrcaSystem } from '../systems/OrcaSystem';
 import { gridManager } from '../systems/GridManager';
@@ -53,7 +53,7 @@ const { ccclass, property } = _decorator;
  * 角色演示基类
  * 支持对象池管理的角色演示系统
  * 现在集成了智能攻击系统和完整的角色功能
- * 【网格优化】实现ICrowdableCharacter接口，支持网格化拥挤系统
+ * 【网格优化】实现ICrowdableCharacter接口，支持ORCA避让系统
  */
 @ccclass('BaseCharacterDemo')
 export class BaseCharacterDemo extends Component implements ICrowdableCharacter, ICharacterController {
@@ -737,18 +737,22 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 初始化AI - 使用新的AINavigationController系统
      */
     public initializeAI(): void {
+        console.log(`%c[TARGET_DEBUG] 🤖 ${this.getCharacterDisplayName()} 开始AI初始化`, 'color: magenta; font-weight: bold');
+        
         // 【修复4】放宽初始化条件，增加调试信息
-        console.log(`[${this.getCharacterDisplayName()}] AI初始化检查 - 控制模式: ${this.controlMode}, 敌人数据: ${!!this.enemyData}`);
+        console.log(`%c[TARGET_DEBUG] 🔍 ${this.getCharacterDisplayName()} AI初始化检查 - 控制模式: ${this.controlMode}, 敌人数据: ${!!this.enemyData}`, 'color: magenta');
         
         if (this.controlMode !== ControlMode.AI) {
-            console.warn(`[${this.getCharacterDisplayName()}] 控制模式不是AI (${this.controlMode})，跳过AI初始化`);
+            console.log(`%c[TARGET_DEBUG] ⚠️ ${this.getCharacterDisplayName()} 控制模式不是AI (${this.controlMode})，跳过AI初始化`, 'color: orange');
             return;
         }
         
         if (!this.enemyData) {
-            console.warn(`[${this.getCharacterDisplayName()}] 敌人数据为空，跳过AI初始化`);
+            console.log(`%c[TARGET_DEBUG] ❌ ${this.getCharacterDisplayName()} 敌人数据为空，跳过AI初始化`, 'color: red');
             return;
         }
+        
+        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.getCharacterDisplayName()} 当前阵营: ${this.aiFaction}`, 'color: magenta');
         
         // 【修复】只在首次初始化时设置原始位置，重用时保持原有位置
         if (!this.originalPosition || this.originalPosition.equals(Vec3.ZERO)) {
@@ -756,10 +760,12 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         }
 
         // 初始化AINavigationController
-        console.log('[AI]1')
+        console.log(`%c[TARGET_DEBUG] 🧭 ${this.getCharacterDisplayName()} 检查AINavigationController`, 'color: magenta');
         if (this.aiNavigationController) {
-            console.log('[AI]2')
+            console.log(`%c[TARGET_DEBUG] ✅ ${this.getCharacterDisplayName()} AINavigationController存在，开始配置`, 'color: green');
             const faction = this.getFaction();
+            console.log(`%c[TARGET_DEBUG] 🏛️ ${this.getCharacterDisplayName()} 获取阵营结果: ${faction}`, 'color: magenta');
+            
             this.aiNavigationController.initializeNavigation(this.aiBehaviorType, faction, {
                 detectionRange: this.enemyData.detectionRange || 200,
                 attackRange: this.enemyData.attackRange || 60,
@@ -770,18 +776,20 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
                 giveUpDistance: this.enemyData.pursuitRange || 400
             });
             
+            console.log(`%c[TARGET_DEBUG] ⚙️ ${this.getCharacterDisplayName()} AI导航参数已配置`, 'color: green');
+            
             // 【性能优化】安全地注册到AI性能管理器（支持重复调用）
             const performanceManager = AIPerformanceManager.getInstance();
             if (performanceManager) {
                 // 先反注册再注册，确保不会重复
                 performanceManager.unregisterAI(this.node);
                 performanceManager.registerAI(this.node, this.aiNavigationController);
-                console.log(`%c[AI] ${this.getCharacterDisplayName()} 已(重新)注册到性能管理器`, 'color: yellow');
+                console.log(`%c[TARGET_DEBUG] 📈 ${this.getCharacterDisplayName()} 已注册到性能管理器`, 'color: green');
             }
             
-            console.log(`%c[AI] ${this.getCharacterDisplayName()} 新导航系统已初始化`, 'color: cyan; font-weight: bold');
+            console.log(`%c[TARGET_DEBUG] ✅ ${this.getCharacterDisplayName()} 新导航系统已初始化完成`, 'color: green; font-weight: bold');
         } else {
-            console.warn(`[${this.getCharacterDisplayName()}] AINavigationController未初始化，回退到旧系统`);
+            console.log(`%c[TARGET_DEBUG] ❌ ${this.getCharacterDisplayName()} AINavigationController未初始化，回退到旧系统`, 'color: red');
             // 【修复】清理可能存在的旧定时器，避免重复
             this.unschedule(this.updateAITargetSearch);
             // 回退到旧的目标搜索系统
@@ -790,7 +798,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         }
         
         // 【修复】TargetSelector通过registerTarget/deregisterTarget自动管理目标，无需手动更新缓存
-        console.log(`%c[AI] ${this.getCharacterDisplayName()} AI初始化完成，TargetSelector将自动管理目标`, 'color: cyan');
+        console.log(`%c[TARGET_DEBUG] ✅ ${this.getCharacterDisplayName()} AI初始化完成，TargetSelector将自动管理目标`, 'color: green; font-weight: bold');
     }
 
     /**
@@ -1987,13 +1995,17 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 向目标选择器注册当前角色
      */
     private registerToTargetSelector(): void {
+        console.log(`%c[TARGET_DEBUG] 📝 ${this.node.name} 开始注册到目标选择器`, 'color: teal');
+        
         const selector = TargetSelector.getInstance();
         if (selector) {
             const faction = this.getFaction();
+            console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 注册阵营: ${faction}`, 'color: teal');
+            
             selector.registerTarget(this.node, faction);
-            console.log(`%c[BaseCharacterDemo] 📝 已注册到目标选择器: ${this.node.name} → ${faction}`, 'color: green');
+            console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 已完成目标选择器注册`, 'color: green');
         } else {
-            console.warn(`%c[BaseCharacterDemo] ⚠️ 目标选择器未初始化，无法注册: ${this.node.name}`, 'color: orange');
+            console.log(`%c[TARGET_DEBUG] ❌ ${this.node.name} 目标选择器未初始化，无法注册`, 'color: red');
         }
     }
     
@@ -2001,16 +2013,22 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 从目标选择器反注册当前角色
      */
     private deregisterFromTargetSelector(): void {
+        console.log(`%c[TARGET_DEBUG] 🗑️ ${this.node.name} 开始从目标选择器反注册`, 'color: teal');
+        
         const selector = TargetSelector.getInstance();
         if (selector) {
             const faction = this.getFaction();
+            console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 反注册阵营: ${faction}`, 'color: teal');
+            
             selector.deregisterTarget(this.node, faction);
-            console.log(`%c[BaseCharacterDemo] 🗑️ 已从目标选择器反注册: ${this.node.name} ← ${faction}`, 'color: red');
+            console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 已完成目标选择器反注册`, 'color: orange');
+        } else {
+            console.log(`%c[TARGET_DEBUG] ⚠️ ${this.node.name} 目标选择器未初始化，跳过反注册`, 'color: orange');
         }
     }
 
     /**
-     * 注册到拥挤系统（ORCA优先，否则回退到Boids）
+     * 注册到ORCA系统
      */
     private registerToCrowdingSystem(): void {
         // 【修复3】避免重复注册 - 检查是否已经在网格系统中
@@ -2025,7 +2043,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
             console.log(`%c[BaseCharacterDemo] 🔄 无法检查网格注册状态，继续注册: ${this.node.name}`, 'color: yellow');
         }
         
-        // 【ORCA支持】优先注册到ORCA系统
+        // 注册到ORCA系统
         if (this.orcaAgent && this.orcaAgent.isAgentValid()) {
             const orcaSystem = getOrcaSystem();
             if (orcaSystem) {
@@ -2035,23 +2053,15 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
                 // 同时注册到GridManager（ORCA系统复用GridManager进行邻居查询）
                 gridManager.addCharacter(this);
                 console.log(`%c[BaseCharacterDemo] 📍 已注册到网格系统: ${this.node.name}`, 'color: green');
-                return;
             }
-        }
-        
-        // 【回退逻辑】注册到传统的Boids拥挤系统
-        const crowdingSystem = getCrowdingSystem();
-        if (crowdingSystem) {
-            crowdingSystem.registerCharacter(this);
-            console.log(`%c[BaseCharacterDemo] 🤝 已注册到Boids拥挤系统: ${this.node.name} → ${this.getFaction()}`, 'color: orange');
         }
     }
 
     /**
-     * 从拥挤系统反注册（ORCA和Boids）
+     * 从ORCA系统反注册
      */
     private unregisterFromCrowdingSystem(): void {
-        // 【ORCA支持】从ORCA系统反注册
+        // 从ORCA系统反注册
         if (this.orcaAgent) {
             const orcaSystem = getOrcaSystem();
             if (orcaSystem) {
@@ -2062,13 +2072,6 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
             // 从GridManager反注册
             gridManager.removeCharacter(this);
             console.log(`%c[BaseCharacterDemo] 📍 已从网格系统反注册: ${this.node.name}`, 'color: green');
-        }
-        
-        // 【兼容性】同时从传统的Boids拥挤系统反注册
-        const crowdingSystem = getCrowdingSystem();
-        if (crowdingSystem) {
-            crowdingSystem.unregisterCharacter(this);
-            console.log(`%c[BaseCharacterDemo] 🚫 已从Boids拥挤系统反注册: ${this.node.name} ← ${this.getFaction()}`, 'color: orange');
         }
     }
 

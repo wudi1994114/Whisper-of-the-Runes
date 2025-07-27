@@ -6,7 +6,7 @@ import { Faction } from '../configs/FactionConfig';
 const { ccclass } = _decorator;
 
 /**
- * 可拥挤角色接口 - 从CrowdingSystem导入的接口
+ * 可拥挤角色接口 - 用于ORCA系统和网格管理
  */
 export interface ICrowdableCharacter {
     node: Node;
