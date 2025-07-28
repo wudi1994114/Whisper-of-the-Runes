@@ -119,6 +119,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     protected targetSearchInterval: number = 1000; // 1秒搜索一次目标
     protected originalPosition: Vec3 = new Vec3(); // AI回归位置
     protected lastAIDebugTime: number = 0; // AI调试日志频率控制
+    protected lastFallbackWarningTime: number = 0; // 回退系统警告频率控制
     
     // 血条显示系统
     protected healthBarNode: Node | null = null;
@@ -737,34 +738,38 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 初始化AI - 使用新的AINavigationController系统
      */
     public initializeAI(): void {
-        console.log(`%c[TARGET_DEBUG] 🤖 ${this.getCharacterDisplayName()} 开始AI初始化`, 'color: magenta; font-weight: bold');
+        console.log(`[ORCA_DEBUG] 🤖 ${this.getCharacterDisplayName()} 开始AI初始化`);
         
         // 【修复4】放宽初始化条件，增加调试信息
-        console.log(`%c[TARGET_DEBUG] 🔍 ${this.getCharacterDisplayName()} AI初始化检查 - 控制模式: ${this.controlMode}, 敌人数据: ${!!this.enemyData}`, 'color: magenta');
+        console.log(`[ORCA_DEBUG] 🔍 ${this.getCharacterDisplayName()} AI初始化检查:`);
+        console.log(`[ORCA_DEBUG]   - 控制模式: ${this.controlMode}`);
+        console.log(`[ORCA_DEBUG]   - 敌人数据: ${!!this.enemyData}`);
+        console.log(`[ORCA_DEBUG]   - 当前阵营: ${this.aiFaction}`);
         
         if (this.controlMode !== ControlMode.AI) {
-            console.log(`%c[TARGET_DEBUG] ⚠️ ${this.getCharacterDisplayName()} 控制模式不是AI (${this.controlMode})，跳过AI初始化`, 'color: orange');
+            console.warn(`[ORCA_DEBUG] ⚠️ ${this.getCharacterDisplayName()} 控制模式不是AI (${this.controlMode})，跳过AI初始化`);
             return;
         }
         
         if (!this.enemyData) {
-            console.log(`%c[TARGET_DEBUG] ❌ ${this.getCharacterDisplayName()} 敌人数据为空，跳过AI初始化`, 'color: red');
+            console.warn(`[ORCA_DEBUG] ❌ ${this.getCharacterDisplayName()} 敌人数据为空，跳过AI初始化`);
             return;
         }
         
-        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.getCharacterDisplayName()} 当前阵营: ${this.aiFaction}`, 'color: magenta');
+        console.log(`[ORCA_DEBUG] 🏛️ ${this.getCharacterDisplayName()} 当前阵营: ${this.aiFaction}`);
         
         // 【修复】只在首次初始化时设置原始位置，重用时保持原有位置
         if (!this.originalPosition || this.originalPosition.equals(Vec3.ZERO)) {
             this.originalPosition.set(this.node.position);
+            console.log(`[ORCA_DEBUG] 📍 ${this.getCharacterDisplayName()} 设置原始位置: (${this.originalPosition.x.toFixed(1)}, ${this.originalPosition.y.toFixed(1)})`);
         }
 
         // 初始化AINavigationController
-        console.log(`%c[TARGET_DEBUG] 🧭 ${this.getCharacterDisplayName()} 检查AINavigationController`, 'color: magenta');
+        console.log(`[ORCA_DEBUG] 🧭 ${this.getCharacterDisplayName()} 检查AINavigationController`);
         if (this.aiNavigationController) {
-            console.log(`%c[TARGET_DEBUG] ✅ ${this.getCharacterDisplayName()} AINavigationController存在，开始配置`, 'color: green');
+            console.log(`[ORCA_DEBUG] ✅ ${this.getCharacterDisplayName()} AINavigationController存在，开始配置`);
             const faction = this.getFaction();
-            console.log(`%c[TARGET_DEBUG] 🏛️ ${this.getCharacterDisplayName()} 获取阵营结果: ${faction}`, 'color: magenta');
+            console.log(`[ORCA_DEBUG] 🏛️ ${this.getCharacterDisplayName()} 获取阵营结果: ${faction}`);
             
             this.aiNavigationController.initializeNavigation(this.aiBehaviorType, faction, {
                 detectionRange: this.enemyData.detectionRange || 200,
@@ -776,7 +781,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
                 giveUpDistance: this.enemyData.pursuitRange || 400
             });
             
-            console.log(`%c[TARGET_DEBUG] ⚙️ ${this.getCharacterDisplayName()} AI导航参数已配置`, 'color: green');
+            console.log(`[ORCA_DEBUG] ⚙️ ${this.getCharacterDisplayName()} AI导航参数已配置`);
+            console.log(`[ORCA_DEBUG]   - 搜索范围: ${this.enemyData.detectionRange || 200}`);
+            console.log(`[ORCA_DEBUG]   - 攻击范围: ${this.enemyData.attackRange || 60}`);
             
             // 【性能优化】安全地注册到AI性能管理器（支持重复调用）
             const performanceManager = AIPerformanceManager.getInstance();
@@ -784,12 +791,12 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
                 // 先反注册再注册，确保不会重复
                 performanceManager.unregisterAI(this.node);
                 performanceManager.registerAI(this.node, this.aiNavigationController);
-                console.log(`%c[TARGET_DEBUG] 📈 ${this.getCharacterDisplayName()} 已注册到性能管理器`, 'color: green');
+                console.log(`[ORCA_DEBUG] 📈 ${this.getCharacterDisplayName()} 已注册到性能管理器`);
             }
             
-            console.log(`%c[TARGET_DEBUG] ✅ ${this.getCharacterDisplayName()} 新导航系统已初始化完成`, 'color: green; font-weight: bold');
+            console.log(`[ORCA_DEBUG] ✅ ${this.getCharacterDisplayName()} 新导航系统已初始化完成`);
         } else {
-            console.log(`%c[TARGET_DEBUG] ❌ ${this.getCharacterDisplayName()} AINavigationController未初始化，回退到旧系统`, 'color: red');
+            console.warn(`[ORCA_DEBUG] ❌ ${this.getCharacterDisplayName()} AINavigationController未初始化，回退到旧系统`);
             // 【修复】清理可能存在的旧定时器，避免重复
             this.unschedule(this.updateAITargetSearch);
             // 回退到旧的目标搜索系统
@@ -797,8 +804,19 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
             this.schedule(this.updateAITargetSearch, searchInterval);
         }
         
+        // 验证ORCA代理状态
+        if (this.orcaAgent) {
+            console.log(`[ORCA_DEBUG] 🔧 ${this.getCharacterDisplayName()} ORCA代理状态:`);
+            console.log(`[ORCA_DEBUG]   - 最大速度: ${this.orcaAgent.getMaxSpeed()}`);
+            console.log(`[ORCA_DEBUG]   - 避让半径: ${this.orcaAgent.radius}`);
+            console.log(`[ORCA_DEBUG]   - 搜索距离: ${this.orcaAgent.neighborDist}`);
+            console.log(`[ORCA_DEBUG]   - 当前期望速度: (${this.orcaAgent.prefVelocity.x.toFixed(3)}, ${this.orcaAgent.prefVelocity.y.toFixed(3)})`);
+        } else {
+            console.warn(`[ORCA_DEBUG] ❌ ${this.getCharacterDisplayName()} ORCA代理组件未找到`);
+        }
+        
         // 【修复】TargetSelector通过registerTarget/deregisterTarget自动管理目标，无需手动更新缓存
-        console.log(`%c[TARGET_DEBUG] ✅ ${this.getCharacterDisplayName()} AI初始化完成，TargetSelector将自动管理目标`, 'color: green; font-weight: bold');
+        console.log(`[ORCA_DEBUG] ✅ ${this.getCharacterDisplayName()} AI初始化完成，TargetSelector将自动管理目标`);
     }
 
     /**
@@ -847,6 +865,10 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 设置AI移动方向（基于物理系统的移动）
      */
     private setAIMoveDirection(targetPosition: Vec3): void {
+        console.log(`[ORCA_DEBUG] 🎯 ${this.getCharacterDisplayName()} 设置AI移动方向`);
+        console.log(`[ORCA_DEBUG]   - 当前位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
+        console.log(`[ORCA_DEBUG]   - 目标位置: (${targetPosition.x.toFixed(1)}, ${targetPosition.y.toFixed(1)})`);
+        
         // 【性能优化】复用静态临时变量，避免频繁创建对象
         const direction = TempVarPool.tempVec2_1;
         const targetVec2 = TempVarPool.tempVec2_2;
@@ -858,12 +880,18 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 计算方向向量
         Vec2.subtract(direction, targetVec2, nodeVec2);
+        const distance = direction.length();
         
-        if (direction.length() < 10) {
+        console.log(`[ORCA_DEBUG]   - 方向向量: (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})`);
+        console.log(`[ORCA_DEBUG]   - 距离: ${distance.toFixed(1)}`);
+        
+        if (distance < 10) {
+            console.log(`[ORCA_DEBUG] 🛑 ${this.getCharacterDisplayName()} 距离过近(${distance.toFixed(1)} < 10)，停止移动`);
             this.moveDirection.set(0, 0);
             // 【ORCA支持】如果有OrcaAgent，清空期望速度
             if (this.orcaAgent) {
                 this.orcaAgent.prefVelocity.set(0, 0);
+                console.log(`[ORCA_DEBUG] 🛑 ${this.getCharacterDisplayName()} 已清空ORCA期望速度`);
             }
             return;
         }
@@ -871,10 +899,16 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         direction.normalize();
         this.moveDirection.set(direction.x, direction.y);
         
+        console.log(`[ORCA_DEBUG]   - 归一化方向: (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})`);
+        console.log(`[ORCA_DEBUG]   - 移动速度: ${this.getMoveSpeed()}`);
+        
         // 【ORCA支持】如果有OrcaAgent，设置期望速度
         if (this.orcaAgent) {
             const desiredVelocity = direction.clone().multiplyScalar(this.getMoveSpeed());
             this.orcaAgent.prefVelocity.set(desiredVelocity.x, desiredVelocity.y);
+            console.log(`[ORCA_DEBUG] ✅ ${this.getCharacterDisplayName()} 设置ORCA期望速度: (${desiredVelocity.x.toFixed(2)}, ${desiredVelocity.y.toFixed(2)})`);
+        } else {
+            console.warn(`[ORCA_DEBUG] ❌ ${this.getCharacterDisplayName()} ORCA代理不可用`);
         }
         
         // 更新角色朝向
@@ -1587,6 +1621,22 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
             return;
         }
         
+        // 每5秒打印一次AI状态，避免刷屏
+        const currentTime = Date.now() / 1000;
+        if (!this.lastAIDebugTime || currentTime - this.lastAIDebugTime > 5.0) {
+            console.log(`[ORCA_DEBUG] 🔄 ${this.getCharacterDisplayName()} AI更新状态:`);
+            console.log(`[ORCA_DEBUG]   - 存活状态: ${this.characterStats.isAlive}`);
+            console.log(`[ORCA_DEBUG]   - 敌人数据: ${!!this.enemyData}`);
+            console.log(`[ORCA_DEBUG]   - AI导航控制器: ${!!this.aiNavigationController}`);
+            
+            if (this.orcaAgent) {
+                console.log(`[ORCA_DEBUG]   - ORCA期望速度: (${this.orcaAgent.prefVelocity.x.toFixed(3)}, ${this.orcaAgent.prefVelocity.y.toFixed(3)})`);
+                console.log(`[ORCA_DEBUG]   - ORCA当前速度: (${this.orcaAgent.velocity.x.toFixed(3)}, ${this.orcaAgent.velocity.y.toFixed(3)})`);
+            }
+            
+            this.lastAIDebugTime = currentTime;
+        }
+        
         // 【新系统】如果有AINavigationController，让它处理导航逻辑
         if (this.aiNavigationController) {
             // AINavigationController会自动处理索敌、寻路、移动
@@ -1614,6 +1664,12 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         }
         
         // 【回退系统】旧的AI逻辑（保持向后兼容）
+        // 每5秒提醒一次使用回退系统
+        if (!this.lastFallbackWarningTime || currentTime - this.lastFallbackWarningTime > 5.0) {
+            console.warn(`[ORCA_DEBUG] ⚠️ ${this.getCharacterDisplayName()} 使用回退AI系统（无AINavigationController）`);
+            this.lastFallbackWarningTime = currentTime;
+        }
+        
         // 【性能优化】目标搜索逻辑已移动到独立的定时器中，不再在每帧执行
 
         // 2. 决策与意图更新
@@ -1637,6 +1693,10 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
                 this.setAIMoveDirection(this.originalPosition);
             } else {
                 this.moveDirection.set(0, 0);
+                // 清空ORCA期望速度
+                if (this.orcaAgent) {
+                    this.orcaAgent.prefVelocity.set(0, 0);
+                }
             }
         }
     }

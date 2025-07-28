@@ -142,15 +142,21 @@ export class OrcaAgent extends Component {
      * 获取角色的最大速度
      */
     public getMaxSpeed(): number {
+        console.log(`[ORCA_DEBUG] 🏃 ${this.node.name} 获取最大速度`);
+        
         if (this.maxSpeed > 0) {
+            console.log(`[ORCA_DEBUG]   - 使用配置的最大速度: ${this.maxSpeed}`);
             return this.maxSpeed;
         }
         
         const char = this.character;
         if (char) {
-            return char.getMoveSpeed();
+            const speed = char.getMoveSpeed();
+            console.log(`[ORCA_DEBUG]   - 从角色组件获取速度: ${speed}`);
+            return speed;
         }
         
+        console.warn(`[ORCA_DEBUG]   - 无法获取速度，使用默认值: 100`);
         return 100; // 默认速度
     }
 
@@ -159,15 +165,22 @@ export class OrcaAgent extends Component {
      */
     public isAgentValid(): boolean {
         if (!this.node || !this.node.isValid) {
+            console.warn(`[ORCA_DEBUG] ❌ ${this.node?.name || 'Unknown'} 节点无效`);
             return false;
         }
         
         const char = this.character;
         if (!char) {
+            console.warn(`[ORCA_DEBUG] ❌ ${this.node.name} 角色组件不存在`);
             return false;
         }
         
-        return char.isAlive();
+        const isAlive = char.isAlive();
+        if (!isAlive) {
+            console.warn(`[ORCA_DEBUG] ❌ ${this.node.name} 角色已死亡`);
+        }
+        
+        return isAlive;
     }
 
     /**

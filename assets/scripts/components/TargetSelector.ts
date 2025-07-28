@@ -106,21 +106,21 @@ export class TargetSelector extends Component implements ITargetSelector {
      * 查找最佳目标
      */
     public findBestTarget(myPosition: Vec3, myFaction: Faction, detectionRange: number): TargetInfo | null {
-        console.log(`%c[TARGET_DEBUG] 🎯 TargetSelector开始查找目标 - 我的阵营: ${myFaction}, 搜索范围: ${detectionRange}`, 'color: purple');
+        console.log(`[ORCA_DEBUG] 🎯 TargetSelector开始查找目标 - 我的阵营: ${myFaction}, 搜索范围: ${detectionRange}`);
         
         // 【调试】打印当前完整的注册表状态
-        console.log(`%c[TARGET_DEBUG] 📋 当前注册表状态:`, 'color: purple');
+        console.log(`[ORCA_DEBUG] 📋 当前注册表状态:`);
         for (const [faction, targets] of this.targetRegistry) {
             const validTargets = targets.filter(node => node && node.isValid);
-            console.log(`%c[TARGET_DEBUG] 🏛️ 阵营 ${faction}: ${validTargets.length} 个目标 [${validTargets.map(t => t.name).join(', ')}]`, 'color: purple');
+            console.log(`[ORCA_DEBUG] 🏛️ 阵营 ${faction}: ${validTargets.length} 个目标 [${validTargets.map(t => t.name).join(', ')}]`);
         }
         
         // 确定敌对阵营      
         const enemyFactions = this.getEnemyFactions(myFaction);
-        console.log(`%c[TARGET_DEBUG] 👹 敌对阵营列表: [${enemyFactions.join(', ')}]`, 'color: purple');
+        console.log(`[ORCA_DEBUG] 👹 敌对阵营列表: [${enemyFactions.join(', ')}]`);
         
         if (enemyFactions.length === 0) {
-            console.log(`%c[TARGET_DEBUG] ⚠️ 没有敌对阵营，无法查找目标`, 'color: orange');
+            console.warn(`[ORCA_DEBUG] ⚠️ 没有敌对阵营，无法查找目标`);
             return null;
         }
         
@@ -133,11 +133,11 @@ export class TargetSelector extends Component implements ITargetSelector {
         // 遍历所有敌对阵营
         for (const enemyFaction of enemyFactions) {
             const targets = this.getTargetsByFaction(enemyFaction);
-            console.log(`%c[TARGET_DEBUG] 🏛️ 阵营 ${enemyFaction} 有 ${targets.length} 个注册目标`, 'color: blue');
+            console.log(`[ORCA_DEBUG] 🏛️ 阵营 ${enemyFaction} 有 ${targets.length} 个注册目标`);
             
             for (const target of targets) {
                 if (!target || !target.isValid) {
-                    console.log(`%c[TARGET_DEBUG] ⚠️ 跳过无效目标节点`, 'color: orange');
+                    console.warn(`[ORCA_DEBUG] ⚠️ 跳过无效目标节点`);
                     continue;
                 }
                 
@@ -146,7 +146,8 @@ export class TargetSelector extends Component implements ITargetSelector {
                 
                 // 距离检查
                 if (distance > detectionRange) {
-                    console.log(`%c[TARGET_DEBUG] 📏 目标 ${target.name} 超出范围 (${distance.toFixed(1)} > ${detectionRange})`, 'color: gray');
+                    // 只有在调试模式下才打印距离检查信息，避免刷屏
+                    // console.log(`[ORCA_DEBUG] 📏 目标 ${target.name} 超出范围 (${distance.toFixed(1)} > ${detectionRange})`);
                     continue;
                 }
                 

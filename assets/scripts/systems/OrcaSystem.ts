@@ -328,12 +328,51 @@ export class OrcaSystem extends Component {
         for (const agent of this.agents) {
             if (!agent || !agent.isAgentValid()) continue;
 
-            console.log(`[123]期望速度: ${agent.prefVelocity}`);
+            console.log(`[ORCA_DEBUG] 🔍 检查代理 ${agent.node.name} 的期望速度状态`);
+            console.log(`[ORCA_DEBUG] 📍 代理位置: (${agent.position.x.toFixed(1)}, ${agent.position.y.toFixed(1)})`);
+            console.log(`[ORCA_DEBUG] 🎯 期望速度: (${agent.prefVelocity.x.toFixed(3)}, ${agent.prefVelocity.y.toFixed(3)}), 长度: ${agent.prefVelocity.length().toFixed(3)}`);
+            console.log(`[ORCA_DEBUG] 🏃 最大速度: ${agent.getMaxSpeed()}`);
+            console.log(`[ORCA_DEBUG] 🏛️ 代理阵营: ${agent.getFaction()}`);
+            console.log(`[ORCA_DEBUG] ✅ 代理有效性: ${agent.isAgentValid()}`);
+
             if (agent.prefVelocity.lengthSqr() < 0.01) {
-                console.warn(`[123] 代理 ${agent.node.name} 的期望速度(prefVelocity)为零或接近零!`, agent.prefVelocity);
+                console.warn(`[ORCA_DEBUG] ⚠️ 代理 ${agent.node.name} 的期望速度为零或接近零!`);
+                console.warn(`[ORCA_DEBUG] 🔍 详细分析:`);
+                console.warn(`[ORCA_DEBUG]   - 期望速度向量: Vec2(${agent.prefVelocity.x}, ${agent.prefVelocity.y})`);
+                console.warn(`[ORCA_DEBUG]   - 期望速度长度: ${agent.prefVelocity.length()}`);
+                console.warn(`[ORCA_DEBUG]   - 期望速度长度平方: ${agent.prefVelocity.lengthSqr()}`);
+                
+                // 检查代理的控制组件状态
+                const baseCharacter = agent.node.getComponent('BaseCharacterDemo') as any;
+                if (baseCharacter) {
+                    console.warn(`[ORCA_DEBUG]   - 控制模式: ${baseCharacter.controlMode}`);
+                    console.warn(`[ORCA_DEBUG]   - AI阵营: ${baseCharacter.aiFaction}`);
+                    console.warn(`[ORCA_DEBUG]   - 当前目标: ${baseCharacter.currentTarget ? baseCharacter.currentTarget.name : '无'}`);
+                    console.warn(`[ORCA_DEBUG]   - 移动方向: (${baseCharacter.moveDirection.x.toFixed(3)}, ${baseCharacter.moveDirection.y.toFixed(3)})`);
+                    
+                    // 检查AINavigationController状态
+                    const aiNav = agent.node.getComponent('AINavigationController') as any;
+                    if (aiNav) {
+                        console.warn(`[ORCA_DEBUG]   - AI导航状态: ${aiNav.currentState || '未知'}`);
+                        console.warn(`[ORCA_DEBUG]   - AI当前目标: ${aiNav.currentTarget ? aiNav.currentTarget.node.name : '无'}`);
+                    } else {
+                        console.warn(`[ORCA_DEBUG]   - AI导航控制器: 未找到`);
+                    }
+                } else {
+                    console.warn(`[ORCA_DEBUG]   - BaseCharacterDemo组件: 未找到`);
+                }
+                
+                console.warn(`[ORCA_DEBUG] 🔧 可能原因:`);
+                console.warn(`[ORCA_DEBUG]   1. AI未找到目标或目标丢失`);
+                console.warn(`[ORCA_DEBUG]   2. 角色距离目标过近（<0.1像素）`);
+                console.warn(`[ORCA_DEBUG]   3. AI导航状态异常（IDLE/BLOCKED等）`);
+                console.warn(`[ORCA_DEBUG]   4. 阵营设置错误导致目标搜索失败`);
+                console.warn(`[ORCA_DEBUG]   5. TargetSelector工作异常`);
             }
 
             const orcaLines: OrcaLine[] = (agent as any)._orcaLines || [];
+            console.log(`[ORCA_DEBUG] 📏 ORCA约束线数量: ${orcaLines.length}`);
+            
             if (orcaLines.length === 0) {
                 // 没有约束，直接使用期望速度
                 const maxSpeed = agent.getMaxSpeed();
@@ -343,6 +382,7 @@ export class OrcaSystem extends Component {
                 }
                 agent.newVelocity = newVelocity;
                 agent.setVelocity(newVelocity);
+                console.log(`[ORCA_DEBUG] ✅ 无约束，直接应用速度: (${newVelocity.x.toFixed(2)}, ${newVelocity.y.toFixed(2)})`);
                 solvedCount++;
                 continue;
             }
@@ -360,11 +400,14 @@ export class OrcaSystem extends Component {
             
             // 自适应迭代求解
             const converged = this.adaptiveConstraintSolver(newVelocity, sortedLines, maxSpeed, agent);
+            console.log(`[ORCA_DEBUG] 🧮 约束求解${converged ? '收敛' : '未收敛'}`);
             
             // 最终速度限制
             if (newVelocity.length() > maxSpeed) {
                 newVelocity.normalize().multiplyScalar(maxSpeed);
             }
+            
+            console.log(`[ORCA_DEBUG] 🎯 最终应用速度: (${newVelocity.x.toFixed(2)}, ${newVelocity.y.toFixed(2)}), 长度: ${newVelocity.length().toFixed(2)}`);
             
             // 应用速度
             agent.newVelocity = newVelocity;

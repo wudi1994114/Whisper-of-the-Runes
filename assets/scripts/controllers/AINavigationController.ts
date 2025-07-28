@@ -381,25 +381,27 @@ export class AINavigationController extends Component {
      * 搜索目标状态更新
      */
     private updateSeekingState(currentTime: number): void {
-        console.log(`%c[TARGET_DEBUG] 🔍 ${this.node.name} 开始搜索目标`, 'color: cyan; font-weight: bold');
+        console.log(`[ORCA_DEBUG] 🔍 ${this.node.name} 开始搜索目标状态更新`);
         
         if (!this.targetSelector) {
-            console.log(`%c[TARGET_DEBUG] ❌ ${this.node.name} 目标选择器不可用`, 'color: red');
+            console.warn(`[ORCA_DEBUG] ❌ ${this.node.name} 目标选择器不可用`);
             return;
         }
         
         // 【修复】从BaseCharacterDemo获取阵营信息
         const currentFaction = this.getCurrentFaction();
         if (!currentFaction) {
-            console.log(`%c[TARGET_DEBUG] ⚠️ ${this.node.name} 无法获取阵营信息，等待BaseCharacterDemo初始化`, 'color: orange');
+            console.warn(`[ORCA_DEBUG] ⚠️ ${this.node.name} 无法获取阵营信息，等待BaseCharacterDemo初始化`);
             return;
         }
         
-        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 阵营: ${currentFaction}, 搜索范围: ${this.detectionRange}`, 'color: blue');
+        console.log(`[ORCA_DEBUG] 🏛️ ${this.node.name} 当前阵营: ${currentFaction}, 搜索范围: ${this.detectionRange}`);
+        console.log(`[ORCA_DEBUG] 📍 ${this.node.name} 当前位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
         
         this.lastTargetSearchTime = currentTime;
         
         // 使用增强版目标选择器搜索目标
+        console.log(`[ORCA_DEBUG] 🎯 ${this.node.name} 开始搜索目标...`);
         const targetInfo = this.targetSelector.findBestTarget(
             this.node.position,
             currentFaction,
@@ -409,19 +411,34 @@ export class AINavigationController extends Component {
         if (targetInfo) {
             this.currentTarget = targetInfo;
             this.performanceStats.targetsFound++;
-            console.log(`%c[TARGET_DEBUG] 🎯 ${this.node.name} 找到目标: ${targetInfo.node.name}, 距离: ${targetInfo.distance.toFixed(1)}, 阵营: ${targetInfo.faction}`, 'color: green');
+            console.log(`[ORCA_DEBUG] ✅ ${this.node.name} 找到目标: ${targetInfo.node.name}`);
+            console.log(`[ORCA_DEBUG]   - 目标位置: (${targetInfo.position.x.toFixed(1)}, ${targetInfo.position.y.toFixed(1)})`);
+            console.log(`[ORCA_DEBUG]   - 目标距离: ${targetInfo.distance.toFixed(1)}`);
+            console.log(`[ORCA_DEBUG]   - 目标阵营: ${targetInfo.faction}`);
+            console.log(`[ORCA_DEBUG]   - 攻击范围: ${this.attackRange}`);
             
             // 检查是否在攻击范围内
             if (targetInfo.distance <= this.attackRange) {
-                console.log(`%c[TARGET_DEBUG] ⚔️ ${this.node.name} 目标在攻击范围内 (${targetInfo.distance.toFixed(1)} <= ${this.attackRange})`, 'color: green');
+                console.log(`[ORCA_DEBUG] ⚔️ ${this.node.name} 目标在攻击范围内，转入APPROACHING_TARGET状态`);
                 this.transitionToState(NavigationState.APPROACHING_TARGET, currentTime);
             } else {
-                console.log(`%c[TARGET_DEBUG] 🏃 ${this.node.name} 目标超出攻击范围，开始寻路 (${targetInfo.distance.toFixed(1)} > ${this.attackRange})`, 'color: yellow');
+                console.log(`[ORCA_DEBUG] 🏃 ${this.node.name} 目标超出攻击范围，转入PATHFINDING状态`);
                 this.transitionToState(NavigationState.PATHFINDING, currentTime);
             }
         } else {
             // 没有找到目标，返回待机状态
-            console.log(`%c[TARGET_DEBUG] ❌ ${this.node.name} 未找到目标，返回IDLE状态 (阵营: ${currentFaction}, 搜索范围: ${this.detectionRange})`, 'color: red');
+            console.warn(`[ORCA_DEBUG] ❌ ${this.node.name} 未找到目标，转入IDLE状态`);
+            console.warn(`[ORCA_DEBUG]   - 搜索阵营: ${currentFaction}`);
+            console.warn(`[ORCA_DEBUG]   - 搜索范围: ${this.detectionRange}`);
+            console.warn(`[ORCA_DEBUG]   - 搜索位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
+            
+            // 检查TargetSelector的注册情况
+            const selector = this.targetSelector as any;
+            if (selector && selector.printFullRegistryInfo) {
+                console.warn(`[ORCA_DEBUG] 📊 ${this.node.name} 打印目标选择器注册信息:`);
+                selector.printFullRegistryInfo();
+            }
+            
             this.transitionToState(NavigationState.IDLE, currentTime);
         }
     }
@@ -522,20 +539,23 @@ export class AINavigationController extends Component {
      */
     private updateApproachingTargetState(currentTime: number): void {
         if (!this.currentTarget) {
+            console.warn(`[ORCA_DEBUG] ⚠️ ${this.node.name} 接近目标状态但无当前目标，转入IDLE`);
             this.transitionToState(NavigationState.IDLE, currentTime);
             return;
         }
         
         const currentDistance = Vec3.distance(this.node.position, this.currentTarget.position);
+        console.log(`[ORCA_DEBUG] 🎯 ${this.node.name} 接近目标 ${this.currentTarget.node.name}，距离: ${currentDistance.toFixed(1)}`);
         
         // 如果脱离攻击范围，重新寻路
         if (currentDistance > this.attackRange * 1.2) {
-            console.log(`%c[AINavigationController] 📏 脱离攻击范围，重新寻路`, 'color: orange');
+            console.log(`[ORCA_DEBUG] 📏 ${this.node.name} 脱离攻击范围(${currentDistance.toFixed(1)} > ${(this.attackRange * 1.2).toFixed(1)})，重新寻路`);
             this.transitionToState(NavigationState.PATHFINDING, currentTime);
             return;
         }
         
         // 直接朝目标移动（由ORCA处理避让）
+        console.log(`[ORCA_DEBUG] 🎯 ${this.node.name} 设置期望速度朝向目标`);
         this.setOrcaDesiredVelocityTowards(this.currentTarget.position);
     }
     
@@ -581,11 +601,40 @@ export class AINavigationController extends Component {
         this.currentState = newState;
         this.stateEnterTime = currentTime;
         
-        // 减少状态转换日志，仅记录重要转换
-        if (newState === NavigationState.FOLLOWING_PATH || 
-            newState === NavigationState.BLOCKED ||
-            newState === NavigationState.LOST_TARGET) {
-            console.log(`%c[AINavigationController] 🔄 状态转换: ${oldState} → ${newState}`, 'color: purple');
+        // 记录所有状态转换的调试信息
+        console.log(`[ORCA_DEBUG] 🔄 ${this.node.name} 状态转换: ${oldState} → ${newState}`);
+        
+        // 特殊状态的额外信息
+        switch (newState) {
+            case NavigationState.IDLE:
+                console.log(`[ORCA_DEBUG] 😴 ${this.node.name} 进入待机状态 - 将清空期望速度`);
+                if (this.orcaAgent) {
+                    this.orcaAgent.prefVelocity.set(0, 0);
+                    console.log(`[ORCA_DEBUG] 🛑 ${this.node.name} 已清空期望速度`);
+                }
+                break;
+            case NavigationState.SEEKING_TARGET:
+                console.log(`[ORCA_DEBUG] 🔍 ${this.node.name} 进入搜索目标状态`);
+                break;
+            case NavigationState.APPROACHING_TARGET:
+                console.log(`[ORCA_DEBUG] 🎯 ${this.node.name} 进入接近目标状态`);
+                if (this.currentTarget) {
+                    console.log(`[ORCA_DEBUG]   - 目标: ${this.currentTarget.node.name}`);
+                    console.log(`[ORCA_DEBUG]   - 距离: ${Vec3.distance(this.node.position, this.currentTarget.position).toFixed(1)}`);
+                }
+                break;
+            case NavigationState.PATHFINDING:
+                console.log(`[ORCA_DEBUG] 🗺️ ${this.node.name} 进入寻路状态`);
+                break;
+            case NavigationState.FOLLOWING_PATH:
+                console.log(`[ORCA_DEBUG] 🛤️ ${this.node.name} 进入跟随路径状态`);
+                break;
+            case NavigationState.BLOCKED:
+                console.log(`[ORCA_DEBUG] 🚧 ${this.node.name} 进入阻挡状态`);
+                break;
+            case NavigationState.LOST_TARGET:
+                console.log(`[ORCA_DEBUG] 🔍 ${this.node.name} 进入丢失目标状态`);
+                break;
         }
     }
     
@@ -594,7 +643,7 @@ export class AINavigationController extends Component {
      */
     private setOrcaDesiredVelocityTowards(targetPosition: Vec3): void {
         if (!this.orcaAgent) {
-            console.warn(`%c[AINavigationController] ⚠️ ORCA代理不可用`, 'color: orange');
+            console.warn(`[ORCA_DEBUG] ⚠️ ${this.node.name} ORCA代理不可用`);
             return;
         }
         
@@ -605,11 +654,16 @@ export class AINavigationController extends Component {
         );
         
         const distance = direction.length();
+        console.log(`[ORCA_DEBUG] 📐 ${this.node.name} 计算期望速度:`);
+        console.log(`[ORCA_DEBUG]   - 当前位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
+        console.log(`[ORCA_DEBUG]   - 目标位置: (${targetPosition.x.toFixed(1)}, ${targetPosition.y.toFixed(1)})`);
+        console.log(`[ORCA_DEBUG]   - 方向向量: (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})`);
+        console.log(`[ORCA_DEBUG]   - 距离: ${distance.toFixed(3)}`);
         
         if (distance < 0.1) {
             // 已经很接近，停止移动
             this.orcaAgent.prefVelocity.set(0, 0);
-            console.log(`%c[AINavigationController] 🛑 ${this.node.name} 已接近目标，停止移动`, 'color: green');
+            console.log(`[ORCA_DEBUG] 🛑 ${this.node.name} 距离过近(${distance.toFixed(3)} < 0.1)，设置期望速度为零`);
             return;
         }
         
@@ -619,7 +673,10 @@ export class AINavigationController extends Component {
         const desiredVelocity = direction.multiplyScalar(maxSpeed);
         
         this.orcaAgent.prefVelocity.set(desiredVelocity.x, desiredVelocity.y);
-        console.log(`%c[AINavigationController] 🎯 ${this.node.name} 设置期望速度: (${desiredVelocity.x.toFixed(1)}, ${desiredVelocity.y.toFixed(1)})`, 'color: blue');
+        console.log(`[ORCA_DEBUG] ✅ ${this.node.name} 设置期望速度成功:`);
+        console.log(`[ORCA_DEBUG]   - 归一化方向: (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})`);
+        console.log(`[ORCA_DEBUG]   - 最大速度: ${maxSpeed}`);
+        console.log(`[ORCA_DEBUG]   - 期望速度: (${desiredVelocity.x.toFixed(2)}, ${desiredVelocity.y.toFixed(2)})`);
     }
     
     /**
