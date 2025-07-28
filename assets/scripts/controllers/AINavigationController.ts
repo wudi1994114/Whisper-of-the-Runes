@@ -5,6 +5,8 @@ import { PathfindingManager, PathInfo } from '../systems/PathfindingManager';
 import { OrcaAgent } from '../components/OrcaAgent';
 import { Faction } from '../configs/FactionConfig';
 import { TargetInfo, ITargetSelector } from '../components/MonsterAI';
+import { BaseCharacterDemo } from '../entities/BaseCharacterDemo';
+import { TargetSelectorFactory } from '../configs/TargetSelectorFactory';
 
 const { ccclass, property } = _decorator;
 
@@ -136,56 +138,20 @@ export class AINavigationController extends Component {
      * 智能初始化目标选择器
      */
     private initializeTargetSelector(): void {
-        // 优先尝试使用增强版目标选择器
-        let enhancedSelector = EnhancedTargetSelector.getInstance();
+        console.log(`%c[AINavigationController] 🎯 开始初始化目标选择器 (使用工厂模式)`, 'color: blue; font-weight: bold');
         
-        if (enhancedSelector) {
-            this.targetSelector = enhancedSelector;
-            console.log(`%c[AINavigationController] 🎯 使用增强版目标选择器`, 'color: green');
-            return;
+        // 使用工厂获取统一配置的选择器
+        this.targetSelector = TargetSelectorFactory.getInstance();
+        
+        if (this.targetSelector) {
+            const selectorInfo = TargetSelectorFactory.getCurrentSelectorInfo();
+            console.log(`%c[AINavigationController] ✅ 目标选择器初始化成功: ${selectorInfo.instance} (${selectorInfo.type})`, 'color: green; font-weight: bold');
+            
+            // 打印工厂状态（调试用）
+            TargetSelectorFactory.printStatus();
+        } else {
+            console.error(`%c[AINavigationController] ❌ 目标选择器初始化失败，AI导航将无法正常工作`, 'color: red; font-weight: bold');
         }
-        
-        // 如果增强版不可用，尝试创建一个
-        try {
-            const gameManagerNode = find('GameManager');
-            if (gameManagerNode) {
-                const enhancedComponent = gameManagerNode.addComponent(EnhancedTargetSelector);
-                if (enhancedComponent) {
-                    this.targetSelector = enhancedComponent;
-                    console.log(`%c[AINavigationController] 🎯 创建了增强版目标选择器`, 'color: blue');
-                    return;
-                }
-            }
-        } catch (error) {
-            console.warn(`%c[AINavigationController] ⚠️ 创建增强版目标选择器失败:`, 'color: orange', error);
-        }
-        
-        // 回退到原始目标选择器
-        const originalSelector = TargetSelector.getInstance();
-        if (originalSelector) {
-            this.targetSelector = originalSelector;
-            console.log(`%c[AINavigationController] 🎯 回退到原始目标选择器`, 'color: yellow');
-            return;
-        }
-        
-        // 如果原始选择器也不可用，尝试创建一个
-        try {
-            const gameManagerNode = find('GameManager');
-            if (gameManagerNode) {
-                const originalComponent = gameManagerNode.addComponent(TargetSelector);
-                if (originalComponent) {
-                    this.targetSelector = originalComponent;
-                    console.log(`%c[AINavigationController] 🎯 创建了原始目标选择器`, 'color: cyan');
-                    return;
-                }
-            }
-        } catch (error) {
-            console.warn(`%c[AINavigationController] ⚠️ 创建原始目标选择器失败:`, 'color: orange', error);
-        }
-        
-        // 如果都失败了，输出错误信息
-        console.error(`%c[AINavigationController] ❌ 无法初始化任何目标选择器，AI导航将无法正常工作`, 'color: red');
-        this.targetSelector = null;
     }
     
     /**
@@ -257,7 +223,7 @@ export class AINavigationController extends Component {
      * 获取当前角色的阵营（从BaseCharacterDemo获取）
      */
     private getCurrentFaction(): Faction | null {
-        const baseCharacter = this.node.getComponent('BaseCharacterDemo') as any;
+        const baseCharacter = this.node.getComponent(BaseCharacterDemo) as any;
         if (baseCharacter && baseCharacter.getFaction) {
             return baseCharacter.getFaction();
         }
@@ -279,12 +245,11 @@ export class AINavigationController extends Component {
             console.log(`%c[TARGET_DEBUG] 🔄 ${this.node.name} AI状态: ${this.currentState}, 阵营: ${currentFaction || '未初始化'}, 有目标: ${!!this.currentTarget}`, 'color: gray');
             
             // 【立即调试】打印TargetSelector状态
-            const selector = TargetSelector.getInstance();
+            const selector = TargetSelectorFactory.getInstance();
             if (selector) {
-                console.log(`%c[TARGET_DEBUG] 📊 TargetSelector可用，立即检查注册表状态`, 'color: yellow');
-                (selector as any).printFullRegistryInfo();
+                console.log(`%c[TARGET_DEBUG] 📊 TargetSelector可用`, 'color: yellow');
             } else {
-                console.log(`%c[TARGET_DEBUG] ❌ TargetSelector未初始化！`, 'color: red');
+                console.log(`%c[TARGET_DEBUG] ❌ 目标选择器工厂未初始化！`, 'color: red');
             }
             
             this.lastDebugTime = currentTime;
@@ -432,12 +397,7 @@ export class AINavigationController extends Component {
             console.warn(`[ORCA_DEBUG]   - 搜索范围: ${this.detectionRange}`);
             console.warn(`[ORCA_DEBUG]   - 搜索位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
             
-            // 检查TargetSelector的注册情况
-            const selector = this.targetSelector as any;
-            if (selector && selector.printFullRegistryInfo) {
-                console.warn(`[ORCA_DEBUG] 📊 ${this.node.name} 打印目标选择器注册信息:`);
-                selector.printFullRegistryInfo();
-            }
+            // 检查TargetSelector的注册情况已移除（无需打印注册表信息）
             
             this.transitionToState(NavigationState.IDLE, currentTime);
         }

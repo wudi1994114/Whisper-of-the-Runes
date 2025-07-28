@@ -37,6 +37,7 @@ export class OrcaSystem extends Component {
     private agents: OrcaAgent[] = [];
     private readonly UPDATE_INTERVAL = 0.05; // ORCA建议更频繁的更新 (20 FPS)
     private lastUpdateTime = 0;
+    private lastDebugPrintTime = 0;
 
     // 临时变量，避免GC
     private tempVec2_1 = new Vec2();
@@ -54,14 +55,20 @@ export class OrcaSystem extends Component {
 
     protected onLoad() {
         if (OrcaSystem._instance && OrcaSystem._instance !== this) {
-            console.warn('OrcaSystem: 实例已存在，销毁重复实例');
+            console.warn('[ORCA_DEBUG] ⚠️ OrcaSystem: 实例已存在，销毁重复实例');
             this.destroy();
             return;
         }
         OrcaSystem._instance = this;
         
-        console.log('🔀 OrcaSystem: ORCA避让系统已初始化');
-        console.log('🔀 OrcaSystem: 集成GridManager，高性能邻居查询');
+        console.log('[ORCA_DEBUG] 🔀 OrcaSystem: ORCA避让系统已初始化');
+        console.log('[ORCA_DEBUG] 🔀 OrcaSystem: 集成GridManager，高性能邻居查询');
+        console.log(`[ORCA_DEBUG] 🔀 OrcaSystem节点: ${this.node.name}, 父节点: ${this.node.parent?.name || '无'}`);
+        
+        // 确认update方法会被调用
+        this.scheduleOnce(() => {
+            console.log('[ORCA_DEBUG] 🔀 OrcaSystem: 延迟测试 - 确认节点在场景中并且update会被调用');
+        }, 1.0);
     }
     
     /**
@@ -69,13 +76,16 @@ export class OrcaSystem extends Component {
      */
     public registerAgent(agent: OrcaAgent): void {
         if (!agent || !agent.isAgentValid()) {
-            console.warn('OrcaSystem: 尝试注册无效的代理');
+            console.warn('[ORCA_DEBUG] ❌ OrcaSystem: 尝试注册无效的代理');
             return;
         }
         
         if (this.agents.indexOf(agent) === -1) {
             this.agents.push(agent);
-            console.log(`🔀 OrcaSystem: 代理已注册 ${agent.node.name} (总数: ${this.agents.length})`);
+            console.log(`[ORCA_DEBUG] 🔀 OrcaSystem: 代理已注册 ${agent.node.name} (总数: ${this.agents.length})`);
+            console.log(`[ORCA_DEBUG] 🔀 OrcaSystem节点状态: 父节点=${this.node.parent?.name || '无'}, 场景中=${this.node.scene ? '是' : '否'}`);
+        } else {
+            console.warn(`[ORCA_DEBUG] ⚠️ OrcaSystem: 代理 ${agent.node.name} 已经注册，跳过重复注册`);
         }
     }
 
@@ -96,6 +106,13 @@ export class OrcaSystem extends Component {
             return;
         }
         this.lastUpdateTime = currentTime;
+        
+        // 每5秒打印一次调试信息，确认OrcaSystem正在运行
+        if (!this.lastDebugPrintTime || currentTime - this.lastDebugPrintTime > 5.0) {
+            console.log(`[ORCA_DEBUG] 🔄 OrcaSystem update运行中, 代理数量: ${this.agents.length}`);
+            this.lastDebugPrintTime = currentTime;
+        }
+        
         // 清理无效代理
         this.cleanupInvalidAgents();
         if (this.agents.length === 0) {

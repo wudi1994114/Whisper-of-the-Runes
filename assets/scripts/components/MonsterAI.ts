@@ -93,4 +93,10 @@ export interface ITargetSelector {
     
     // 计算目标优先级
     calculateTargetPriority(target: Node, myPosition: Vec3): number;
+    
+    // 注册目标到指定阵营
+    registerTarget(target: Node, faction: Faction): void;
+    
+    // 从指定阵营中反注册目标
+    deregisterTarget(target: Node, faction: Faction): void;
 } 

@@ -4,14 +4,12 @@ import { EnemyData } from '../configs/EnemyConfig';
 import { CharacterStats } from '../components/CharacterStats';
 import { HealthBarComponent } from '../components/HealthBarComponent';
 import { systemConfigManager } from '../configs/SystemConfig';
-import { poolManager } from '../managers/PoolManager';
 import { AnimationState, AnimationDirection } from '../configs/AnimationConfig';
 import { animationManager } from '../managers/AnimationManager';
 import { Faction, FactionUtils } from '../configs/FactionConfig';
 import { TargetInfo } from '../components/MonsterAI';
 
 import { factionManager } from '../managers/FactionManager';
-import { TargetSelector } from '../components/TargetSelector';
 import { GameEvents } from '../components/GameEvents';
 import { eventManager } from '../managers/EventManager';
 import { FireballLauncher } from '../controllers/FireballLauncher';
@@ -27,34 +25,11 @@ import { TempVarPool } from '../utils/TempVarPool';
 import { ControlMode, CharacterState } from '../state-machine/CharacterEnums';
 import { StateMachine, ICharacterController } from '../state-machine/CharacterStateMachine';
 import { CharacterPoolFactory } from '../pool/CharacterPoolSystem';
+import { TargetSelectorFactory } from '../configs/TargetSelectorFactory';
 
 
 const { ccclass, property } = _decorator;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/**
- * 角色演示基类
- * 支持对象池管理的角色演示系统
- * 现在集成了智能攻击系统和完整的角色功能
- * 【网格优化】实现ICrowdableCharacter接口，支持ORCA避让系统
- */
 @ccclass('BaseCharacterDemo')
 export class BaseCharacterDemo extends Component implements ICrowdableCharacter, ICharacterController {
 
@@ -404,9 +379,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         if (!this.enemyData) return null;
 
         const attackRange = this.enemyData.attackRange || 60;
-        const selector = TargetSelector.getInstance();
+        const selector = TargetSelectorFactory.getInstance();
         if (!selector) {
-            console.warn(`[${this.getCharacterDisplayName()}] 全局TargetSelector未初始化，无法查找敌人`);
+            console.warn(`[${this.getCharacterDisplayName()}] 目标选择器工厂未初始化，无法查找敌人`);
             return null;
         }
 
@@ -825,9 +800,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     private updateAITargetSearch(): void {
         if (!this.enemyData) return;
         
-        const selector = TargetSelector.getInstance();
+        const selector = TargetSelectorFactory.getInstance();
         if (!selector) {
-            console.warn(`[${this.getCharacterDisplayName()}] 全局TargetSelector未初始化`);
+            console.warn(`[${this.getCharacterDisplayName()}] 目标选择器工厂未初始化`);
             return;
         }
         // 使用CharacterStats中的实际阵营
@@ -1717,11 +1692,11 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 【ORCA支持】如果有OrcaAgent，使用ORCA系统控制移动
         if (this.orcaAgent && this.orcaAgent.isAgentValid()) {
-            // ORCA系统会自动处理速度，这里只需要处理停止状态
-            if (this.moveDirection.length() === 0) {
-                this.orcaAgent.prefVelocity.set(0, 0);
-            }
-            // 速度由OrcaSystem自动设置到rigidBody，这里不需要手动设置
+            // ORCA系统完全接管移动控制，prefVelocity由AINavigationController设置
+            // 这里不再基于moveDirection来覆盖prefVelocity，避免干扰AI导航
+            console.log(`[ORCA_DEBUG] 🎮 ${this.getCharacterDisplayName()} 使用ORCA系统控制移动`);
+            console.log(`[ORCA_DEBUG]   - 当前期望速度: (${this.orcaAgent.prefVelocity.x.toFixed(2)}, ${this.orcaAgent.prefVelocity.y.toFixed(2)})`);
+            // 速度由OrcaSystem自动计算并设置到rigidBody
         } else {
             // 【回退逻辑】没有ORCA代理时，使用原有的移动逻辑
             // 检查是否有移动输入
@@ -2055,17 +2030,21 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 向目标选择器注册当前角色
      */
     private registerToTargetSelector(): void {
-        console.log(`%c[TARGET_DEBUG] 📝 ${this.node.name} 开始注册到目标选择器`, 'color: teal');
+        console.log(`%c[TARGET_DEBUG] 📝 ${this.node.name} 开始注册到目标选择器 (使用工厂模式)`, 'color: teal; font-weight: bold');
         
-        const selector = TargetSelector.getInstance();
+        const faction = this.getFaction();
+        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 注册阵营: ${faction}`, 'color: teal');
+        
+        // 使用工厂获取统一配置的选择器进行注册
+        const selector = TargetSelectorFactory.getInstance();
         if (selector) {
-            const faction = this.getFaction();
-            console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 注册阵营: ${faction}`, 'color: teal');
+            const selectorInfo = TargetSelectorFactory.getCurrentSelectorInfo();
+            console.log(`%c[TARGET_DEBUG] 🎯 使用选择器: ${selectorInfo.instance} (${selectorInfo.type})`, 'color: teal');
             
             selector.registerTarget(this.node, faction);
-            console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 已完成目标选择器注册`, 'color: green');
+            console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 已完成目标选择器注册`, 'color: green; font-weight: bold');
         } else {
-            console.log(`%c[TARGET_DEBUG] ❌ ${this.node.name} 目标选择器未初始化，无法注册`, 'color: red');
+            console.error(`%c[TARGET_DEBUG] ❌ ${this.node.name} 目标选择器工厂未初始化，无法注册`, 'color: red; font-weight: bold');
         }
     }
     
@@ -2073,17 +2052,21 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 从目标选择器反注册当前角色
      */
     private deregisterFromTargetSelector(): void {
-        console.log(`%c[TARGET_DEBUG] 🗑️ ${this.node.name} 开始从目标选择器反注册`, 'color: teal');
+        console.log(`%c[TARGET_DEBUG] 🗑️ ${this.node.name} 开始从目标选择器反注册 (使用工厂模式)`, 'color: teal; font-weight: bold');
         
-        const selector = TargetSelector.getInstance();
+        const faction = this.getFaction();
+        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 反注册阵营: ${faction}`, 'color: teal');
+        
+        // 使用工厂获取统一配置的选择器进行反注册
+        const selector = TargetSelectorFactory.getInstance();
         if (selector) {
-            const faction = this.getFaction();
-            console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 反注册阵营: ${faction}`, 'color: teal');
+            const selectorInfo = TargetSelectorFactory.getCurrentSelectorInfo();
+            console.log(`%c[TARGET_DEBUG] 🎯 使用选择器: ${selectorInfo.instance} (${selectorInfo.type})`, 'color: teal');
             
             selector.deregisterTarget(this.node, faction);
-            console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 已完成目标选择器反注册`, 'color: orange');
+            console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 已完成目标选择器反注册`, 'color: orange; font-weight: bold');
         } else {
-            console.log(`%c[TARGET_DEBUG] ⚠️ ${this.node.name} 目标选择器未初始化，跳过反注册`, 'color: orange');
+            console.warn(`%c[TARGET_DEBUG] ⚠️ ${this.node.name} 目标选择器工厂未初始化，跳过反注册`, 'color: orange');
         }
     }
 
