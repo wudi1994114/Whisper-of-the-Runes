@@ -10,18 +10,6 @@ interface OrcaLine {
 
 const { ccclass } = _decorator;
 
-/**
- * ORCA系统管理器
- * 实现Optimal Reciprocal Collision Avoidance算法
- * 
- * 核心概念解释：
- * 1. 速度障碍(VO): 在速度空间中，会导致碰撞的所有相对速度形成的锥形区域
- * 2. 截断速度障碍: 由于我们只关心有限时间内的碰撞，VO锥体被截断成有限区域
- * 3. ORCA线: 将VO区域一分为二的直线，代理的新速度应该在"安全"一侧
- * 4. 互惠性: 两个代理各自承担50%的避让责任，避免"互相礼让"的僵局
- * 
- * 替代传统的Boids系统，提供更精确和高效的避让行为
- */
 @ccclass('OrcaSystem')
 export class OrcaSystem extends Component {
     private static _instance: OrcaSystem | null = null;
@@ -55,20 +43,10 @@ export class OrcaSystem extends Component {
 
     protected onLoad() {
         if (OrcaSystem._instance && OrcaSystem._instance !== this) {
-            console.warn('[ORCA_DEBUG] ⚠️ OrcaSystem: 实例已存在，销毁重复实例');
             this.destroy();
             return;
         }
         OrcaSystem._instance = this;
-        
-        console.log('[ORCA_DEBUG] 🔀 OrcaSystem: ORCA避让系统已初始化');
-        console.log('[ORCA_DEBUG] 🔀 OrcaSystem: 集成GridManager，高性能邻居查询');
-        console.log(`[ORCA_DEBUG] 🔀 OrcaSystem节点: ${this.node.name}, 父节点: ${this.node.parent?.name || '无'}`);
-        
-        // 确认update方法会被调用
-        this.scheduleOnce(() => {
-            console.log('[ORCA_DEBUG] 🔀 OrcaSystem: 延迟测试 - 确认节点在场景中并且update会被调用');
-        }, 1.0);
     }
     
     /**
@@ -76,16 +54,11 @@ export class OrcaSystem extends Component {
      */
     public registerAgent(agent: OrcaAgent): void {
         if (!agent || !agent.isAgentValid()) {
-            console.warn('[ORCA_DEBUG] ❌ OrcaSystem: 尝试注册无效的代理');
             return;
         }
         
         if (this.agents.indexOf(agent) === -1) {
             this.agents.push(agent);
-            console.log(`[ORCA_DEBUG] 🔀 OrcaSystem: 代理已注册 ${agent.node.name} (总数: ${this.agents.length})`);
-            console.log(`[ORCA_DEBUG] 🔀 OrcaSystem节点状态: 父节点=${this.node.parent?.name || '无'}, 场景中=${this.node.scene ? '是' : '否'}`);
-        } else {
-            console.warn(`[ORCA_DEBUG] ⚠️ OrcaSystem: 代理 ${agent.node.name} 已经注册，跳过重复注册`);
         }
     }
 
@@ -102,28 +75,45 @@ export class OrcaSystem extends Component {
 
     protected update(deltaTime: number): void {
         const currentTime = Date.now() / 1000;
+        
+        // 控制更新频率
         if (currentTime - this.lastUpdateTime < this.UPDATE_INTERVAL) {
             return;
         }
-        this.lastUpdateTime = currentTime;
         
-        // 每5秒打印一次调试信息，确认OrcaSystem正在运行
-        if (!this.lastDebugPrintTime || currentTime - this.lastDebugPrintTime > 5.0) {
-            console.log(`[ORCA_DEBUG] 🔄 OrcaSystem update运行中, 代理数量: ${this.agents.length}`);
+        // 【调试增强】添加ORCA系统运行状态日志
+        if (currentTime - this.lastDebugPrintTime > 2.0) { // 每2秒打印一次
+            console.log(`[123|OrcaSystem] OrcaSystem: 运行中，代理数量=${this.agents.length}, 活跃代理=${this.agents.filter(a => a && a.isAgentValid()).length}`)
             this.lastDebugPrintTime = currentTime;
         }
         
+        this.lastUpdateTime = currentTime;
+        
         // 清理无效代理
-        this.cleanupInvalidAgents();
+        this.agents = this.agents.filter(agent => agent && agent.isAgentValid());
+        
         if (this.agents.length === 0) {
+            console.log(`[123|OrcaSystem] OrcaSystem: 无活跃代理，跳过更新`)
             return;
         }
-        // 1. 计算每个Agent的ORCA线
+        
+        console.log(`[123|OrcaSystem] OrcaSystem: 开始处理 ${this.agents.length} 个代理`)
+        
+        // 重置性能统计
+        this.performanceStats.activeAgents = this.agents.length;
+        this.performanceStats.orcaLinesCalculated = 0;
+        this.performanceStats.velocitiesSolved = 0;
+        this.performanceStats.averageNeighborsPerAgent = 0;
+        
+        // 计算ORCA约束线
         this.computeOrcaLines();
-        // 2. 求解并应用新速度
+        
+        // 求解并应用速度
         this.solveAndApplyVelocities();
-        // 3. 更新性能统计
-        this.updatePerformanceStats();
+        
+        this.performanceStats.lastUpdateTime = currentTime;
+        
+        console.log(`[123|OrcaSystem] OrcaSystem: 完成更新，计算了 ${this.performanceStats.orcaLinesCalculated} 条约束线，求解了 ${this.performanceStats.velocitiesSolved} 个速度`)
     }
 
     /**
@@ -189,6 +179,11 @@ export class OrcaSystem extends Component {
      * 基于标准RVO2算法实现，修复了锥体投影逻辑
      */
     private calculateAgentOrcaLine(agentA: OrcaAgent, agentB: OrcaAgent): OrcaLine | null {
+        // 【修复】直接检查节点名称，排除自己和自己计算
+        if (agentA.node.name === agentB.node.name) {
+            return null;
+        }
+        
         const rbA = agentA.character?.getRigidBody();
         const rbB = agentB.character?.getRigidBody();
         if (!rbA || !rbB) return null;
@@ -200,6 +195,8 @@ export class OrcaSystem extends Component {
         const posB = agentB.position;
         const radiusA = agentA.getEffectiveRadius(); // 使用有效半径
         const radiusB = agentB.getEffectiveRadius(); // 使用有效半径
+        
+        console.log(`[ORCA 调试] A半径: ${radiusA}, B半径: ${radiusB}`);
         const timeHorizon = agentA.getEffectiveTimeHorizon(); // 使用有效时间域
 
         // 根据响应敏感度调整互惠性
@@ -287,21 +284,26 @@ export class OrcaSystem extends Component {
         } else {
             // === 情况2：代理发生碰撞（重叠），需要立即分离 ===
             // 物理意义：两个代理的避让半径重叠，必须立即推开以避免"卡住"
+            console.log(`[ORCA 调试] ${agentA.node.name} 和 ${agentB.node.name} 进入重叠处理逻辑！距离: ${dist}, 组合半径: ${combinedRadius}`);
             
             const invTimeStep = 1.0 / this.UPDATE_INTERVAL;
-            
-            // 计算最小分离距离和方向
-            // separationVector: 指向从当前重叠状态到刚好不重叠状态的向量
-            const separationVector = relativePosition.length() > 0.001 ? 
-                relativePosition.clone().normalize().multiplyScalar(combinedRadius - dist) :
-                // 完全重叠时，随机选择分离方向
-                new Vec2(Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(combinedRadius);
+            let separationVector: Vec2;
+            if (relativePosition.length() > 0.001) {
+                separationVector = relativePosition.clone().normalize().multiplyScalar(combinedRadius - dist);
+            } else {
+                // 完全重叠时，使用一个基于Agent ID的、固定的、非对称的推开方向
+                // 这样A推B和B推A的方向不是完全相反的，有助于打破对称性
+                const angleOffset = (agentA.node.uuid.charCodeAt(0) % 16) / 16.0 * Math.PI; // 简单的基于ID的偏移
+                const pushDirection = new Vec2(Math.cos(angleOffset), Math.sin(angleOffset));
+                separationVector = pushDirection.multiplyScalar(combinedRadius);
+            }
             
             // 计算达到分离所需的相对速度：距离/时间
             const requiredRelativeVel = separationVector.multiplyScalar(invTimeStep);
             
             // u: 从当前相对速度到所需相对速度的修正向量
             u = requiredRelativeVel.subtract(relativeVelocity);
+            console.log(`[ORCA 调试] 计算出的分离向量 u: (${u.x.toFixed(2)}, ${u.y.toFixed(2)})`);
         }
 
         // === 构建ORCA约束线 ===
@@ -345,50 +347,7 @@ export class OrcaSystem extends Component {
         for (const agent of this.agents) {
             if (!agent || !agent.isAgentValid()) continue;
 
-            console.log(`[ORCA_DEBUG] 🔍 检查代理 ${agent.node.name} 的期望速度状态`);
-            console.log(`[ORCA_DEBUG] 📍 代理位置: (${agent.position.x.toFixed(1)}, ${agent.position.y.toFixed(1)})`);
-            console.log(`[ORCA_DEBUG] 🎯 期望速度: (${agent.prefVelocity.x.toFixed(3)}, ${agent.prefVelocity.y.toFixed(3)}), 长度: ${agent.prefVelocity.length().toFixed(3)}`);
-            console.log(`[ORCA_DEBUG] 🏃 最大速度: ${agent.getMaxSpeed()}`);
-            console.log(`[ORCA_DEBUG] 🏛️ 代理阵营: ${agent.getFaction()}`);
-            console.log(`[ORCA_DEBUG] ✅ 代理有效性: ${agent.isAgentValid()}`);
-
-            if (agent.prefVelocity.lengthSqr() < 0.01) {
-                console.warn(`[ORCA_DEBUG] ⚠️ 代理 ${agent.node.name} 的期望速度为零或接近零!`);
-                console.warn(`[ORCA_DEBUG] 🔍 详细分析:`);
-                console.warn(`[ORCA_DEBUG]   - 期望速度向量: Vec2(${agent.prefVelocity.x}, ${agent.prefVelocity.y})`);
-                console.warn(`[ORCA_DEBUG]   - 期望速度长度: ${agent.prefVelocity.length()}`);
-                console.warn(`[ORCA_DEBUG]   - 期望速度长度平方: ${agent.prefVelocity.lengthSqr()}`);
-                
-                // 检查代理的控制组件状态
-                const baseCharacter = agent.node.getComponent('BaseCharacterDemo') as any;
-                if (baseCharacter) {
-                    console.warn(`[ORCA_DEBUG]   - 控制模式: ${baseCharacter.controlMode}`);
-                    console.warn(`[ORCA_DEBUG]   - AI阵营: ${baseCharacter.aiFaction}`);
-                    console.warn(`[ORCA_DEBUG]   - 当前目标: ${baseCharacter.currentTarget ? baseCharacter.currentTarget.name : '无'}`);
-                    console.warn(`[ORCA_DEBUG]   - 移动方向: (${baseCharacter.moveDirection.x.toFixed(3)}, ${baseCharacter.moveDirection.y.toFixed(3)})`);
-                    
-                    // 检查AINavigationController状态
-                    const aiNav = agent.node.getComponent('AINavigationController') as any;
-                    if (aiNav) {
-                        console.warn(`[ORCA_DEBUG]   - AI导航状态: ${aiNav.currentState || '未知'}`);
-                        console.warn(`[ORCA_DEBUG]   - AI当前目标: ${aiNav.currentTarget ? aiNav.currentTarget.node.name : '无'}`);
-                    } else {
-                        console.warn(`[ORCA_DEBUG]   - AI导航控制器: 未找到`);
-                    }
-                } else {
-                    console.warn(`[ORCA_DEBUG]   - BaseCharacterDemo组件: 未找到`);
-                }
-                
-                console.warn(`[ORCA_DEBUG] 🔧 可能原因:`);
-                console.warn(`[ORCA_DEBUG]   1. AI未找到目标或目标丢失`);
-                console.warn(`[ORCA_DEBUG]   2. 角色距离目标过近（<0.1像素）`);
-                console.warn(`[ORCA_DEBUG]   3. AI导航状态异常（IDLE/BLOCKED等）`);
-                console.warn(`[ORCA_DEBUG]   4. 阵营设置错误导致目标搜索失败`);
-                console.warn(`[ORCA_DEBUG]   5. TargetSelector工作异常`);
-            }
-
             const orcaLines: OrcaLine[] = (agent as any)._orcaLines || [];
-            console.log(`[ORCA_DEBUG] 📏 ORCA约束线数量: ${orcaLines.length}`);
             
             if (orcaLines.length === 0) {
                 // 没有约束，直接使用期望速度
@@ -399,7 +358,6 @@ export class OrcaSystem extends Component {
                 }
                 agent.newVelocity = newVelocity;
                 agent.setVelocity(newVelocity);
-                console.log(`[ORCA_DEBUG] ✅ 无约束，直接应用速度: (${newVelocity.x.toFixed(2)}, ${newVelocity.y.toFixed(2)})`);
                 solvedCount++;
                 continue;
             }
@@ -417,14 +375,11 @@ export class OrcaSystem extends Component {
             
             // 自适应迭代求解
             const converged = this.adaptiveConstraintSolver(newVelocity, sortedLines, maxSpeed, agent);
-            console.log(`[ORCA_DEBUG] 🧮 约束求解${converged ? '收敛' : '未收敛'}`);
             
             // 最终速度限制
             if (newVelocity.length() > maxSpeed) {
                 newVelocity.normalize().multiplyScalar(maxSpeed);
             }
-            
-            console.log(`[ORCA_DEBUG] 🎯 最终应用速度: (${newVelocity.x.toFixed(2)}, ${newVelocity.y.toFixed(2)}), 长度: ${newVelocity.length().toFixed(2)}`);
             
             // 应用速度
             agent.newVelocity = newVelocity;

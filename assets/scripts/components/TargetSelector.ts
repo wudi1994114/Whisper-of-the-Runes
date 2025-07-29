@@ -6,7 +6,7 @@ import { Faction } from '../configs/FactionConfig';
 import { factionManager } from '../managers/FactionManager';
 import { CharacterStats } from './CharacterStats';
 
-const { ccclass, property } = _decorator;
+const { ccclass } = _decorator;
 
 /**
  * 目标选择器
@@ -210,26 +210,30 @@ export class TargetSelector extends Component implements ITargetSelector {
      * 计算目标优先级
      */
     public calculateTargetPriority(target: Node, myPosition: Vec3): number {
-        let priority = 100; // 基础优先级
+        // 【修改】统一优先级，让选择纯粹基于距离
+        return 100; // 所有目标优先级相同
         
-        // 根据目标类型调整优先级
-        const characterStats = target.getComponent(CharacterStats);
-        if (characterStats) {
-            // 血量越少，优先级越高（更容易击杀）
-            const healthRatio = characterStats.currentHealth / characterStats.maxHealth;
-            priority += (1 - healthRatio) * 50;
-            
-            // 根据目标类型调整
-            if (target.name.includes('player') || target.getComponent('PlayerController')) {
-                priority += 200; // 玩家优先级最高
-            } else if (target.name.includes('elite')) {
-                priority += 30; // 精英怪优先级较高
-            } else if (target.name.includes('boss')) {
-                priority += 100; // Boss优先级很高
-            }
-        }
-        
-        return priority;
+        // 【注释掉原有的优先级逻辑】
+        // let priority = 100; // 基础优先级
+        // 
+        // // 根据目标类型调整优先级
+        // const characterStats = target.getComponent(CharacterStats);
+        // if (characterStats) {
+        //     // 血量越少，优先级越高（更容易击杀）
+        //     const healthRatio = characterStats.currentHealth / characterStats.maxHealth;
+        //     priority += (1 - healthRatio) * 50;
+        //     
+        //     // 根据目标类型调整
+        //     if (target.name.includes('player') || target.getComponent('PlayerController')) {
+        //         priority += 200; // 玩家优先级最高
+        //     } else if (target.name.includes('elite')) {
+        //         priority += 30; // 精英怪优先级较高
+        //     } else if (target.name.includes('boss')) {
+        //         priority += 100; // Boss优先级很高
+        //     }
+        // }
+        // 
+        // return priority;
     }
     
     /**
@@ -332,7 +336,7 @@ export class TargetSelector extends Component implements ITargetSelector {
      * 【调试方法】打印完整的注册表信息
      */
     public printFullRegistryInfo(): void {
-        console.log(`%c[TARGET_DEBUG] 📋 完整注册表信息:`, 'color: cyan; font-weight: bold');
+        console.log(`%c[TARGET_DEBUG] �� 完整注册表信息:`, 'color: cyan; font-weight: bold');
         
         if (this.targetRegistry.size === 0) {
             console.log(`%c[TARGET_DEBUG] ❌ 注册表为空，没有任何目标注册`, 'color: red');

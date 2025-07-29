@@ -26,7 +26,7 @@
               "type": "ent_normal",
               "count": 10,
               "spawnInterval": 2.0,
-              "maxAlive": 5,
+              "maxAlive": 1,
               "spawnDelay": 1.0,
               "respawnOnDeath": true,
               "faction": "red"
@@ -54,7 +54,7 @@
               "type": "ent_normal",
               "count": 10,
               "spawnInterval": 2.0,
-              "maxAlive": 5,
+              "maxAlive": 2,
               "spawnDelay": 1.0,
               "respawnOnDeath": true,
               "faction": "blue"

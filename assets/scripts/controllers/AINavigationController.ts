@@ -1,6 +1,4 @@
-import { _decorator, Component, Node, Vec3, Vec2, find } from 'cc';
-import { EnhancedTargetSelector } from '../components/EnhancedTargetSelector';
-import { TargetSelector } from '../components/TargetSelector';
+import { _decorator, Component, Node, Vec3, Vec2, find, RigidBody2D } from 'cc';
 import { PathfindingManager, PathInfo } from '../systems/PathfindingManager';
 import { OrcaAgent } from '../components/OrcaAgent';
 import { Faction } from '../configs/FactionConfig';
@@ -234,72 +232,77 @@ export class AINavigationController extends Component {
      * 更新导航系统
      */
     protected update(deltaTime: number): void {
+        console.log(`[123|${this.node.name}] AINavigationController.update: 开始更新，当前状态=${this.currentState}`);
+        
         const currentTime = Date.now() / 1000;
+        console.log(`[123|${this.node.name}] AINavigationController.update: currentTime=${currentTime.toFixed(2)}`);
         
         // 更新导航状态机
         this.updateNavigationStateMachine(currentTime);
-        
-        // 每3秒打印一次状态信息，避免刷屏
-        if (currentTime - (this.lastDebugTime || 0) > 3.0) {
-            const currentFaction = this.getCurrentFaction();
-            console.log(`%c[TARGET_DEBUG] 🔄 ${this.node.name} AI状态: ${this.currentState}, 阵营: ${currentFaction || '未初始化'}, 有目标: ${!!this.currentTarget}`, 'color: gray');
-            
-            // 【立即调试】打印TargetSelector状态
-            const selector = TargetSelectorFactory.getInstance();
-            if (selector) {
-                console.log(`%c[TARGET_DEBUG] 📊 TargetSelector可用`, 'color: yellow');
-            } else {
-                console.log(`%c[TARGET_DEBUG] ❌ 目标选择器工厂未初始化！`, 'color: red');
-            }
-            
-            this.lastDebugTime = currentTime;
-        }
+        console.log(`[123|${this.node.name}] AINavigationController.update: 状态机更新完成`);
         
         // 根据当前状态执行相应逻辑
+        console.log(`[123|${this.node.name}] AINavigationController.update: 开始执行状态逻辑，状态=${this.currentState}`);
         switch (this.currentState) {
             case NavigationState.IDLE:
+                console.log(`[123|${this.node.name}] AINavigationController.update: 执行IDLE状态逻辑`);
                 this.updateIdleState(currentTime);
                 break;
             case NavigationState.SEEKING_TARGET:
+                console.log(`[123|${this.node.name}] AINavigationController.update: 执行SEEKING_TARGET状态逻辑`);
                 this.updateSeekingState(currentTime);
                 break;
             case NavigationState.PATHFINDING:
+                console.log(`[123|${this.node.name}] AINavigationController.update: 执行PATHFINDING状态逻辑`);
                 this.updatePathfindingState(currentTime);
                 break;
             case NavigationState.FOLLOWING_PATH:
+                console.log(`[123|${this.node.name}] AINavigationController.update: 执行FOLLOWING_PATH状态逻辑`);
                 this.updateFollowingPathState(currentTime);
                 break;
             case NavigationState.APPROACHING_TARGET:
+                console.log(`[123|${this.node.name}] AINavigationController.update: 执行APPROACHING_TARGET状态逻辑`);
                 this.updateApproachingTargetState(currentTime);
                 break;
             case NavigationState.BLOCKED:
+                console.log(`[123|${this.node.name}] AINavigationController.update: 执行BLOCKED状态逻辑`);
                 this.updateBlockedState(currentTime);
                 break;
             case NavigationState.LOST_TARGET:
+                console.log(`[123|${this.node.name}] AINavigationController.update: 执行LOST_TARGET状态逻辑`);
                 this.updateLostTargetState(currentTime);
                 break;
+            default:
+                console.warn(`[123|${this.node.name}] AINavigationController.update: 未知状态 ${this.currentState}`);
+                break;
         }
+        
+        console.log(`[123|${this.node.name}] AINavigationController.update: 更新完成`);
     }
     
     /**
      * 更新导航状态机
      */
     private updateNavigationStateMachine(currentTime: number): void {
+        console.log(`[123|${this.node.name}] updateNavigationStateMachine: 开始，当前目标=${!!this.currentTarget}`);
+        
         // 检查目标是否仍然有效
         if (this.currentTarget && !this.isTargetValid(this.currentTarget)) {
+            console.log(`[123|${this.node.name}] updateNavigationStateMachine: 目标无效，转换到LOST_TARGET`);
             this.transitionToState(NavigationState.LOST_TARGET, currentTime);
             return;
         }
         
         // 检查是否需要重新搜索目标
         if (!this.currentTarget && currentTime - this.lastTargetSearchTime > 1.0) {
+            console.log(`[123|${this.node.name}] updateNavigationStateMachine: 无目标且超过搜索间隔，转换到SEEKING_TARGET`);
             this.transitionToState(NavigationState.SEEKING_TARGET, currentTime);
             return;
         }
         
         // 检查路径是否过期
         if (this.currentPath && currentTime - this.currentPath.timestamp > this.maxPathAge) {
-            console.log(`%c[AINavigationController] ⏰ 路径过期，重新寻路`, 'color: orange');
+            console.log(`[123|${this.node.name}] updateNavigationStateMachine: 路径过期，重新寻路`);
             this.clearCurrentPath();
             if (this.currentTarget) {
                 this.transitionToState(NavigationState.PATHFINDING, currentTime);
@@ -311,9 +314,12 @@ export class AINavigationController extends Component {
             currentTime - this.lastBlockedCheckTime > this.blockedCheckInterval) {
             this.lastBlockedCheckTime = currentTime;
             if (this.isPathBlocked()) {
+                console.log(`[123|${this.node.name}] updateNavigationStateMachine: 路径被阻挡，转换到BLOCKED`);
                 this.transitionToState(NavigationState.BLOCKED, currentTime);
             }
         }
+        
+        console.log(`[123|${this.node.name}] updateNavigationStateMachine: 完成，最终状态=${this.currentState}`);
     }
     
     /**
@@ -346,27 +352,26 @@ export class AINavigationController extends Component {
      * 搜索目标状态更新
      */
     private updateSeekingState(currentTime: number): void {
-        console.log(`[ORCA_DEBUG] 🔍 ${this.node.name} 开始搜索目标状态更新`);
+        console.log(`[123|${this.node.name}] updateSeekingState: 开始搜索目标`);
         
         if (!this.targetSelector) {
-            console.warn(`[ORCA_DEBUG] ❌ ${this.node.name} 目标选择器不可用`);
+            console.log(`[123|${this.node.name}] updateSeekingState: 目标选择器不可用`);
             return;
         }
         
         // 【修复】从BaseCharacterDemo获取阵营信息
         const currentFaction = this.getCurrentFaction();
         if (!currentFaction) {
-            console.warn(`[ORCA_DEBUG] ⚠️ ${this.node.name} 无法获取阵营信息，等待BaseCharacterDemo初始化`);
+            console.log(`[123|${this.node.name}] updateSeekingState: 无法获取阵营信息`);
             return;
         }
         
-        console.log(`[ORCA_DEBUG] 🏛️ ${this.node.name} 当前阵营: ${currentFaction}, 搜索范围: ${this.detectionRange}`);
-        console.log(`[ORCA_DEBUG] 📍 ${this.node.name} 当前位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
+        console.log(`[123|${this.node.name}] updateSeekingState: 阵营=${currentFaction}, 搜索范围=${this.detectionRange}`);
         
         this.lastTargetSearchTime = currentTime;
         
         // 使用增强版目标选择器搜索目标
-        console.log(`[ORCA_DEBUG] 🎯 ${this.node.name} 开始搜索目标...`);
+        console.log(`[123|${this.node.name}] updateSeekingState: 开始查找目标...`);
         const targetInfo = this.targetSelector.findBestTarget(
             this.node.position,
             currentFaction,
@@ -376,29 +381,19 @@ export class AINavigationController extends Component {
         if (targetInfo) {
             this.currentTarget = targetInfo;
             this.performanceStats.targetsFound++;
-            console.log(`[ORCA_DEBUG] ✅ ${this.node.name} 找到目标: ${targetInfo.node.name}`);
-            console.log(`[ORCA_DEBUG]   - 目标位置: (${targetInfo.position.x.toFixed(1)}, ${targetInfo.position.y.toFixed(1)})`);
-            console.log(`[ORCA_DEBUG]   - 目标距离: ${targetInfo.distance.toFixed(1)}`);
-            console.log(`[ORCA_DEBUG]   - 目标阵营: ${targetInfo.faction}`);
-            console.log(`[ORCA_DEBUG]   - 攻击范围: ${this.attackRange}`);
+            console.log(`[123|${this.node.name}] updateSeekingState: 找到目标 ${targetInfo.node.name}, 距离=${targetInfo.distance.toFixed(1)}`);
             
             // 检查是否在攻击范围内
             if (targetInfo.distance <= this.attackRange) {
-                console.log(`[ORCA_DEBUG] ⚔️ ${this.node.name} 目标在攻击范围内，转入APPROACHING_TARGET状态`);
+                console.log(`[123|${this.node.name}] updateSeekingState: 目标在攻击范围内(${targetInfo.distance.toFixed(1)} <= ${this.attackRange})，转入APPROACHING_TARGET`);
                 this.transitionToState(NavigationState.APPROACHING_TARGET, currentTime);
             } else {
-                console.log(`[ORCA_DEBUG] 🏃 ${this.node.name} 目标超出攻击范围，转入PATHFINDING状态`);
+                console.log(`[123|${this.node.name}] updateSeekingState: 目标超出攻击范围(${targetInfo.distance.toFixed(1)} > ${this.attackRange})，转入PATHFINDING`);
                 this.transitionToState(NavigationState.PATHFINDING, currentTime);
             }
         } else {
             // 没有找到目标，返回待机状态
-            console.warn(`[ORCA_DEBUG] ❌ ${this.node.name} 未找到目标，转入IDLE状态`);
-            console.warn(`[ORCA_DEBUG]   - 搜索阵营: ${currentFaction}`);
-            console.warn(`[ORCA_DEBUG]   - 搜索范围: ${this.detectionRange}`);
-            console.warn(`[ORCA_DEBUG]   - 搜索位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
-            
-            // 检查TargetSelector的注册情况已移除（无需打印注册表信息）
-            
+            console.log(`[123|${this.node.name}] updateSeekingState: 未找到目标，转入IDLE状态`);
             this.transitionToState(NavigationState.IDLE, currentTime);
         }
     }
@@ -498,24 +493,26 @@ export class AINavigationController extends Component {
      * 接近目标状态更新
      */
     private updateApproachingTargetState(currentTime: number): void {
+        console.log(`[123|${this.node.name}] updateApproachingTargetState: 开始，当前目标=${this.currentTarget?.node.name || '无'}`);
+        
         if (!this.currentTarget) {
-            console.warn(`[ORCA_DEBUG] ⚠️ ${this.node.name} 接近目标状态但无当前目标，转入IDLE`);
+            console.log(`[123|${this.node.name}] updateApproachingTargetState: 无当前目标，转入IDLE`);
             this.transitionToState(NavigationState.IDLE, currentTime);
             return;
         }
         
         const currentDistance = Vec3.distance(this.node.position, this.currentTarget.position);
-        console.log(`[ORCA_DEBUG] 🎯 ${this.node.name} 接近目标 ${this.currentTarget.node.name}，距离: ${currentDistance.toFixed(1)}`);
+        console.log(`[123|${this.node.name}] updateApproachingTargetState: 与目标 ${this.currentTarget.node.name} 距离=${currentDistance.toFixed(1)}`);
         
         // 如果脱离攻击范围，重新寻路
         if (currentDistance > this.attackRange * 1.2) {
-            console.log(`[ORCA_DEBUG] 📏 ${this.node.name} 脱离攻击范围(${currentDistance.toFixed(1)} > ${(this.attackRange * 1.2).toFixed(1)})，重新寻路`);
+            console.log(`[123|${this.node.name}] updateApproachingTargetState: 脱离攻击范围(${currentDistance.toFixed(1)} > ${(this.attackRange * 1.2).toFixed(1)})，重新寻路`);
             this.transitionToState(NavigationState.PATHFINDING, currentTime);
             return;
         }
         
         // 直接朝目标移动（由ORCA处理避让）
-        console.log(`[ORCA_DEBUG] 🎯 ${this.node.name} 设置期望速度朝向目标`);
+        console.log(`[123|${this.node.name}] updateApproachingTargetState: 调用setOrcaDesiredVelocityTowards`);
         this.setOrcaDesiredVelocityTowards(this.currentTarget.position);
     }
     
@@ -561,82 +558,70 @@ export class AINavigationController extends Component {
         this.currentState = newState;
         this.stateEnterTime = currentTime;
         
-        // 记录所有状态转换的调试信息
-        console.log(`[ORCA_DEBUG] 🔄 ${this.node.name} 状态转换: ${oldState} → ${newState}`);
-        
         // 特殊状态的额外信息
         switch (newState) {
             case NavigationState.IDLE:
-                console.log(`[ORCA_DEBUG] 😴 ${this.node.name} 进入待机状态 - 将清空期望速度`);
                 if (this.orcaAgent) {
                     this.orcaAgent.prefVelocity.set(0, 0);
-                    console.log(`[ORCA_DEBUG] 🛑 ${this.node.name} 已清空期望速度`);
                 }
-                break;
-            case NavigationState.SEEKING_TARGET:
-                console.log(`[ORCA_DEBUG] 🔍 ${this.node.name} 进入搜索目标状态`);
-                break;
-            case NavigationState.APPROACHING_TARGET:
-                console.log(`[ORCA_DEBUG] 🎯 ${this.node.name} 进入接近目标状态`);
-                if (this.currentTarget) {
-                    console.log(`[ORCA_DEBUG]   - 目标: ${this.currentTarget.node.name}`);
-                    console.log(`[ORCA_DEBUG]   - 距离: ${Vec3.distance(this.node.position, this.currentTarget.position).toFixed(1)}`);
-                }
-                break;
-            case NavigationState.PATHFINDING:
-                console.log(`[ORCA_DEBUG] 🗺️ ${this.node.name} 进入寻路状态`);
-                break;
-            case NavigationState.FOLLOWING_PATH:
-                console.log(`[ORCA_DEBUG] 🛤️ ${this.node.name} 进入跟随路径状态`);
-                break;
-            case NavigationState.BLOCKED:
-                console.log(`[ORCA_DEBUG] 🚧 ${this.node.name} 进入阻挡状态`);
-                break;
-            case NavigationState.LOST_TARGET:
-                console.log(`[ORCA_DEBUG] 🔍 ${this.node.name} 进入丢失目标状态`);
                 break;
         }
     }
     
     /**
-     * 设置ORCA期望速度指向目标位置
+     * 统一的期望速度设置方法 - AINavigationController的唯一速度控制入口
+     * 这是整个AI导航系统设置ORCA期望速度的唯一接口
      */
-    private setOrcaDesiredVelocityTowards(targetPosition: Vec3): void {
+    public setDesiredVelocity(velocity: Vec2): void {
+        if (this.orcaAgent) {
+            this.orcaAgent.prefVelocity.set(velocity.x, velocity.y);
+            console.log(`[AINavigationController|${this.node.name}] 设置期望速度=(${velocity.x.toFixed(2)}, ${velocity.y.toFixed(2)})`);
+        }
+    }
+
+    /**
+     * 停止移动 - 清空期望速度
+     */
+    public stopMovement(): void {
+        if (this.orcaAgent) {
+            this.orcaAgent.prefVelocity.set(0, 0);
+            console.log(`[AINavigationController|${this.node.name}] 停止移动`);
+        }
+    }
+
+    /**
+     * 设置期望速度指向目标方向
+     * @param targetPosition 目标位置
+     */
+    public setDesiredVelocityTowards(targetPosition: Vec3): void {
         if (!this.orcaAgent) {
-            console.warn(`[ORCA_DEBUG] ⚠️ ${this.node.name} ORCA代理不可用`);
             return;
         }
         
-        // 计算方向向量
         const direction = new Vec2(
             targetPosition.x - this.node.position.x,
             targetPosition.y - this.node.position.y
         );
         
-        const distance = direction.length();
-        console.log(`[ORCA_DEBUG] 📐 ${this.node.name} 计算期望速度:`);
-        console.log(`[ORCA_DEBUG]   - 当前位置: (${this.node.position.x.toFixed(1)}, ${this.node.position.y.toFixed(1)})`);
-        console.log(`[ORCA_DEBUG]   - 目标位置: (${targetPosition.x.toFixed(1)}, ${targetPosition.y.toFixed(1)})`);
-        console.log(`[ORCA_DEBUG]   - 方向向量: (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})`);
-        console.log(`[ORCA_DEBUG]   - 距离: ${distance.toFixed(3)}`);
-        
-        if (distance < 0.1) {
-            // 已经很接近，停止移动
-            this.orcaAgent.prefVelocity.set(0, 0);
-            console.log(`[ORCA_DEBUG] 🛑 ${this.node.name} 距离过近(${distance.toFixed(3)} < 0.1)，设置期望速度为零`);
+        // 如果距离目标过近，停止移动
+        if (direction.lengthSqr() < 1) {
+            this.stopMovement();
             return;
         }
         
-        // 归一化方向并设置期望速度
+        // 计算期望速度：朝目标全速前进
         direction.normalize();
         const maxSpeed = this.orcaAgent.getMaxSpeed();
         const desiredVelocity = direction.multiplyScalar(maxSpeed);
         
-        this.orcaAgent.prefVelocity.set(desiredVelocity.x, desiredVelocity.y);
-        console.log(`[ORCA_DEBUG] ✅ ${this.node.name} 设置期望速度成功:`);
-        console.log(`[ORCA_DEBUG]   - 归一化方向: (${direction.x.toFixed(3)}, ${direction.y.toFixed(3)})`);
-        console.log(`[ORCA_DEBUG]   - 最大速度: ${maxSpeed}`);
-        console.log(`[ORCA_DEBUG]   - 期望速度: (${desiredVelocity.x.toFixed(2)}, ${desiredVelocity.y.toFixed(2)})`);
+        // 使用统一的速度设置方法
+        this.setDesiredVelocity(desiredVelocity);
+    }
+    /**
+     * 内部方法：设置ORCA期望速度指向目标位置（保持现有调用兼容性）
+     */
+    private setOrcaDesiredVelocityTowards(targetPosition: Vec3): void {
+        this.setDesiredVelocityTowards(targetPosition);
     }
     
     /**
@@ -662,26 +647,23 @@ export class AINavigationController extends Component {
         return true;
     }
     
-    /**
-     * 检查路径是否被阻挡
-     */
     private isPathBlocked(): boolean {
-        if (!this.currentPath || this.currentPathIndex >= this.currentPath.nodes.length) {
+        if (!this.currentPath || this.currentPathIndex >= this.currentPath.nodes.length || !this.orcaAgent) {
             return false;
         }
-        
-        // 简单的阻挡检查：如果在相同位置停留太久
-        const stateTime = Date.now() / 1000 - this.stateEnterTime;
-        if (stateTime > 3.0) {
-            // 检查是否移动距离太小
-            const targetNode = this.currentPath.nodes[this.currentPathIndex];
-            const distanceToNode = Vec3.distance(this.node.position, targetNode);
-            
-            // 如果3秒内没有明显接近目标路径点，认为被阻挡
-            if (distanceToNode > this.pathNodeThreshold * 1.5) {
-                console.log(`%c[AINavigationController] 🚧 检测到路径阻挡`, 'color: red');
-                return true;
-            }
+    
+        // 检查是否有移动意图
+        const wantsToMove = this.orcaAgent.prefVelocity.lengthSqr() > 0.1;
+    
+        // 检查实际速度
+        const actualVelocity = this.node.getComponent(RigidBody2D)?.linearVelocity;
+        const isStuck = actualVelocity ? actualVelocity.lengthSqr() < 0.1 : true; // 如果没有刚体也认为卡住
+    
+        // 如果有移动意图，但在原地停留超过1.5秒，则认为被阻挡
+        const stateTime = (Date.now() / 1000) - this.stateEnterTime;
+        if (wantsToMove && isStuck && stateTime > 1.5) {
+            console.log(`%c[AINavigationController] 🚧 检测到路径阻挡 (想动但动不了): ${this.node.name}`, 'color: red');
+            return true;
         }
         
         return false;
