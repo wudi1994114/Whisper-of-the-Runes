@@ -45,25 +45,29 @@ export class AIPerformanceManager extends Component {
         displayName: "最大同帧AI数量",
         tooltip: "每帧最多更新多少个AI"
     })
-    public maxAIPerFrame: number = 10;
+    // 【性能优化】减少每帧最大AI数量，分散计算负担避免单帧卡顿
+    public maxAIPerFrame: number = 6;
     
     @property({
         displayName: "高LOD距离",
         tooltip: "高详细度AI的最大距离"
     })
-    public highLODDistance: number = 200;
+    // 【性能优化】缩小高LOD距离，让更多AI进入低频更新模式
+    public highLODDistance: number = 150;
     
     @property({
         displayName: "中LOD距离", 
         tooltip: "中等详细度AI的最大距离"
     })
-    public mediumLODDistance: number = 400;
+    // 【性能优化】适当缩小中LOD距离
+    public mediumLODDistance: number = 300;
     
     @property({
         displayName: "低LOD距离",
         tooltip: "低详细度AI的最大距离"
     })
-    public lowLODDistance: number = 800;
+    // 【性能优化】缩小低LOD距离，让远处AI进入最低更新频率
+    public lowLODDistance: number = 600;
     
     @property({
         displayName: "启用动态调整",

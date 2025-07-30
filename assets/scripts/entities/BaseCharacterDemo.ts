@@ -19,7 +19,7 @@ import { ICrowdableCharacter } from '../systems/GridManager';
 import { OrcaAgent } from '../components/OrcaAgent';
 import { getOrcaSystem } from '../systems/OrcaSystem';
 import { gridManager } from '../systems/GridManager';
-import { AINavigationController } from '../controllers/AINavigationController';
+import { AINavigationController, AINavigationOutput } from '../controllers/AINavigationController';
 import { AIPerformanceManager } from '../systems/AIPerformanceManager';
 import { TempVarPool } from '../utils/TempVarPool';
 import { ControlMode, CharacterState } from '../state-machine/CharacterEnums';
@@ -60,8 +60,12 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
 
     public aiBehaviorType: string = "melee";
 
-    // 【新增】意图系统
-    public wantsToAttack: boolean = false;
+    // 【新架构】输入信号系统 - 统一的状态机输入接口
+    private currentInputSignals = {
+        hasMovementInput: false,
+        wantsToAttack: false,
+        // 未来可扩展其他输入信号
+    };
 
     // 核心组件
     protected animationComponent: Animation | null = null;
@@ -81,7 +85,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     
     // 输入状态
     protected keyStates: { [key: number]: boolean } = {};
-    protected moveDirection: Vec2 = new Vec2(0, 0);
+    protected moveDirection: Vec2 = new Vec2(0, 0); // 【注意】这个是成员变量，保持创建
     
     // 攻击间隔控制
     protected lastAttackTime: number = 0;
@@ -432,30 +436,24 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     }
 
     /**
-     * 检查是否有移动输入
-     * 【重构】基于实际的rigidBody速度判断，而不是moveDirection
-     * 这样AI模式和手动模式都能正确反映角色的移动状态
+     * 【新架构】状态机查询接口 - 检查是否有移动输入
      */
     public hasMovementInput(): boolean {
-        // 【新逻辑】基于实际的物理速度判断是否在移动
-        if (this.rigidBody) {
-            const currentVelocity = this.rigidBody.linearVelocity;
-            const hasMovement = currentVelocity.lengthSqr() > 0.01; // 使用小阈值避免浮点精度问题
-            
-            console.log(`[123|${this.node.name}] hasMovementInput=${hasMovement}, rigidBodyVelocity=(${currentVelocity.x.toFixed(3)}, ${currentVelocity.y.toFixed(3)}), controlMode=${this.controlMode}`);
-            return hasMovement;
-        }
-        
-        // 【回退逻辑】没有rigidBody时，使用moveDirection（兼容性）
-        const hasInput = this.moveDirection.length() > 0;
-        console.log(`[123|${this.node.name}] hasMovementInput=${hasInput} (fallback), moveDirection=(${this.moveDirection.x.toFixed(3)}, ${this.moveDirection.y.toFixed(3)}), controlMode=${this.controlMode}`);
-        
-        // 如果没有移动输入，立即停止物理运动
-        if (!hasInput) {
-            this.stopPhysicalMovement();
-        }
-        
-        return hasInput;
+        return this.currentInputSignals.hasMovementInput;
+    }
+    
+    /**
+     * 【新架构】状态机查询接口 - 获取攻击意图
+     */
+    public get wantsToAttack(): boolean {
+        return this.currentInputSignals.wantsToAttack;
+    }
+    
+    /**
+     * 【新架构】状态机查询接口 - 设置攻击意图（用于手动模式）
+     */
+    public set wantsToAttack(value: boolean) {
+        this.currentInputSignals.wantsToAttack = value;
     }
 
     /**
@@ -463,8 +461,33 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      */
     public stopPhysicalMovement(): void {
         if (this.rigidBody) {
-            this.rigidBody.linearVelocity = new Vec2(0, 0);
+            // 【性能优化】使用临时变量池设置零速度
+            this.rigidBody.linearVelocity = TempVarPool.tempVec2_4.set(0, 0);
         }
+    }
+    
+    /**
+     * 【新架构】统一的停止移动接口 - 封装所有停止移动的细节
+     */
+    public stopMovement(): void {
+        // 1. 通过ORCA系统停止移动（最重要的控制点）
+        if (this.orcaAgent) {
+            this.orcaAgent.prefVelocity.set(0, 0);
+        }
+        
+        // 2. 通过物理系统停止移动（直接控制）
+        if (this.rigidBody) {
+            // 【性能优化】使用临时变量池设置零速度
+            this.rigidBody.linearVelocity = TempVarPool.tempVec2_5.set(0, 0);
+        }
+        
+        // 3. 通过导航系统停止移动（如果存在，作为补充保障）
+        if (this.aiNavigationController) {
+            this.aiNavigationController.stopMovement();
+        }
+        
+        // 4. 清空移动方向（特别是手动模式）
+        this.moveDirection.set(0, 0);
     }
 
     /**
@@ -1167,7 +1190,8 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         if (this.rigidBody) {
             this.rigidBody.enabledContactListener = false;
             // 停止所有物理运动
-            this.rigidBody.linearVelocity = new Vec2(0, 0);
+            // 【性能优化】使用临时变量池设置零速度
+            this.rigidBody.linearVelocity = TempVarPool.tempVec2_6.set(0, 0);
             console.log(`[${this.getCharacterDisplayName()}] 刚体碰撞监听已禁用，运动已停止`);
         }
     }
@@ -1360,11 +1384,11 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
             return;
         }
         
-        // 记录攻击时间
-        this.lastAttackTime = currentTime;
+        // 记录攻击时间（将在协调者中处理）
+        // this.lastAttackTime = currentTime; // 移到协调者中处理
         
-        // 【核心修改】设置攻击意图，而不是直接转换状态
-        this.wantsToAttack = true;
+        // 【新架构】设置攻击意图到输入信号
+        this.currentInputSignals.wantsToAttack = true;
     }
 
     /**
@@ -1373,7 +1397,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     private updateMoveDirection(): void {
         // 【修复】AI模式下不响应键盘输入，避免覆盖AI设置的moveDirection
         if (this.controlMode === ControlMode.AI) {
-            console.log(`[123|${this.node.name}] updateMoveDirection: AI模式下跳过键盘输入处理`);
+            // AI模式下跳过键盘输入处理
             return;
         }
         
@@ -1495,99 +1519,91 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     }
 
     /**
-     * 更新函数 - 支持AI和手动模式
+     * 【新架构】更新函数 - 协调者模式
      */
     protected update(deltaTime: number): void {
-        // 锁定节点角度为0
         this.lockNodeRotation();
         
-        // 如果是AI模式，让AI更新意图
+        // 根据控制模式调用不同的协调逻辑
         if (this.controlMode === ControlMode.AI && this.characterStats?.isAlive) {
-            this.updateAI(deltaTime);
+            this.updateAICoordination(deltaTime);
+        } else if (this.controlMode === ControlMode.MANUAL) {
+            this.updateManualCoordination(deltaTime);
         }
-
-        // 让状态机根据最新的意图进行更新和决策
+        
+        // 状态机根据统一的输入信号更新
         this.stateMachine?.update(deltaTime);
-
-        // 【重要】在每一帧的最后，重置一次性的意图，比如攻击意图
-        this.wantsToAttack = false;
+        
+        // 重置一次性信号
+        this.currentInputSignals.wantsToAttack = false;
     }
 
     /**
-     * AI主更新逻辑（集成新的AINavigationController系统）
+     * 【新架构】AI模式的协调逻辑
      */
-    private updateAI(deltaTime: number): void {
-        console.log(`[456]${this.node.name} updateAI: 开始处理AI`);
-        if (!this.characterStats || !this.characterStats.isAlive || !this.enemyData) {
-            return;
-        }
-        console.log(`[456]${this.node.name} updateAI: 角色状态正常`);
-        // 每5秒打印一次AI状态，避免刷屏
-        const currentTime = Date.now() / 1000;
-        if (!this.lastAIDebugTime || currentTime - this.lastAIDebugTime > 5.0) {
-            this.lastAIDebugTime = currentTime;
-        }
-        console.log(`[456]${this.node.name} updateAI: 每5秒打印一次AI状态`);
-        // 【新系统】如果有AINavigationController，让它处理导航逻辑
-        if (this.aiNavigationController) {
-            // AINavigationController会自动处理索敌、寻路、移动
-            // 这里只需要处理攻击逻辑
-            console.log(`[456]${this.node.name} updateAI: 开始处理攻击逻辑`);
-            const currentTarget = this.aiNavigationController.getCurrentTarget();
-            if (currentTarget) {
-                console.log(`[456]${this.node.name} updateAI: 当前目标存在`);
-                const distance = Vec3.distance(this.node.position, currentTarget.node.position);
-                const attackRange = this.enemyData.attackRange || 60;
-                
-                // 在攻击范围内且处于接近目标状态时，产生攻击意图
-                console.log(`[456]${this.node.name} updateAI: 距离=${distance}, 攻击范围=${attackRange}`);
-                if (distance <= attackRange) {
-                    console.log(`[456]${this.node.name} updateAI: 在攻击范围内，产生攻击意图`);
-                    this.updateDirectionTowards(currentTarget.position);
-                    this.tryAttack();
-                }
-                
-                // 更新当前目标引用（为了兼容性）
-                this.currentTarget = currentTarget.node;
-            } else {
-                this.currentTarget = null;
-            }
+    private updateAICoordination(deltaTime: number): void {
+        if (!this.characterStats || !this.characterStats.isAlive || !this.enemyData || !this.aiNavigationController) {
             return;
         }
         
-        // 【回退系统】旧的AI逻辑（保持向后兼容）
-        // 每5秒提醒一次使用回退系统
-        if (!this.lastFallbackWarningTime || currentTime - this.lastFallbackWarningTime > 5.0) {
-            this.lastFallbackWarningTime = currentTime;
+        // 1. 从AI系统获取决策
+        const aiDecision = this.aiNavigationController.computeDecision();
+        
+        // 2. 设置物理移动（直接应用AI的prefVelocity）
+        if (this.orcaAgent) {
+            this.orcaAgent.prefVelocity.set(aiDecision.prefVelocity.x, aiDecision.prefVelocity.y);
         }
         
-        // 【性能优化】目标搜索逻辑已移动到独立的定时器中，不再在每帧执行
-
-        // 2. 决策与意图更新
-        if (this.currentTarget && this.currentTarget.isValid) {
-            const distance = Vec3.distance(this.node.position, this.currentTarget.position);
-            const attackRange = this.enemyData.attackRange || 60;
-
-            if (distance <= attackRange) {
-                // 在攻击范围内 -> 产生攻击意图
-                this.moveDirection.set(0, 0);
-                this.updateDirectionTowards(this.currentTarget.position);
-                this.tryAttack();
+        // 3. 更新角色朝向
+        if (aiDecision.targetDirection) {
+            this.updateDirectionTowards(aiDecision.targetDirection);
+        }
+        
+        // 4. 转换为状态机输入信号
+        this.currentInputSignals.hasMovementInput = aiDecision.prefVelocity.lengthSqr() > 0.01;
+        this.currentInputSignals.wantsToAttack = aiDecision.wantsToAttack;
+        
+        // 5. 应用攻击冷却逻辑
+        if (this.currentInputSignals.wantsToAttack) {
+            const currentTime = Date.now() / 1000;
+            if (currentTime - this.lastAttackTime < this.attackCooldown) {
+                this.currentInputSignals.wantsToAttack = false; // 冷却中，取消攻击意图
             } else {
-                // 不在攻击范围 -> 产生移动意图
-                this.setAIMoveDirection(this.currentTarget.position);
-            }
-        } else {
-            // 没有目标 -> 产生回归或待机的移动意图
-            const distanceFromHome = Vec3.distance(this.node.position, this.originalPosition);
-            if (distanceFromHome > 1) { // 统一距离阈值，与AINavigationController保持一致
-                this.setAIMoveDirection(this.originalPosition);
-            } else {
-                this.moveDirection.set(0, 0);
-                // 【重构】移除prefVelocity设置 - 现在由AINavigationController统一控制
-                // 停止逻辑将通过AINavigationController.stopMovement()处理
+                this.lastAttackTime = currentTime; // 记录攻击时间
             }
         }
+        
+        // 6. 更新目标引用（兼容性）
+        const aiTarget = this.aiNavigationController.getCurrentTarget();
+        this.currentTarget = aiTarget ? aiTarget.node : null;
+        
+        // 7. 调试信息
+        if (aiDecision.debugInfo && Math.random() < 0.1) { // 10%概率输出调试信息
+            console.log(`[AI协调] ${aiDecision.debugInfo}`);
+        }
+    }
+    
+    /**
+     * 【新架构】手动模式的协调逻辑
+     */
+    private updateManualCoordination(deltaTime: number): void {
+        // 1. 处理键盘输入（现有逻辑）
+        // moveDirection已在按键事件中更新
+        
+        // 2. 设置物理移动
+        if (this.orcaAgent) {
+            const speed = this.moveSpeed;
+            // 【性能优化】使用临时变量池避免GC压力
+            const velocity = TempVarPool.tempVec2_1.set(
+                this.moveDirection.x * speed,
+                this.moveDirection.y * speed
+            );
+            this.orcaAgent.prefVelocity.set(velocity.x, velocity.y);
+        }
+        
+        // 3. 转换为状态机输入信号
+        this.currentInputSignals.hasMovementInput = this.moveDirection.lengthSqr() > 0.01;
+        // wantsToAttack 已在 tryAttack() 中设置到 currentInputSignals
     }
 
     /**
@@ -1600,45 +1616,44 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
             console.warn(`[${this.getCharacterDisplayName()}] 刚体组件未初始化，无法使用物理移动`);
             return;
         }
-        console.log(`[123|${this.node.name}] BaseCharacterDemo.handleMovement: 开始处理移动 - ${this.node.name}`)
+
         
         // 记录移动前的位置
         const oldPosition = this.node.position.clone();
         
         // 【调试增强】详细检查ORCA代理状态
-        console.log(`[123|${this.node.name}] BaseCharacterDemo: orcaAgent存在=${!!this.orcaAgent}, 控制模式=${this.controlMode}`)
+
         if (this.orcaAgent) {
-            console.log(`[123|${this.node.name}] BaseCharacterDemo: orcaAgent.isAgentValid()=${this.orcaAgent.isAgentValid()}`)
-            console.log(`[123|${this.node.name}] BaseCharacterDemo: orcaAgent.prefVelocity=(${this.orcaAgent.prefVelocity.x.toFixed(3)}, ${this.orcaAgent.prefVelocity.y.toFixed(3)})`)
-            console.log(`[123|${this.node.name}] BaseCharacterDemo: orcaAgent.newVelocity=(${this.orcaAgent.newVelocity.x.toFixed(3)}, ${this.orcaAgent.newVelocity.y.toFixed(3)})`)
+
         }
         
         // 【ORCA支持】如果有OrcaAgent，使用ORCA系统控制移动
         if (this.orcaAgent && this.orcaAgent.isAgentValid()) {
-            console.log(`[123|${this.node.name}] BaseCharacterDemo: 进入ORCA分支`)
+            
             // ORCA系统完全接管移动控制，prefVelocity由AINavigationController设置
             // 这里不再基于moveDirection来覆盖prefVelocity，避免干扰AI导航
             
             // 【修复】应用ORCA系统计算出的最终速度到刚体
             if (this.orcaAgent.newVelocity && this.orcaAgent.newVelocity.length() > 0.01) {
-                console.log(`[123|${this.node.name}] BaseCharacterDemo: 应用ORCA速度=(${this.orcaAgent.newVelocity.x.toFixed(3)}, ${this.orcaAgent.newVelocity.y.toFixed(3)})`)
+                
                 this.rigidBody.linearVelocity = this.orcaAgent.newVelocity;
             } else {
-                console.log(`[123|${this.node.name}] BaseCharacterDemo: ORCA newVelocity无效或为零，停止移动`)
-                this.rigidBody.linearVelocity = new Vec2(0, 0);
+                // 【性能优化】使用临时变量池设置零速度
+                this.rigidBody.linearVelocity = TempVarPool.tempVec2_2.set(0, 0);
             }
         } else {
-            console.log(`[123|${this.node.name}] BaseCharacterDemo: 进入回退逻辑分支`)
+
             // 【回退逻辑】没有ORCA代理时，使用原有的移动逻辑
             // 检查是否有移动输入
             if (this.moveDirection.length() === 0) {
-                console.log(`[123|${this.node.name}] BaseCharacterDemo: 无移动方向，停止移动`)
+
                 // 没有移动输入时，立即停止
-                this.rigidBody.linearVelocity = new Vec2(0, 0);
+                // 【性能优化】使用临时变量池设置零速度
+                this.rigidBody.linearVelocity = TempVarPool.tempVec2_3.set(0, 0);
                 return;
             }
             
-            console.log(`[123|${this.node.name}] BaseCharacterDemo: 使用直接移动，方向=(${this.moveDirection.x.toFixed(3)}, ${this.moveDirection.y.toFixed(3)})`)
+
             
             // 使用直接的移动速度（像素/秒）
             const speed = this.moveSpeed;
@@ -1655,7 +1670,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
                 normalizedDirection.y * speed
             );
             
-            console.log(`[123|${this.node.name}] BaseCharacterDemo: 应用直接速度=(${velocity.x.toFixed(1)}, ${velocity.y.toFixed(1)})`)
+
             
             // 应用速度到刚体
             this.rigidBody.linearVelocity = velocity;
@@ -1819,7 +1834,8 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 重置物理状态 - 立即停止所有运动
         if (this.rigidBody) {
-            this.rigidBody.linearVelocity = new Vec2(0, 0);
+            // 【性能优化】使用临时变量池设置零速度
+            this.rigidBody.linearVelocity = TempVarPool.tempVec2_7.set(0, 0);
             this.rigidBody.angularVelocity = 0;
             // 确保旋转固定
             this.rigidBody.fixedRotation = true;
@@ -1966,21 +1982,14 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 向目标选择器注册当前角色
      */
     private registerToTargetSelector(): void {
-        console.log(`%c[TARGET_DEBUG] 📝 ${this.node.name} 开始注册到目标选择器 (使用工厂模式)`, 'color: teal; font-weight: bold');
-        
         const faction = this.getFaction();
-        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 注册阵营: ${faction}`, 'color: teal');
         
         // 使用工厂获取统一配置的选择器进行注册
         const selector = TargetSelectorFactory.getInstance();
         if (selector) {
-            const selectorInfo = TargetSelectorFactory.getCurrentSelectorInfo();
-            console.log(`%c[TARGET_DEBUG] 🎯 使用选择器: ${selectorInfo.instance} (${selectorInfo.type})`, 'color: teal');
-            
             selector.registerTarget(this.node, faction);
-            console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 已完成目标选择器注册`, 'color: green; font-weight: bold');
         } else {
-            console.error(`%c[TARGET_DEBUG] ❌ ${this.node.name} 目标选择器工厂未初始化，无法注册`, 'color: red; font-weight: bold');
+            console.error(`目标选择器工厂未初始化，无法注册: ${this.node.name}`);
         }
     }
     
@@ -1988,21 +1997,14 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 从目标选择器反注册当前角色
      */
     private deregisterFromTargetSelector(): void {
-        console.log(`%c[TARGET_DEBUG] 🗑️ ${this.node.name} 开始从目标选择器反注册 (使用工厂模式)`, 'color: teal; font-weight: bold');
-        
         const faction = this.getFaction();
-        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 反注册阵营: ${faction}`, 'color: teal');
         
         // 使用工厂获取统一配置的选择器进行反注册
         const selector = TargetSelectorFactory.getInstance();
         if (selector) {
-            const selectorInfo = TargetSelectorFactory.getCurrentSelectorInfo();
-            console.log(`%c[TARGET_DEBUG] 🎯 使用选择器: ${selectorInfo.instance} (${selectorInfo.type})`, 'color: teal');
-            
             selector.deregisterTarget(this.node, faction);
-            console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 已完成目标选择器反注册`, 'color: orange; font-weight: bold');
         } else {
-            console.warn(`%c[TARGET_DEBUG] ⚠️ ${this.node.name} 目标选择器工厂未初始化，跳过反注册`, 'color: orange');
+            console.warn(`目标选择器工厂未初始化，跳过反注册: ${this.node.name}`);
         }
     }
 
@@ -2165,7 +2167,8 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 清理物理组件 - 立即停止所有运动
         if (this.rigidBody) {
-            this.rigidBody.linearVelocity = new Vec2(0, 0);
+            // 【性能优化】使用临时变量池设置零速度
+            this.rigidBody.linearVelocity = TempVarPool.tempVec2_8.set(0, 0);
             this.rigidBody.angularVelocity = 0;
         }
         

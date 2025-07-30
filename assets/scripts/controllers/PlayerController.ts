@@ -1,6 +1,6 @@
 // assets/scripts/components/PlayerController.ts
 
-import { _decorator, Component, Node, Vec3, Vec2 } from 'cc';
+import { _decorator, Component, Vec3, Vec2 } from 'cc';
 import { eventManager } from '../managers/EventManager';
 import { CharacterStats } from '../components/CharacterStats';
 import { GameManager, GameMode } from '../managers/GameManager';

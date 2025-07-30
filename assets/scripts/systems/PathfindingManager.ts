@@ -103,7 +103,8 @@ export class PathfindingManager extends Component {
         displayName: "路径缓存时间",
         tooltip: "路径缓存的有效时间（秒）"
     })
-    public pathCacheTime: number = 5.0;
+    // 【性能优化】增加路径缓存时间从5秒到10秒，减少路径重新计算
+    public pathCacheTime: number = 10.0;
     
     @property({
         displayName: "最大计算时间",

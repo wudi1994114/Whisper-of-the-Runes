@@ -74,8 +74,7 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
     
     // 性能优化：射线检测缓存
     private losCache: Map<string, { result: LineOfSightResult; timestamp: number }> = new Map();
-    // 【性能优化】增加缓存时间从0.5秒到1.5秒，显著减少射线检测频率
-    private losCacheTimeout: number = 1.5; // 射线检测缓存时间
+    private losCacheTimeout: number = 0.5; // 射线检测缓存时间
     
     protected onLoad(): void {
         EnhancedTargetSelector._instance = this;
@@ -635,4 +634,4 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
 // 导出单例访问器
 export const enhancedTargetSelector = {
     getInstance: (): EnhancedTargetSelector | null => EnhancedTargetSelector.getInstance()
-};
+}; 

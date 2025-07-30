@@ -1,6 +1,6 @@
 // assets/scripts/core/GameManager.ts
 
-import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Vec3, Prefab, PhysicsSystem2D, UITransform, Sprite, Label, Color } from 'cc';
+import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Vec3, Prefab, PhysicsSystem2D, UITransform, Label, Color } from 'cc';
 import { TestControlPanelCreator } from '../test/TestControlPanelCreator';
 import { dataManager } from './DataManager';
 import { eventManager } from './EventManager';
@@ -12,9 +12,6 @@ import { GameEvents } from '../components/GameEvents';
 import { levelManager } from './LevelManager';
 import { animationManager } from './AnimationManager';
 import { instantiate } from 'cc';
-import { AIBehaviorType } from '../components/MonsterAI';
-import { Faction } from '../configs/FactionConfig';
-import { targetSelector } from '../components/TargetSelector';
 import { TargetSelector } from '../components/TargetSelector';
 import { getOrcaSystem } from '../systems/OrcaSystem';
 
@@ -25,7 +22,6 @@ import { CharacterPoolInitializer, CharacterPoolFactory } from '../pool/Characte
 import { damageDisplayController } from '../controllers/DamageDisplayController';
 
 import { gridManager, GridManager } from '../systems/GridManager';
-import { TargetSelectorFactory } from '../configs/TargetSelectorFactory';
 
 const { ccclass, property } = _decorator;
 
@@ -1952,24 +1948,53 @@ export class GameManager extends Component {
     }
     
     /**
-     * 初始化目标选择器（全局单例）- 使用工厂模式
+     * 初始化目标选择器（全局单例）
      */
     private initializeTargetSelector(): void {
-        console.log(`%c[GameManager] 🎯 开始初始化目标选择器 (使用工厂模式)`, 'color: blue; font-weight: bold');
-        
-        // 使用工厂确保选择器正确初始化
-        const selector = TargetSelectorFactory.getInstance();
-        
-        if (selector) {
-            const selectorInfo = TargetSelectorFactory.getCurrentSelectorInfo();
-            console.log(`%c[GameManager] ✅ 目标选择器初始化成功: ${selectorInfo.instance} (${selectorInfo.type})`, 'color: green; font-weight: bold');
-            console.log(`%c[GameManager] 📊 所有AI角色将共享此选择器实例`, 'color: green');
-            
-            // 打印工厂状态（调试用）
-            TargetSelectorFactory.printStatus();
-        } else {
-            console.error(`%c[GameManager] ❌ 目标选择器初始化失败`, 'color: red; font-weight: bold');
+        // 【修复】首先检查是否已有有效的单例实例
+        const existingInstance = TargetSelector.getInstance();
+        if (existingInstance && existingInstance.node && existingInstance.node.isValid) {
+            console.log(`GameManager: TargetSelector单例已存在，位于 ${existingInstance.node.parent?.name || 'unknown'} 下`);
+            return;
         }
+
+        // 查找场景和Canvas节点
+        const scene = director.getScene();
+        if (!scene) {
+            console.error('GameManager: 无法获取场景');
+            return;
+        }
+        
+        let canvasNode = scene.getChildByName('Canvas');
+        if (!canvasNode) {
+            // 如果找不到Canvas，尝试查找第一个Canvas组件
+            const canvasComponent = scene.getComponentInChildren('Canvas');
+            canvasNode = canvasComponent ? canvasComponent.node : null;
+        }
+        
+        if (!canvasNode) {
+            console.warn('GameManager: 未找到Canvas节点，将TargetSelector放在场景根级别');
+            canvasNode = scene;
+        }
+
+        // 【修复】清理可能存在的重复TargetSelector节点
+        const existingSelectors = canvasNode.children.filter(child => child.name === 'TargetSelector');
+        if (existingSelectors.length > 0) {
+            console.log(`GameManager: 清理 ${existingSelectors.length} 个重复的TargetSelector节点`);
+            existingSelectors.forEach(node => {
+                if (node.isValid) {
+                    node.destroy();
+                }
+            });
+        }
+
+        // 创建新的TargetSelector节点
+        const targetSelectorNode = new Node('TargetSelector');
+        targetSelectorNode.addComponent(TargetSelector);
+        canvasNode.addChild(targetSelectorNode);
+        
+        console.log(`GameManager: ✅ 全局TargetSelector已创建并添加到 ${canvasNode.name} 下`);
+        console.log(`GameManager: 所有AI角色将共享此TargetSelector实例`);
     }
     
     /**

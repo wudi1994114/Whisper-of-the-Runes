@@ -12,6 +12,7 @@ export interface ICharacterController {
     transitionToState(state: CharacterState): void;
     handleMovement(deltaTime: number): void;
     stopPhysicalMovement(): void;
+    stopMovement(): void; // 【新增】统一的停止移动接口
     getCurrentState(): CharacterState | null;
     disableCollision(): void;
     getIsFromPool(): boolean;
@@ -46,21 +47,16 @@ export class IdleState extends State {
     update(deltaTime: number): void {
         // 检查是否需要转换状态
         if (this.character.wantsToAttack) {
-            console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] IdleState: 尝试转换到ATTACKING状态`);
             this.character.transitionToState(CharacterState.ATTACKING);
             return; // 转换后立即返回，避免执行旧状态逻辑
         }
         
-        const hasMovement = this.character.hasMovementInput();
-        console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] IdleState: hasMovementInput=${hasMovement}`);
-        if (hasMovement) {
-            console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] IdleState: 尝试转换到WALKING状态`);
+        if (this.character.hasMovementInput()) {
             this.character.transitionToState(CharacterState.WALKING);
             return;
         }
         
         // 如果没有发生状态转换，则执行当前状态的逻辑（Idle可以为空）
-        console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] IdleState: 保持IDLE状态`);
     }
     
     exit(): void {
@@ -83,24 +79,18 @@ export class WalkingState extends State {
     }
     
     update(deltaTime: number): void {
-        console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] WalkingState: 进入update，deltaTime=${deltaTime.toFixed(4)}`);
         // 检查是否需要转换状态
         if (this.character.wantsToAttack) {
-            console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] WalkingState: 尝试转换到ATTACKING状态`);
             this.character.transitionToState(CharacterState.ATTACKING);
             return;
         }
         
-        const hasMovement = this.character.hasMovementInput();
-        console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] WalkingState: hasMovementInput=${hasMovement}`);
-        if (!hasMovement) {
-            console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] WalkingState: 没有移动输入，转换到IDLE状态`);
+        if (!this.character.hasMovementInput()) {
             this.character.transitionToState(CharacterState.IDLE);
             return;
         }
 
         // 如果没有发生状态转换，则执行当前状态的逻辑
-        console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] WalkingState: 调用handleMovement`);
         this.character.handleMovement(deltaTime);
     }
     
@@ -122,8 +112,10 @@ export class AttackingState extends State {
     private animationFinished: boolean = false;
     
     enter(): void {
-        // 移除状态转换日志
         this.animationFinished = false;
+        
+        // 【优化后】通过接口停止移动，不再直接访问具体组件
+        this.character.stopMovement();
         
         // 播放攻击动画，并传入一个回调，在动画完成时设置标志
         this.character.playAttackAnimation(() => {
@@ -132,16 +124,17 @@ export class AttackingState extends State {
     }
     
     update(deltaTime: number): void {
+        // 【优化后】持续确保停止移动，使用统一接口
+        this.character.stopMovement();
+        
         // 在update中检查动画是否完成
         if (this.animationFinished) {
             // 动画完成后，总是先切换到闲置状态，让闲置状态在下一帧处理移动逻辑
             this.character.transitionToState(CharacterState.IDLE);
         }
-        // 攻击状态下不处理移动
     }
     
     exit(): void {
-        // 移除状态转换日志
         this.animationFinished = false; // 重置标志
     }
     
@@ -286,9 +279,7 @@ export class StateMachine {
         
         // 【修复】检查是否已经在目标状态，避免重复转换
         const currentState = this.getCurrentState();
-        console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] StateMachine: 尝试从 ${currentState} 转换到 ${newState}`);
         if (currentState === newState) {
-            console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] StateMachine: 已经在目标状态 ${newState}，跳过转换`);
             // 静默跳过重复转换，避免日志污染
             return true;
         }
@@ -296,7 +287,6 @@ export class StateMachine {
         // 检查是否可以转换
         if (this.currentState && !this.currentState.canTransitionTo(newState)) {
             const currentStateName = this.getCurrentStateName();
-            console.warn(`[123|${(this.character as any).node?.name || 'Unknown'}] StateMachine: 不能从 ${currentStateName} 转换到 ${newState}`);
             // 移除状态转换失败日志，减少噪音
             return false;
         }
@@ -309,7 +299,6 @@ export class StateMachine {
         this.currentState = targetState;
         this.currentState.enter();
         
-        console.log(`[123|${(this.character as any).node?.name || 'Unknown'}] StateMachine: 成功转换到 ${newState}`);
         // 移除状态转换成功日志
         return true;
     }

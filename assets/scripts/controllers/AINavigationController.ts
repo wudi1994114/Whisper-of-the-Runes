@@ -9,6 +9,16 @@ import { TargetSelectorFactory } from '../configs/TargetSelectorFactory';
 const { ccclass, property } = _decorator;
 
 /**
+ * AI导航决策输出
+ */
+export interface AINavigationOutput {
+    prefVelocity: Vec2;           // 期望移动速度
+    wantsToAttack: boolean;       // 是否想要攻击
+    targetDirection: Vec3 | null; // 面向目标的方向（可选）
+    debugInfo?: string;           // 调试信息
+}
+
+/**
  * 导航状态枚举
  */
 export enum NavigationState {
@@ -93,8 +103,7 @@ export class AINavigationController extends Component {
     private pathfindingManager: PathfindingManager | null = null;
     private orcaAgent: OrcaAgent | null = null;
     
-    // 导航状态
-    private currentState: NavigationState = NavigationState.IDLE;
+    // 【简化】只保留必要的目标和路径信息
     private currentTarget: TargetInfo | null = null;
     private currentPath: PathInfo | null = null;
     private currentPathIndex: number = 0;
@@ -108,6 +117,7 @@ export class AINavigationController extends Component {
     
     // AI属性
     private aiRole: string = '';
+    private originalPosition: Vec3 = new Vec3(); // AI的原始位置（用于回归）
     // 移除重复的aiFaction属性，统一从BaseCharacterDemo获取
     
     // 性能统计
@@ -187,13 +197,17 @@ export class AINavigationController extends Component {
      * 初始化AI导航参数
      */
     public initializeNavigation(role: string, faction: Faction, config?: Partial<NavigationConfig>): void {
-        console.log(`%c[TARGET_DEBUG] ⚙️ ${this.node.name} 开始初始化导航参数`, 'color: blue; font-weight: bold');
-        console.log(`%c[TARGET_DEBUG] 🏛️ ${this.node.name} 设置角色: ${role}, 阵营: ${faction}`, 'color: blue');
+
         
         this.aiRole = role;
-        // 移除重复的aiFaction属性，统一从BaseCharacterDemo获取
         
-        console.log(`%c[TARGET_DEBUG] 🔧 ${this.node.name} 阵营设置完成: aiFaction=${faction}`, 'color: blue');
+        // 【新架构】设置原始位置
+        if (!this.originalPosition || this.originalPosition.equals(Vec3.ZERO)) {
+            this.originalPosition.set(this.node.position);
+
+        }
+        
+
         
         // 应用配置
         if (config) {
@@ -205,16 +219,10 @@ export class AINavigationController extends Component {
             if (config.blockedCheckInterval !== undefined) this.blockedCheckInterval = config.blockedCheckInterval;
             if (config.giveUpDistance !== undefined) this.giveUpDistance = config.giveUpDistance;
             
-            console.log(`%c[TARGET_DEBUG] 🎛️ ${this.node.name} 配置参数: 搜索范围=${this.detectionRange}, 攻击范围=${this.attackRange}`, 'color: blue');
+
         }
         
-        console.log(`%c[TARGET_DEBUG] ✅ ${this.node.name} 导航参数配置完成: ${role} -> ${faction}，可以开始搜索目标`, 'color: green; font-weight: bold');
-        
-        // 【修复】阵营初始化完成后，立即开始搜索目标（如果当前是IDLE状态）
-        if (this.currentState === NavigationState.IDLE) {
-            console.log(`%c[TARGET_DEBUG] 🚀 ${this.node.name} 阵营初始化完成，立即转入SEEKING_TARGET状态`, 'color: green; font-weight: bold');
-            this.transitionToState(NavigationState.SEEKING_TARGET, Date.now() / 1000);
-        }
+
     }
     
     /**
@@ -229,344 +237,92 @@ export class AINavigationController extends Component {
     }
     
     /**
-     * 更新导航系统
+     * 【新架构】计算AI导航决策 - 唯一对外接口
+     * 输入：当前状态
+     * 输出：期望移动速度和攻击意图
+     */
+    public computeDecision(): AINavigationOutput {
+        const output: AINavigationOutput = {
+            prefVelocity: new Vec2(0, 0),
+            wantsToAttack: false,
+            targetDirection: null,
+            debugInfo: `${this.node.name}: 计算决策`
+        };
+
+        // 检查AI是否已初始化
+        const currentFaction = this.getCurrentFaction();
+        if (!currentFaction || !this.targetSelector) {
+            output.debugInfo = `${this.node.name}: 未初始化，保持待机`;
+            return output;
+        }
+
+        // 1. 搜索目标
+        const currentTarget = this.findBestTarget();
+        
+        if (currentTarget) {
+            const distance = Vec3.distance(this.node.position, currentTarget.position);
+            
+            if (distance <= this.attackRange) {
+                // 在攻击范围内：停止移动，准备攻击
+                output.prefVelocity.set(0, 0);
+                output.wantsToAttack = true;
+                output.targetDirection = currentTarget.position;
+                output.debugInfo = `${this.node.name}: 攻击范围内(${distance.toFixed(1)} <= ${this.attackRange})，准备攻击`;
+            } else {
+                // 不在攻击范围：计算移动速度
+                output.prefVelocity = this.calculateMoveVelocityTowards(currentTarget.position);
+                output.wantsToAttack = false;
+                output.targetDirection = currentTarget.position;
+                output.debugInfo = `${this.node.name}: 追击目标(距离=${distance.toFixed(1)})`;
+            }
+            
+            // 更新内部目标引用（用于路径计算）
+            this.currentTarget = currentTarget;
+        } else {
+            // 没有目标：检查是否需要回归原位
+            const homeDistance = Vec3.distance(this.node.position, this.originalPosition);
+            if (homeDistance > 10) {
+                output.prefVelocity = this.calculateMoveVelocityTowards(this.originalPosition);
+                output.debugInfo = `${this.node.name}: 回归原位(距离=${homeDistance.toFixed(1)})`;
+            } else {
+                output.prefVelocity.set(0, 0); // 待机
+                output.debugInfo = `${this.node.name}: 原位待机`;
+            }
+            output.wantsToAttack = false;
+            this.currentTarget = null;
+        }
+        
+        return output;
+    }
+
+    /**
+     * 【兼容性】保留update方法供现有系统调用
+     * 但现在只负责内部维护，不再控制状态机
      */
     protected update(deltaTime: number): void {
-        console.log(`[123|${this.node.name}] AINavigationController.update: 开始更新，当前状态=${this.currentState}`);
-        
+        // 仅保留基础的目标有效性检查和路径维护
         const currentTime = Date.now() / 1000;
-        console.log(`[123|${this.node.name}] AINavigationController.update: currentTime=${currentTime.toFixed(2)}`);
         
-        // 更新导航状态机
-        this.updateNavigationStateMachine(currentTime);
-        console.log(`[123|${this.node.name}] AINavigationController.update: 状态机更新完成`);
-        
-        // 根据当前状态执行相应逻辑
-        console.log(`[123|${this.node.name}] AINavigationController.update: 开始执行状态逻辑，状态=${this.currentState}`);
-        switch (this.currentState) {
-            case NavigationState.IDLE:
-                console.log(`[123|${this.node.name}] AINavigationController.update: 执行IDLE状态逻辑`);
-                this.updateIdleState(currentTime);
-                break;
-            case NavigationState.SEEKING_TARGET:
-                console.log(`[123|${this.node.name}] AINavigationController.update: 执行SEEKING_TARGET状态逻辑`);
-                this.updateSeekingState(currentTime);
-                break;
-            case NavigationState.PATHFINDING:
-                console.log(`[123|${this.node.name}] AINavigationController.update: 执行PATHFINDING状态逻辑`);
-                this.updatePathfindingState(currentTime);
-                break;
-            case NavigationState.FOLLOWING_PATH:
-                console.log(`[123|${this.node.name}] AINavigationController.update: 执行FOLLOWING_PATH状态逻辑`);
-                this.updateFollowingPathState(currentTime);
-                break;
-            case NavigationState.APPROACHING_TARGET:
-                console.log(`[123|${this.node.name}] AINavigationController.update: 执行APPROACHING_TARGET状态逻辑`);
-                this.updateApproachingTargetState(currentTime);
-                break;
-            case NavigationState.BLOCKED:
-                console.log(`[123|${this.node.name}] AINavigationController.update: 执行BLOCKED状态逻辑`);
-                this.updateBlockedState(currentTime);
-                break;
-            case NavigationState.LOST_TARGET:
-                console.log(`[123|${this.node.name}] AINavigationController.update: 执行LOST_TARGET状态逻辑`);
-                this.updateLostTargetState(currentTime);
-                break;
-            default:
-                console.warn(`[123|${this.node.name}] AINavigationController.update: 未知状态 ${this.currentState}`);
-                break;
-        }
-        
-        console.log(`[123|${this.node.name}] AINavigationController.update: 更新完成`);
-    }
-    
-    /**
-     * 更新导航状态机
-     */
-    private updateNavigationStateMachine(currentTime: number): void {
-        console.log(`[123|${this.node.name}] updateNavigationStateMachine: 开始，当前目标=${!!this.currentTarget}`);
-        
-        // 检查目标是否仍然有效
+        // 清理无效目标
         if (this.currentTarget && !this.isTargetValid(this.currentTarget)) {
-            console.log(`[123|${this.node.name}] updateNavigationStateMachine: 目标无效，转换到LOST_TARGET`);
-            this.transitionToState(NavigationState.LOST_TARGET, currentTime);
-            return;
+            this.currentTarget = null;
         }
         
-        // 检查是否需要重新搜索目标
-        if (!this.currentTarget && currentTime - this.lastTargetSearchTime > 1.0) {
-            console.log(`[123|${this.node.name}] updateNavigationStateMachine: 无目标且超过搜索间隔，转换到SEEKING_TARGET`);
-            this.transitionToState(NavigationState.SEEKING_TARGET, currentTime);
-            return;
-        }
-        
-        // 检查路径是否过期
+        // 路径维护（如果有的话）
         if (this.currentPath && currentTime - this.currentPath.timestamp > this.maxPathAge) {
-            console.log(`[123|${this.node.name}] updateNavigationStateMachine: 路径过期，重新寻路`);
             this.clearCurrentPath();
-            if (this.currentTarget) {
-                this.transitionToState(NavigationState.PATHFINDING, currentTime);
-            }
-        }
-        
-        // 检查是否被阻挡
-        if (this.currentState === NavigationState.FOLLOWING_PATH && 
-            currentTime - this.lastBlockedCheckTime > this.blockedCheckInterval) {
-            this.lastBlockedCheckTime = currentTime;
-            if (this.isPathBlocked()) {
-                console.log(`[123|${this.node.name}] updateNavigationStateMachine: 路径被阻挡，转换到BLOCKED`);
-                this.transitionToState(NavigationState.BLOCKED, currentTime);
-            }
-        }
-        
-        console.log(`[123|${this.node.name}] updateNavigationStateMachine: 完成，最终状态=${this.currentState}`);
-    }
-    
-    /**
-     * 待机状态更新
-     */
-    private updateIdleState(currentTime: number): void {
-        // 【修复】首先检查阵营是否已初始化
-        const currentFaction = this.getCurrentFaction();
-        if (!currentFaction) {
-            if (Math.random() < 0.05) { // 只有5%的概率打印，避免刷屏
-                console.log(`%c[TARGET_DEBUG] ⏳ ${this.node.name} IDLE状态：等待阵营初始化 (无法获取阵营信息)`, 'color: orange');
-            }
-            return; // 阵营未初始化时，不要转换状态
-        }
-        
-        // 定期搜索目标
-        if (currentTime - this.lastTargetSearchTime > 1.0) {
-            console.log(`%c[TARGET_DEBUG] 💤 ${this.node.name} IDLE状态：时间间隔已满足，准备转入SEEKING_TARGET`, 'color: cyan');
-            console.log(`%c[TARGET_DEBUG] 🔍 ${this.node.name} IDLE -> SEEKING_TARGET`, 'color: cyan');
-            this.transitionToState(NavigationState.SEEKING_TARGET, currentTime);
-        } else {
-            const timeUntilNext = 1.0 - (currentTime - this.lastTargetSearchTime);
-            if (Math.random() < 0.1) { // 只有10%的概率打印，避免刷屏
-                console.log(`%c[TARGET_DEBUG] ⏰ ${this.node.name} IDLE状态：等待搜索间隔，还需${timeUntilNext.toFixed(1)}秒`, 'color: lightgray');
-            }
         }
     }
     
-    /**
-     * 搜索目标状态更新
-     */
-    private updateSeekingState(currentTime: number): void {
-        console.log(`[123|${this.node.name}] updateSeekingState: 开始搜索目标`);
-        
-        if (!this.targetSelector) {
-            console.log(`[123|${this.node.name}] updateSeekingState: 目标选择器不可用`);
-            return;
-        }
-        
-        // 【修复】从BaseCharacterDemo获取阵营信息
-        const currentFaction = this.getCurrentFaction();
-        if (!currentFaction) {
-            console.log(`[123|${this.node.name}] updateSeekingState: 无法获取阵营信息`);
-            return;
-        }
-        
-        console.log(`[123|${this.node.name}] updateSeekingState: 阵营=${currentFaction}, 搜索范围=${this.detectionRange}`);
-        
-        this.lastTargetSearchTime = currentTime;
-        
-        // 使用增强版目标选择器搜索目标
-        console.log(`[123|${this.node.name}] updateSeekingState: 开始查找目标...`);
-        const targetInfo = this.targetSelector.findBestTarget(
-            this.node.position,
-            currentFaction,
-            this.detectionRange
-        );
-        
-        if (targetInfo) {
-            this.currentTarget = targetInfo;
-            this.performanceStats.targetsFound++;
-            console.log(`[123|${this.node.name}] updateSeekingState: 找到目标 ${targetInfo.node.name}, 距离=${targetInfo.distance.toFixed(1)}`);
-            
-            // 检查是否在攻击范围内
-            if (targetInfo.distance <= this.attackRange) {
-                console.log(`[123|${this.node.name}] updateSeekingState: 目标在攻击范围内(${targetInfo.distance.toFixed(1)} <= ${this.attackRange})，转入APPROACHING_TARGET`);
-                this.transitionToState(NavigationState.APPROACHING_TARGET, currentTime);
-            } else {
-                console.log(`[123|${this.node.name}] updateSeekingState: 目标超出攻击范围(${targetInfo.distance.toFixed(1)} > ${this.attackRange})，转入PATHFINDING`);
-                this.transitionToState(NavigationState.PATHFINDING, currentTime);
-            }
-        } else {
-            // 没有找到目标，返回待机状态
-            console.log(`[123|${this.node.name}] updateSeekingState: 未找到目标，转入IDLE状态`);
-            this.transitionToState(NavigationState.IDLE, currentTime);
-        }
-    }
+    // 【移除】旧的状态机更新方法已被computeDecision()替代
     
-    /**
-     * 寻路状态更新
-     */
-    private updatePathfindingState(currentTime: number): void {
-        if (!this.currentTarget) {
-            this.transitionToState(NavigationState.IDLE, currentTime);
-            return;
-        }
-        
-        // 如果有寻路管理器，使用A*寻路
-        if (this.pathfindingManager) {
-            this.performanceStats.totalPathRequests++;
-            
-            // 请求路径计算
-            this.pathfindingManager.requestPath(
-                this.node.position,
-                this.currentTarget.position,
-                (path: PathInfo | null) => {
-                    if (path) {
-                        this.currentPath = path;
-                        this.currentPathIndex = 0;
-                        this.performanceStats.successfulPaths++;
-                        console.log(`%c[AINavigationController] 🗺️ 路径计算成功: ${path.nodes.length} 个节点`, 'color: blue');
-                        this.transitionToState(NavigationState.FOLLOWING_PATH, Date.now() / 1000);
-                    } else {
-                        console.warn(`%c[AINavigationController] ❌ 路径计算失败，回退到直接接近`, 'color: red');
-                        this.transitionToState(NavigationState.APPROACHING_TARGET, Date.now() / 1000);
-                    }
-                },
-                1 // 高优先级
-            );
-        } else {
-            // 没有寻路管理器时，直接接近目标
-            console.log(`%c[AINavigationController] 📐 无寻路管理器，使用直线接近`, 'color: yellow');
-            this.transitionToState(NavigationState.APPROACHING_TARGET, currentTime);
-        }
-    }
+    // 【移除】旧的状态更新方法，已被computeDecision()统一替代
     
-    /**
-     * 跟随路径状态更新
-     */
-    private updateFollowingPathState(currentTime: number): void {
-        if (!this.currentPath || !this.currentTarget) {
-            this.transitionToState(NavigationState.IDLE, currentTime);
-            return;
-        }
-        
-        // 检查是否已到达路径终点
-        if (this.currentPathIndex >= this.currentPath.nodes.length) {
-            this.transitionToState(NavigationState.APPROACHING_TARGET, currentTime);
-            return;
-        }
-        
-        // 获取当前目标路径点
-        const targetNode = this.currentPath.nodes[this.currentPathIndex];
-        const distanceToNode = Vec3.distance(this.node.position, targetNode);
-        
-        // 检查是否到达当前路径点
-        if (distanceToNode <= this.pathNodeThreshold) {
-            this.currentPathIndex++;
-            console.log(`%c[AINavigationController] 📍 到达路径点 ${this.currentPathIndex}/${this.currentPath.nodes.length}`, 'color: cyan');
-            
-            // 如果到达最后一个路径点
-            if (this.currentPathIndex >= this.currentPath.nodes.length) {
-                this.transitionToState(NavigationState.APPROACHING_TARGET, currentTime);
-                return;
-            }
-        }
-        
-        // 设置ORCA期望速度指向当前路径点
-        this.setOrcaDesiredVelocityTowards(targetNode);
-        
-        // 检查是否需要更新路径
-        if (currentTime - this.lastPathUpdateTime > this.pathUpdateInterval) {
-            this.lastPathUpdateTime = currentTime;
-            // 如果目标移动太远，重新计算路径
-            const targetDistance = Vec3.distance(this.currentTarget.position, 
-                this.currentPath.nodes[this.currentPath.nodes.length - 1]);
-            
-            if (targetDistance > this.pathNodeThreshold * 2) {
-                console.log(`%c[AINavigationController] 🔄 目标移动，重新寻路`, 'color: yellow');
-                this.transitionToState(NavigationState.PATHFINDING, currentTime);
-            }
-        }
-        
-        // 检查是否在攻击范围内
-        if (this.currentTarget.distance <= this.attackRange) {
-            this.transitionToState(NavigationState.APPROACHING_TARGET, currentTime);
-        }
-    }
+    // 【移除】旧寻路状态更新，新架构中路径计算集成到calculateMoveVelocityTowards中
     
-    /**
-     * 接近目标状态更新
-     */
-    private updateApproachingTargetState(currentTime: number): void {
-        console.log(`[123|${this.node.name}] updateApproachingTargetState: 开始，当前目标=${this.currentTarget?.node.name || '无'}`);
-        
-        if (!this.currentTarget) {
-            console.log(`[123|${this.node.name}] updateApproachingTargetState: 无当前目标，转入IDLE`);
-            this.transitionToState(NavigationState.IDLE, currentTime);
-            return;
-        }
-        
-        const currentDistance = Vec3.distance(this.node.position, this.currentTarget.position);
-        console.log(`[123|${this.node.name}] updateApproachingTargetState: 与目标 ${this.currentTarget.node.name} 距离=${currentDistance.toFixed(1)}`);
-        
-        // 如果脱离攻击范围，重新寻路
-        if (currentDistance > this.attackRange * 1.2) {
-            console.log(`[123|${this.node.name}] updateApproachingTargetState: 脱离攻击范围(${currentDistance.toFixed(1)} > ${(this.attackRange * 1.2).toFixed(1)})，重新寻路`);
-            this.transitionToState(NavigationState.PATHFINDING, currentTime);
-            return;
-        }
-        
-        // 直接朝目标移动（由ORCA处理避让）
-        console.log(`[123|${this.node.name}] updateApproachingTargetState: 调用setOrcaDesiredVelocityTowards`);
-        this.setOrcaDesiredVelocityTowards(this.currentTarget.position);
-    }
+    // 【移除】所有旧的状态更新方法，新架构使用computeDecision()统一计算
     
-    /**
-     * 阻挡状态更新
-     */
-    private updateBlockedState(currentTime: number): void {
-        this.performanceStats.blockedPaths++;
-        
-        // 等待一段时间后重新寻路
-        if (currentTime - this.stateEnterTime > 2.0) {
-            console.log(`%c[AINavigationController] 🔓 阻挡状态超时，重新寻路`, 'color: yellow');
-            this.clearCurrentPath();
-            if (this.currentTarget) {
-                this.transitionToState(NavigationState.PATHFINDING, currentTime);
-            } else {
-                this.transitionToState(NavigationState.SEEKING_TARGET, currentTime);
-            }
-        }
-    }
-    
-    /**
-     * 丢失目标状态更新
-     */
-    private updateLostTargetState(currentTime: number): void {
-        this.performanceStats.targetsLost++;
-        
-        // 清理当前目标和路径
-        this.currentTarget = null;
-        this.clearCurrentPath();
-        
-        // 等待一段时间后重新搜索
-        if (currentTime - this.stateEnterTime > 1.0) {
-            this.transitionToState(NavigationState.SEEKING_TARGET, currentTime);
-        }
-    }
-    
-    /**
-     * 状态转换
-     */
-    private transitionToState(newState: NavigationState, currentTime: number): void {
-        const oldState = this.currentState;
-        this.currentState = newState;
-        this.stateEnterTime = currentTime;
-        
-        // 特殊状态的额外信息
-        switch (newState) {
-            case NavigationState.IDLE:
-                if (this.orcaAgent) {
-                    this.orcaAgent.prefVelocity.set(0, 0);
-                }
-                break;
-        }
-    }
+    // 【移除】状态转换方法，新架构不再使用内部状态机
     
     /**
      * 统一的期望速度设置方法 - AINavigationController的唯一速度控制入口
@@ -590,6 +346,46 @@ export class AINavigationController extends Component {
     }
 
     /**
+     * 【新架构】搜索最佳目标
+     */
+    private findBestTarget(): TargetInfo | null {
+        if (!this.targetSelector) {
+            return null;
+        }
+        
+        const currentFaction = this.getCurrentFaction();
+        if (!currentFaction) {
+            return null;
+        }
+        
+        return this.targetSelector.findBestTarget(
+            this.node.position,
+            currentFaction,
+            this.detectionRange
+        );
+    }
+    
+    /**
+     * 【新架构】计算朝向目标的移动速度
+     */
+    private calculateMoveVelocityTowards(targetPosition: Vec3): Vec2 {
+        const direction = new Vec2(
+            targetPosition.x - this.node.position.x,
+            targetPosition.y - this.node.position.y
+        );
+        
+        // 如果距离目标过近，停止移动
+        if (direction.lengthSqr() < 1) {
+            return new Vec2(0, 0);
+        }
+        
+        // 计算期望速度：朝目标全速前进
+        direction.normalize();
+        const maxSpeed = this.orcaAgent ? this.orcaAgent.getMaxSpeed() : 100; // 默认速度
+        return direction.multiplyScalar(maxSpeed);
+    }
+    
+    /**
      * 设置期望速度指向目标方向
      * @param targetPosition 目标位置
      */
@@ -598,24 +394,8 @@ export class AINavigationController extends Component {
             return;
         }
         
-        const direction = new Vec2(
-            targetPosition.x - this.node.position.x,
-            targetPosition.y - this.node.position.y
-        );
-        
-        // 如果距离目标过近，停止移动
-        if (direction.lengthSqr() < 1) {
-            this.stopMovement();
-            return;
-        }
-        
-        // 计算期望速度：朝目标全速前进
-        direction.normalize();
-        const maxSpeed = this.orcaAgent.getMaxSpeed();
-        const desiredVelocity = direction.multiplyScalar(maxSpeed);
-        
-        // 使用统一的速度设置方法
-        this.setDesiredVelocity(desiredVelocity);
+        const velocity = this.calculateMoveVelocityTowards(targetPosition);
+        this.setDesiredVelocity(velocity);
     }
     /**
      * 内部方法：设置ORCA期望速度指向目标位置（保持现有调用兼容性）
@@ -691,49 +471,7 @@ export class AINavigationController extends Component {
         return this.currentTarget;
     }
     
-    /**
-     * 强制重新搜索目标
-     */
-    public forceTargetSearch(): void {
-        this.lastTargetSearchTime = 0;
-        this.transitionToState(NavigationState.SEEKING_TARGET, Date.now() / 1000);
-    }
-    
-    /**
-     * 【调试方法】立即强制搜索，无视时间间隔
-     */
-    public forceImmediateSearch(): void {
-        console.log(`%c[TARGET_DEBUG] 🚀 ${this.node.name} 强制立即搜索目标`, 'color: yellow; font-weight: bold');
-        
-        const currentTime = Date.now() / 1000;
-        
-        // 检查组件状态
-        const currentFaction = this.getCurrentFaction();
-        console.log(`%c[TARGET_DEBUG] 🔍 当前阵营: ${currentFaction}`, 'color: yellow');
-        
-        if (!this.targetSelector) {
-            console.log(`%c[TARGET_DEBUG] ❌ targetSelector 未初始化`, 'color: red');
-            return;
-        }
-        
-        if (!currentFaction) {
-            console.log(`%c[TARGET_DEBUG] ❌ 无法获取阵营信息`, 'color: red');
-            return;
-        }
-        
-        // 立即执行搜索逻辑
-        this.updateSeekingState(currentTime);
-    }
-    
-    /**
-     * 强制重新计算路径
-     */
-    public forceRepath(): void {
-        this.clearCurrentPath();
-        if (this.currentTarget) {
-            this.transitionToState(NavigationState.PATHFINDING, Date.now() / 1000);
-        }
-    }
+    // 【移除】强制搜索方法，新架构中通过computeDecision()自动处理
     
     /**
      * 获取性能统计
@@ -747,18 +485,6 @@ export class AINavigationController extends Component {
             pathProgress: this.currentPath ? 
                 `${this.currentPathIndex}/${this.currentPath.nodes.length}` : 'N/A'
         };
-    }
-    
-    /**
-     * 打印调试信息
-     */
-    public printDebugInfo(): void {
-        const stats = this.getPerformanceStats();
-        console.log(`%c[AINavigationController] 📊 AI导航状态 (${this.node.name}):`, 'color: purple; font-weight: bold');
-        console.log(`%c[AINavigationController] 🎯 当前状态: ${stats.currentState}`, 'color: blue');
-        console.log(`%c[AINavigationController] 📍 目标: ${stats.hasTarget ? this.currentTarget?.node.name : '无'}`, 'color: green');
-        console.log(`%c[AINavigationController] 🗺️ 路径: ${stats.hasPath ? `进度 ${stats.pathProgress}` : '无'}`, 'color: cyan');
-        console.log(`%c[AINavigationController] 📈 统计: 寻路=${stats.totalPathRequests}, 成功=${stats.successfulPaths}, 阻挡=${stats.blockedPaths}`, 'color: orange');
     }
     
     protected onDestroy(): void {

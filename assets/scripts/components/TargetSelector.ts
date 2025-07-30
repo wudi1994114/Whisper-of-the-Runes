@@ -49,14 +49,12 @@ export class TargetSelector extends Component implements ITargetSelector {
      */
     public registerTarget(target: Node, faction: Faction): void {
         if (!target || !target.isValid) {
-            console.log(`%c[TARGET_DEBUG] ⚠️ 尝试注册无效的目标节点`, 'color: orange');
             return;
         }
         
         // 确保阵营列表存在
         if (!this.targetRegistry.has(faction)) {
             this.targetRegistry.set(faction, []);
-            console.log(`%c[TARGET_DEBUG] 🆕 创建阵营注册表: ${faction}`, 'color: green');
         }
         
         const targets = this.targetRegistry.get(faction)!;
@@ -64,12 +62,6 @@ export class TargetSelector extends Component implements ITargetSelector {
         // 防止重复注册
         if (targets.indexOf(target) === -1) {
             targets.push(target);
-            console.log(`%c[TARGET_DEBUG] ✅ 注册目标成功: ${target.name} → ${faction} (该阵营总数: ${targets.length})`, 'color: green');
-            
-            // 打印当前注册统计
-            this.printRegistrationSummary();
-        } else {
-            console.log(`%c[TARGET_DEBUG] ⚠️ 目标已存在，跳过重复注册: ${target.name} → ${faction}`, 'color: orange');
         }
     }
     
@@ -81,24 +73,12 @@ export class TargetSelector extends Component implements ITargetSelector {
     public deregisterTarget(target: Node, faction: Faction): void {
         const targets = this.targetRegistry.get(faction);
         if (!targets) {
-            console.log(`%c[TARGET_DEBUG] ⚠️ 阵营不存在，无法反注册: ${faction}`, 'color: orange');
             return;
         }
         
         const index = targets.indexOf(target);
         if (index > -1) {
             targets.splice(index, 1);
-            console.log(`%c[TARGET_DEBUG] ❌ 反注册目标成功: ${target.name} ← ${faction} (该阵营剩余: ${targets.length})`, 'color: red');
-            
-            // 打印当前注册统计
-            this.printRegistrationSummary();
-            
-            // 如果该阵营没有目标了，可以选择清理注册表（可选）
-            if (targets.length === 0) {
-                console.log(`%c[TARGET_DEBUG] 🧹 阵营 ${faction} 已无目标，保留空列表`, 'color: gray');
-            }
-        } else {
-            console.log(`%c[TARGET_DEBUG] ⚠️ 目标不在注册表中，无法反注册: ${target.name} ← ${faction}`, 'color: orange');
         }
     }
     
@@ -106,25 +86,24 @@ export class TargetSelector extends Component implements ITargetSelector {
      * 查找最佳目标
      */
     public findBestTarget(myPosition: Vec3, myFaction: Faction, detectionRange: number): TargetInfo | null {
-        console.log(`[ORCA_DEBUG] 🎯 TargetSelector开始查找目标 - 我的阵营: ${myFaction}, 搜索范围: ${detectionRange}`);
+        // 【性能优化】减少调试输出频率
+        const now = Date.now();
+        const shouldDebug = !this.lastDebugTime || (now - this.lastDebugTime > 3000); // 每3秒输出一次详细调试信息
         
-        // 【调试】打印当前完整的注册表状态
-        console.log(`[ORCA_DEBUG] 📋 当前注册表状态:`);
-        for (const [faction, targets] of this.targetRegistry) {
-            const validTargets = targets.filter(node => node && node.isValid);
-            console.log(`[ORCA_DEBUG] 🏛️ 阵营 ${faction}: ${validTargets.length} 个目标 [${validTargets.map(t => t.name).join(', ')}]`);
+        if (shouldDebug) {
+            this.lastDebugTime = now;
         }
         
         // 确定敌对阵营      
         const enemyFactions = this.getEnemyFactions(myFaction);
-        console.log(`[ORCA_DEBUG] 👹 敌对阵营列表: [${enemyFactions.join(', ')}]`);
         
         if (enemyFactions.length === 0) {
-            console.warn(`[ORCA_DEBUG] ⚠️ 没有敌对阵营，无法查找目标`);
+            if (shouldDebug) {
+                console.warn(`[TargetSelector] 没有敌对阵营，无法查找目标`);
+            }
             return null;
         }
         
-        // 移除频繁的调试日志
         let bestTarget: TargetInfo | null = null;
         let bestScore = -1;
         let totalTargetsChecked = 0;
@@ -133,11 +112,9 @@ export class TargetSelector extends Component implements ITargetSelector {
         // 遍历所有敌对阵营
         for (const enemyFaction of enemyFactions) {
             const targets = this.getTargetsByFaction(enemyFaction);
-            console.log(`[ORCA_DEBUG] 🏛️ 阵营 ${enemyFaction} 有 ${targets.length} 个注册目标`);
             
             for (const target of targets) {
                 if (!target || !target.isValid) {
-                    console.warn(`[ORCA_DEBUG] ⚠️ 跳过无效目标节点`);
                     continue;
                 }
                 
@@ -146,8 +123,6 @@ export class TargetSelector extends Component implements ITargetSelector {
                 
                 // 距离检查
                 if (distance > detectionRange) {
-                    // 只有在调试模式下才打印距离检查信息，避免刷屏
-                    // console.log(`[ORCA_DEBUG] 📏 目标 ${target.name} 超出范围 (${distance.toFixed(1)} > ${detectionRange})`);
                     continue;
                 }
                 
@@ -156,15 +131,12 @@ export class TargetSelector extends Component implements ITargetSelector {
                 // 生命值检查
                 const characterStats = target.getComponent(CharacterStats);
                 if (!characterStats || !characterStats.isAlive) {
-                    console.log(`%c[TARGET_DEBUG] 💀 目标 ${target.name} 不存活或无生命值组件`, 'color: gray');
                     continue;
                 }
                 
                 // 计算目标评分
                 const priority = this.calculateTargetPriority(target, myPosition);
                 const score = priority / (distance + 1); // 距离越近，优先级越高
-                
-                console.log(`%c[TARGET_DEBUG] ⭐ 候选目标 ${target.name}: 距离=${distance.toFixed(1)}, 优先级=${priority.toFixed(1)}, 评分=${score.toFixed(2)}`, 'color: cyan');
                 
                 if (score > bestScore) {
                     bestScore = score;
@@ -175,15 +147,19 @@ export class TargetSelector extends Component implements ITargetSelector {
                         faction: enemyFaction,
                         priority: priority
                     };
-                    console.log(`%c[TARGET_DEBUG] 🏆 新的最佳目标: ${target.name} (评分: ${score.toFixed(2)})`, 'color: green');
                 }
             }
         }
         
-        console.log(`%c[TARGET_DEBUG] 📊 搜索结果: 检查了${totalTargetsChecked}个目标, ${validTargetsInRange}个在范围内, 最佳目标: ${bestTarget ? bestTarget.node.name : '无'}`, 'color: purple');
+        if (shouldDebug && bestTarget) {
+            console.log(`[TargetSelector] 搜索结果: 检查${totalTargetsChecked}个目标, ${validTargetsInRange}个在范围内, 最佳目标: ${bestTarget.node.name}`);
+        }
         
         return bestTarget;
     }
+    
+    // 添加调试时间跟踪
+    private lastDebugTime: number = 0;
     
     /**
      * 获取指定阵营的所有目标
@@ -212,28 +188,6 @@ export class TargetSelector extends Component implements ITargetSelector {
     public calculateTargetPriority(target: Node, myPosition: Vec3): number {
         // 【修改】统一优先级，让选择纯粹基于距离
         return 100; // 所有目标优先级相同
-        
-        // 【注释掉原有的优先级逻辑】
-        // let priority = 100; // 基础优先级
-        // 
-        // // 根据目标类型调整优先级
-        // const characterStats = target.getComponent(CharacterStats);
-        // if (characterStats) {
-        //     // 血量越少，优先级越高（更容易击杀）
-        //     const healthRatio = characterStats.currentHealth / characterStats.maxHealth;
-        //     priority += (1 - healthRatio) * 50;
-        //     
-        //     // 根据目标类型调整
-        //     if (target.name.includes('player') || target.getComponent('PlayerController')) {
-        //         priority += 200; // 玩家优先级最高
-        //     } else if (target.name.includes('elite')) {
-        //         priority += 30; // 精英怪优先级较高
-        //     } else if (target.name.includes('boss')) {
-        //         priority += 100; // Boss优先级很高
-        //     }
-        // }
-        // 
-        // return priority;
     }
     
     /**
@@ -298,7 +252,6 @@ export class TargetSelector extends Component implements ITargetSelector {
             }
         }
         const summary = summaryParts.join(', ');
-        console.log(`%c[TARGET_DEBUG] 📊 当前注册统计: ${summary}`, 'color: lightblue');
     }
     
     /**
@@ -325,7 +278,6 @@ export class TargetSelector extends Component implements ITargetSelector {
         const scene = director.getScene();
         if (scene) {
             scene.addChild(testPlayerNode);
-            console.log(`%c[TARGET_DEBUG] 🎮 已创建测试玩家目标: ${testPlayerNode.name} (阵营: ${Faction.PLAYER})`, 'color: green; font-weight: bold');
             return testPlayerNode;
         }
         
@@ -336,31 +288,16 @@ export class TargetSelector extends Component implements ITargetSelector {
      * 【调试方法】打印完整的注册表信息
      */
     public printFullRegistryInfo(): void {
-        console.log(`%c[TARGET_DEBUG] �� 完整注册表信息:`, 'color: cyan; font-weight: bold');
-        
         if (this.targetRegistry.size === 0) {
-            console.log(`%c[TARGET_DEBUG] ❌ 注册表为空，没有任何目标注册`, 'color: red');
             return;
         }
         
         for (const [faction, targets] of this.targetRegistry) {
             const validTargets = targets.filter(node => node && node.isValid);
             const invalidCount = targets.length - validTargets.length;
-            
-            console.log(`%c[TARGET_DEBUG] 🏛️ 阵营 ${faction}:`, 'color: cyan');
-            console.log(`%c[TARGET_DEBUG]   - 有效目标: ${validTargets.length} 个`, 'color: cyan');
-            console.log(`%c[TARGET_DEBUG]   - 无效目标: ${invalidCount} 个`, 'color: orange');
-            
-            validTargets.forEach((target, index) => {
-                const pos = target.position;
-                const characterStats = target.getComponent('CharacterStats') as any;
-                const isAlive = characterStats ? characterStats.isAlive : '未知';
-                console.log(`%c[TARGET_DEBUG]   [${index + 1}] ${target.name} 位置:(${pos.x.toFixed(0)},${pos.y.toFixed(0)}) 存活:${isAlive}`, 'color: lightblue');
-            });
         }
         
         const totalValid = this.getTotalRegisteredTargets();
-        console.log(`%c[TARGET_DEBUG] 📊 总计有效目标数: ${totalValid}`, 'color: cyan; font-weight: bold');
     }
 }
 
