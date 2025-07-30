@@ -103,6 +103,9 @@ export class AINavigationController extends Component {
     private pathfindingManager: PathfindingManager | null = null;
     private orcaAgent: OrcaAgent | null = null;
     
+    // 导航状态
+    private currentState: NavigationState = NavigationState.IDLE;
+    
     // 【简化】只保留必要的目标和路径信息
     private currentTarget: TargetInfo | null = null;
     private currentPath: PathInfo | null = null;
@@ -396,12 +399,6 @@ export class AINavigationController extends Component {
         
         const velocity = this.calculateMoveVelocityTowards(targetPosition);
         this.setDesiredVelocity(velocity);
-    }
-    /**
-     * 内部方法：设置ORCA期望速度指向目标位置（保持现有调用兼容性）
-     */
-    private setOrcaDesiredVelocityTowards(targetPosition: Vec3): void {
-        this.setDesiredVelocityTowards(targetPosition);
     }
     
     /**

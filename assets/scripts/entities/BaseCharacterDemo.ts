@@ -19,7 +19,7 @@ import { ICrowdableCharacter } from '../systems/GridManager';
 import { OrcaAgent } from '../components/OrcaAgent';
 import { getOrcaSystem } from '../systems/OrcaSystem';
 import { gridManager } from '../systems/GridManager';
-import { AINavigationController, AINavigationOutput } from '../controllers/AINavigationController';
+import { AINavigationController } from '../controllers/AINavigationController';
 import { AIPerformanceManager } from '../systems/AIPerformanceManager';
 import { TempVarPool } from '../utils/TempVarPool';
 import { ControlMode, CharacterState } from '../state-machine/CharacterEnums';
@@ -1174,6 +1174,17 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         circleCollider.group = physicsGroup;
         
         console.log(`[${this.getCharacterDisplayName()}] 圆形碰撞体组件配置完成: 分组=${physicsGroup}, 半径=${circleCollider.radius}, 偏移=(${circleCollider.offset.x}, ${circleCollider.offset.y})`);
+        
+        // 【新增】同步ORCA避让半径与碰撞体半径
+        if (this.orcaAgent) {
+            const oldRadius = this.orcaAgent.radius;
+            this.orcaAgent.radius = circleCollider.radius;
+            console.log(`[${this.getCharacterDisplayName()}] 🔄 ORCA半径同步: ${oldRadius} → ${circleCollider.radius} (碰撞体半径)`);
+            
+            // 验证有效半径计算
+            const effectiveRadius = this.orcaAgent.getEffectiveRadius();
+            console.log(`[${this.getCharacterDisplayName()}] 📏 ORCA有效半径: ${effectiveRadius} (类型: ${this.orcaAgent.agentType})`);
+        }
     }
 
     /**
@@ -1539,48 +1550,64 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     }
 
     /**
-     * 【新架构】AI模式的协调逻辑
+     * 【新架构】AI模式的协调逻辑 (已修复冷却期间移动问题)
      */
     private updateAICoordination(deltaTime: number): void {
         if (!this.characterStats || !this.characterStats.isAlive || !this.enemyData || !this.aiNavigationController) {
+            // 如果必要组件或数据不存在，直接返回，不做任何操作
             return;
         }
         
-        // 1. 从AI系统获取决策
+        // 1. 从AI导航系统获取原始决策
         const aiDecision = this.aiNavigationController.computeDecision();
         
-        // 2. 设置物理移动（直接应用AI的prefVelocity）
+        // 2. 检查攻击冷却状态
+        const currentTime = Date.now() / 1000;
+        const isCoolingDown = (currentTime - this.lastAttackTime) < this.attackCooldown;
+
+        // 3. 定义最终将要执行的决策变量
+        let finalPrefVelocity = aiDecision.prefVelocity;
+        let finalWantsToAttack = aiDecision.wantsToAttack;
+
+        // 4. 处理攻击意图和冷却计时
+        if (finalWantsToAttack) {
+            if (isCoolingDown) {
+                // 正在冷却中，强制取消本次攻击意图
+                finalWantsToAttack = false; 
+            } else {
+                // 不在冷却中，这是一个有效的攻击请求，记录下当前时间作为新的攻击起始时间
+                this.lastAttackTime = currentTime; 
+            }
+        }
+
+        // 5. 【关键修复】处理冷却期间的移动行为
+        // 如果角色正在冷却中，并且依然有目标，那么无论导航想让它怎么动，我们都强制它站住不动。
+        const hasTarget = this.aiNavigationController.getCurrentTarget() != null;
+        if (isCoolingDown && hasTarget) {
+            // 强制将期望速度设置为零，覆盖导航的移动决策
+            finalPrefVelocity = Vec2.ZERO; 
+            // 为了调试清晰，可以打印日志
+            // console.log(`[${this.node.name}] 攻击冷却中，强制停止移动。`);
+        }
+
+        // 6. 应用最终修正后的决策到物理和动画系统
+        // 设置物理移动
         if (this.orcaAgent) {
-            this.orcaAgent.prefVelocity.set(aiDecision.prefVelocity.x, aiDecision.prefVelocity.y);
+            this.orcaAgent.prefVelocity.set(finalPrefVelocity.x, finalPrefVelocity.y);
         }
         
-        // 3. 更新角色朝向
+        // 更新角色朝向
         if (aiDecision.targetDirection) {
             this.updateDirectionTowards(aiDecision.targetDirection);
         }
         
-        // 4. 转换为状态机输入信号
-        this.currentInputSignals.hasMovementInput = aiDecision.prefVelocity.lengthSqr() > 0.01;
-        this.currentInputSignals.wantsToAttack = aiDecision.wantsToAttack;
+        // 转换为状态机输入信号
+        this.currentInputSignals.hasMovementInput = finalPrefVelocity.lengthSqr() > 0.01;
+        this.currentInputSignals.wantsToAttack = finalWantsToAttack;
         
-        // 5. 应用攻击冷却逻辑
-        if (this.currentInputSignals.wantsToAttack) {
-            const currentTime = Date.now() / 1000;
-            if (currentTime - this.lastAttackTime < this.attackCooldown) {
-                this.currentInputSignals.wantsToAttack = false; // 冷却中，取消攻击意图
-            } else {
-                this.lastAttackTime = currentTime; // 记录攻击时间
-            }
-        }
-        
-        // 6. 更新目标引用（兼容性）
+        // 7. 更新目标引用（兼容性）
         const aiTarget = this.aiNavigationController.getCurrentTarget();
         this.currentTarget = aiTarget ? aiTarget.node : null;
-        
-        // 7. 调试信息
-        if (aiDecision.debugInfo && Math.random() < 0.1) { // 10%概率输出调试信息
-            console.log(`[AI协调] ${aiDecision.debugInfo}`);
-        }
     }
     
     /**

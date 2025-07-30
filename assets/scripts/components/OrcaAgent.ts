@@ -19,7 +19,7 @@ export class OrcaAgent extends Component {
         displayName: "避让半径",
         tooltip: "角色的避让半径，决定了与其他角色保持的最小距离"
     })
-    public radius: number = 30; // 避让半径
+    public radius: number = 25; // 避让半径，默认与碰撞体半径一致
     
     @property({
         displayName: "邻居搜索距离", 
@@ -329,7 +329,7 @@ export class OrcaAgent extends Component {
                 break;
             case 3: // LARGE
                 this.aggressiveness = 0.4;
-                this.radius *= 1.2;
+                // 【修复】移除重复调整，半径调整在getEffectiveRadius中统一处理
                 this.convergenceTolerance = 0.001;
                 break;
             case 4: // FAST

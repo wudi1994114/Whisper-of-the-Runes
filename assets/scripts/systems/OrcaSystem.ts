@@ -197,6 +197,11 @@ export class OrcaSystem extends Component {
         
         const dist = relativePosition.length();
         const combinedRadius = radiusA + radiusB;
+        
+        // 【调试】输出半径信息，特别是当距离接近70时
+        if (dist > 50 && dist < 100) {
+            console.log(`🔍 ORCA计算: ${agentA.node.name} vs ${agentB.node.name}, 距离=${dist.toFixed(1)}, 半径A=${radiusA}, 半径B=${radiusB}, 组合=${combinedRadius}`);
+        }
 
         let u: Vec2; // 从当前相对速度指向VO边界的最小修正向量
 
@@ -454,7 +459,8 @@ export class OrcaSystem extends Component {
                     // 根据响应敏感度调整
                     projectionStrength *= responsiveness;
                     
-                    const projection = line.direction.clone().multiplyScalar(violation * projectionStrength);
+                    // 【修复Bug】violation是负数，需要取负号才能正确推开
+                    const projection = line.direction.clone().multiplyScalar(-violation * projectionStrength);
                     velocity.subtract(projection);
                     
                     anyViolation = true;
@@ -468,7 +474,8 @@ export class OrcaSystem extends Component {
                     // 紧急约束的额外处理
                     if (urgency > 0.5 && violation < -0.01) {
                         const urgencyBoost = Math.min(2.0, urgency);
-                        const secondProjection = line.direction.clone().multiplyScalar(violation * 0.1 * urgencyBoost);
+                        // 【修复Bug】同样需要取负号才能正确推开
+                        const secondProjection = line.direction.clone().multiplyScalar(-violation * 0.1 * urgencyBoost);
                         velocity.subtract(secondProjection);
                     }
                 }
