@@ -79,8 +79,6 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
     
     protected onLoad(): void {
         EnhancedTargetSelector._instance = this;
-        console.log(`%c[EnhancedTargetSelector] 🎯 增强版目标选择器已初始化`, 'color: blue; font-weight: bold');
-        
         // 定期清理过期记忆
         this.schedule(this.cleanupExpiredMemories, 2.0);
         this.schedule(this.cleanupLOSCache, 1.0);
@@ -154,20 +152,8 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
      * 查找最佳目标（增强版 - 包含视线检测和记忆系统）
      */
     public findBestTarget(myPosition: Vec3, myFaction: Faction, detectionRange: number): TargetInfo | null {
-        console.log(`%c[EnhancedTargetSelector] 🎯 开始查找最佳目标`, 'color: blue');
-        console.log(`%c[EnhancedTargetSelector] 📍 搜索位置: (${myPosition.x.toFixed(1)}, ${myPosition.y.toFixed(1)})`, 'color: blue');
-        console.log(`%c[EnhancedTargetSelector] 🏛️ 我的阵营: ${myFaction}`, 'color: blue');
-        console.log(`%c[EnhancedTargetSelector] 📏 搜索范围: ${detectionRange}`, 'color: blue');
-        
-        // 【调试】打印当前完整的注册表状态
-        console.log(`%c[EnhancedTargetSelector] 📋 当前注册表状态:`, 'color: cyan');
-        for (const [faction, targets] of this.targetRegistry) {
-            const validTargets = targets.filter(node => node && node.isValid);
-            console.log(`%c[EnhancedTargetSelector] 🏛️ 阵营 ${faction}: ${validTargets.length} 个目标 [${validTargets.map(t => t.name).join(', ')}]`, 'color: lightblue');
-        }
         
         const enemyFactions = this.getEnemyFactions(myFaction);
-        console.log(`%c[EnhancedTargetSelector] 👹 敌对阵营列表: [${enemyFactions.join(', ')}]`, 'color: orange');
         
         if (enemyFactions.length === 0) {
             console.warn(`%c[EnhancedTargetSelector] ⚠️ 没有敌对阵营，无法查找目标`, 'color: red');
@@ -180,14 +166,10 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
         let validTargetsInRange = 0;
         let visibleTargets = 0;
         
-        console.log(`%c[EnhancedTargetSelector] 🔍 第一阶段：查找可见的活跃目标`, 'color: green');
-        
         // 第一阶段：查找可见的活跃目标
         for (const enemyFaction of enemyFactions) {
-            console.log(`%c[EnhancedTargetSelector] 查找阵营 ${enemyFaction} 的目标`);
 
             const targets = this.getTargetsByFaction(enemyFaction);
-            console.log(`%c[EnhancedTargetSelector] 🏛️ 检查阵营 ${enemyFaction}: ${targets.length} 个目标`, 'color: yellow');
             
             for (const target of targets) {
                 if (!target || !target.isValid) {
@@ -198,10 +180,7 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
                 totalTargetsChecked++;
                 const distance = Vec3.distance(myPosition, target.position);
                 
-                console.log(`%c[EnhancedTargetSelector] 📍 检查目标 ${target.name}: 距离=${distance.toFixed(1)}`, 'color: gray');
-                
                 if (distance > detectionRange) {
-                    console.log(`%c[EnhancedTargetSelector] 📏 目标 ${target.name} 超出搜索范围 (${distance.toFixed(1)} > ${detectionRange})`, 'color: gray');
                     continue;
                 }
                 
@@ -213,12 +192,8 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
                     continue;
                 }
                 
-                console.log(`%c[EnhancedTargetSelector] 👁️ 对目标 ${target.name} 进行视线检测...`, 'color: cyan');
-                
                 // 视线检测
                 const losResult = this.checkLineOfSight(myPosition, target.position, target);
-                
-                console.log(`%c[EnhancedTargetSelector] 👁️ 目标 ${target.name} 视线检测结果: ${losResult.visible ? '可见' : '不可见'} (距离: ${losResult.distance.toFixed(1)})`, `color: ${losResult.visible ? 'green' : 'red'}`);
                 
                 if (losResult.visible) {
                     visibleTargets++;
@@ -227,8 +202,6 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
                     
                     // 计算增强评分
                     const score = this.calculateEnhancedTargetScore(target, myPosition, distance, losResult);
-                    
-                    console.log(`%c[EnhancedTargetSelector] ⭐ 可见目标 ${target.name}: 距离=${distance.toFixed(1)}, 评分=${score.toFixed(2)}`, 'color: cyan');
                     
                     if (score > bestScore) {
                         bestScore = score;
@@ -239,7 +212,6 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
                             faction: enemyFaction,
                             priority: score
                         };
-                        console.log(`%c[EnhancedTargetSelector] 🏆 新的最佳目标: ${target.name} (评分: ${score.toFixed(2)})`, 'color: green');
                     }
                 } else {
                     // 目标不可见，更新记忆但不选择
@@ -251,11 +223,8 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
             }
         }
         
-        console.log(`%c[EnhancedTargetSelector] 📊 第一阶段结果: 检查了${totalTargetsChecked}个目标, ${validTargetsInRange}个在范围内, ${visibleTargets}个可见, 最佳目标: ${bestTarget ? bestTarget.node.name : '无'}`, 'color: purple');
-        
         // 第二阶段：如果没有找到可见目标，尝试基于记忆搜索
         if (!bestTarget) {
-            console.log(`%c[EnhancedTargetSelector] 🧠 第二阶段：基于记忆搜索`, 'color: purple');
             bestTarget = this.searchBasedOnMemory(myPosition, myFaction, detectionRange);
             
             if (bestTarget) {
@@ -264,9 +233,6 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
                 console.log(`%c[EnhancedTargetSelector] 🧠 基于记忆也未找到目标`, 'color: gray');
             }
         }
-        
-        console.log(`%c[EnhancedTargetSelector] ✅ 查找完成，最终目标: ${bestTarget ? bestTarget.node.name : '无'}`, `color: ${bestTarget ? 'green' : 'red'}`);
-        
         return bestTarget;
     }
     
@@ -420,10 +386,6 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
             }
         }
         
-        if (bestMemoryTarget) {
-            console.log(`%c[EnhancedTargetSelector] 🧠 基于记忆找到目标: ${bestMemoryTarget.node.name}`, 'color: purple');
-        }
-        
         return bestMemoryTarget;
     }
     
@@ -533,10 +495,6 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
         for (const target of expiredTargets) {
             this.targetMemories.delete(target);
         }
-        
-        if (expiredTargets.length > 0) {
-            console.log(`%c[EnhancedTargetSelector] 🧹 清理过期记忆: ${expiredTargets.length} 个`, 'color: gray');
-        }
     }
     
     /**
@@ -612,23 +570,6 @@ export class EnhancedTargetSelector extends Component implements ITargetSelector
             activeMemories: activeCount,
             averageAge: this.targetMemories.size > 0 ? totalAge / this.targetMemories.size : 0
         };
-    }
-    
-    /**
-     * 打印调试信息
-     */
-    public printDebugInfo(): void {
-        console.log(`%c[EnhancedTargetSelector] 📊 增强版目标选择器状态:`, 'color: cyan; font-weight: bold');
-        
-        const memoryStats = this.getMemoryStats();
-        console.log(`%c[EnhancedTargetSelector] 🧠 记忆统计: 总记忆=${memoryStats.totalMemories}, 活跃=${memoryStats.activeMemories}, 平均年龄=${memoryStats.averageAge.toFixed(1)}s`, 'color: purple');
-        
-        console.log(`%c[EnhancedTargetSelector] 👁️ 视线缓存: ${this.losCache.size} 条记录`, 'color: blue');
-        
-        for (const [faction, targets] of this.targetRegistry) {
-            const validTargets = targets.filter(node => node && node.isValid);
-            console.log(`%c[EnhancedTargetSelector] ├─ ${faction}: ${validTargets.length} 个目标`, 'color: lightblue');
-        }
     }
 }
 

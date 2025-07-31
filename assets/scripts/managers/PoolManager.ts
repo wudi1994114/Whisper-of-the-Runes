@@ -1,6 +1,6 @@
 // assets/scripts/core/PoolManager.ts
 
-import { _decorator, Node, Prefab, instantiate, NodePool, Component, Label, UITransform, Color } from 'cc';
+import { _decorator, Node, Prefab, instantiate, NodePool, Component, Label, UITransform, Color, Vec2, Vec3 } from 'cc';
 import { handleError, ErrorType, ErrorSeverity } from '../components/ErrorHandler';
 import { systemConfigManager, DamageTextPoolConfig } from '../configs/SystemConfig';
 import { animationManager } from './AnimationManager';
@@ -55,6 +55,14 @@ class PoolManager {
     // 伤害文字池系统
     private _damageTextPools: Map<number, Node[]> = new Map();
     private _damageTextPoolInitialized: boolean = false;
+    
+    // 基础对象池系统 - 用于管理Vec2, Vec3, Color等频繁创建的对象
+    private _vec2Pool: Vec2[] = [];
+    private _vec3Pool: Vec3[] = [];
+    private _colorPool: Color[] = [];
+    private readonly MAX_VEC2_POOL_SIZE = 100;
+    private readonly MAX_VEC3_POOL_SIZE = 100;
+    private readonly MAX_COLOR_POOL_SIZE = 50;
 
     public static get instance(): PoolManager {
         if (!this._instance) {
@@ -686,6 +694,121 @@ class PoolManager {
         this._configs.clear();
         this._stats.clear();
         this._prefabs.clear();
+    }
+    
+    // ===================== 基础对象池系统方法 =====================
+    
+    /**
+     * 获取Vec2对象（从池中或新建）
+     * @param x 可选的x值
+     * @param y 可选的y值
+     * @returns Vec2对象
+     */
+    public getVec2(x: number = 0, y: number = 0): Vec2 {
+        let vec2 = this._vec2Pool.pop();
+        if (!vec2) {
+            vec2 = new Vec2();
+        }
+        return vec2.set(x, y);
+    }
+    
+    /**
+     * 归还Vec2对象到池中
+     * @param vec2 要归还的Vec2对象
+     */
+    public putVec2(vec2: Vec2): void {
+        if (this._vec2Pool.length < this.MAX_VEC2_POOL_SIZE) {
+            vec2.set(0, 0); // 重置为默认值
+            this._vec2Pool.push(vec2);
+        }
+    }
+    
+    /**
+     * 获取Vec3对象（从池中或新建）
+     * @param x 可选的x值
+     * @param y 可选的y值
+     * @param z 可选的z值
+     * @returns Vec3对象
+     */
+    public getVec3(x: number = 0, y: number = 0, z: number = 0): Vec3 {
+        let vec3 = this._vec3Pool.pop();
+        if (!vec3) {
+            vec3 = new Vec3();
+        }
+        return vec3.set(x, y, z);
+    }
+    
+    /**
+     * 归还Vec3对象到池中
+     * @param vec3 要归还的Vec3对象
+     */
+    public putVec3(vec3: Vec3): void {
+        if (this._vec3Pool.length < this.MAX_VEC3_POOL_SIZE) {
+            vec3.set(0, 0, 0); // 重置为默认值
+            this._vec3Pool.push(vec3);
+        }
+    }
+    
+    /**
+     * 获取Color对象（从池中或新建）
+     * @param r 红色分量
+     * @param g 绿色分量
+     * @param b 蓝色分量
+     * @param a 透明度分量
+     * @returns Color对象
+     */
+    public getColor(r: number = 255, g: number = 255, b: number = 255, a: number = 255): Color {
+        let color = this._colorPool.pop();
+        if (!color) {
+            color = new Color();
+        }
+        return color.set(r, g, b, a);
+    }
+    
+    /**
+     * 归还Color对象到池中
+     * @param color 要归还的Color对象
+     */
+    public putColor(color: Color): void {
+        if (this._colorPool.length < this.MAX_COLOR_POOL_SIZE) {
+            color.set(255, 255, 255, 255); // 重置为默认值
+            this._colorPool.push(color);
+        }
+    }
+    
+    /**
+     * 预热基础对象池
+     */
+    public warmupBasicObjectPools(): void {
+        console.log('🔥 [PoolManager] 预热基础对象池...');
+        
+        // 预创建Vec2对象
+        for (let i = 0; i < 20; i++) {
+            this._vec2Pool.push(new Vec2());
+        }
+        
+        // 预创建Vec3对象
+        for (let i = 0; i < 20; i++) {
+            this._vec3Pool.push(new Vec3());
+        }
+        
+        // 预创建Color对象
+        for (let i = 0; i < 10; i++) {
+            this._colorPool.push(new Color());
+        }
+        
+        console.log(`✅ [PoolManager] 基础对象池预热完成: Vec2=${this._vec2Pool.length}, Vec3=${this._vec3Pool.length}, Color=${this._colorPool.length}`);
+    }
+    
+    /**
+     * 获取基础对象池状态
+     */
+    public getBasicObjectPoolStats(): { vec2: number, vec3: number, color: number } {
+        return {
+            vec2: this._vec2Pool.length,
+            vec3: this._vec3Pool.length,
+            color: this._colorPool.length
+        };
     }
 }
 

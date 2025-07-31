@@ -1,6 +1,6 @@
 // assets/scripts/game/FireballController.ts
 
-import { _decorator, Component, Node, Sprite, Animation, Collider2D, RigidBody2D, Vec3, Vec2, AnimationClip, SpriteAtlas, JsonAsset, IPhysics2DContact, resources, Prefab, js, UITransform, Contact2DType, SpriteFrame, animation, PhysicsSystem2D } from 'cc';
+import { _decorator, Component, Node, Sprite, Animation, Collider2D, RigidBody2D, Vec3, Vec2, AnimationClip, SpriteAtlas, JsonAsset, IPhysics2DContact, resources, Prefab, js, UITransform, Contact2DType, SpriteFrame, animation, PhysicsSystem2D, director } from 'cc';
 import { dataManager } from '../managers/DataManager';
 import { Faction } from '../configs/FactionConfig';
 import { eventManager } from '../managers/EventManager';
@@ -29,6 +29,10 @@ export class FireballController extends Component {
     
     @property({ tooltip: "火球生命时间（秒）" })
     public lifeTime: number = 5;
+    
+    // 【性能优化】分帧更新控制
+    private updateFrameOffset: number = 0;
+    private readonly UPDATE_FRAME_INTERVAL = 3; // 每3帧更新一次
     
     @property({ tooltip: "动画帧率" })
     public frameRate: number = 12;
@@ -66,14 +70,26 @@ export class FireballController extends Component {
     }
     
     protected start() {
+        // 【性能优化】初始化随机帧偏移，避免所有火球同时更新
+        this.updateFrameOffset = Math.floor(Math.random() * this.UPDATE_FRAME_INTERVAL);
+        
         this.setupCollisionDetection();
     }
     
     protected update(deltaTime: number): void {
         if (!this.isInitialized || this.isDestroying) return;
         
+        // 【性能优化】分帧更新：每3帧更新一次
+        const currentFrame = director.getTotalFrames();
+        if ((currentFrame + this.updateFrameOffset) % this.UPDATE_FRAME_INTERVAL !== 0) {
+            return;
+        }
+        
+        // 补偿时间差
+        const compensatedDeltaTime = deltaTime * this.UPDATE_FRAME_INTERVAL;
+        
         // 更新生命时间
-        this.currentLifeTime += deltaTime;
+        this.currentLifeTime += compensatedDeltaTime;
         if (this.currentLifeTime >= this.lifeTime && this.currentState !== ProjectileAnimationState.EXPLODING) {
             this.explode();
             return;
@@ -81,7 +97,7 @@ export class FireballController extends Component {
         
         // 飞行状态下移动
         if (this.currentState === ProjectileAnimationState.FLYING) {
-            this.updateMovement(deltaTime);
+            this.updateMovement(compensatedDeltaTime);
         }
     }
     

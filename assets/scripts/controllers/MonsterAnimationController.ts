@@ -2,7 +2,7 @@
 
 import { _decorator, Component, Node, Animation, AnimationClip, Sprite, SpriteFrame, Vec3 } from 'cc';
 import { AnimationManager } from '../managers/AnimationManager';
-import { AnimationState, AnimationDirection } from '../configs/AnimationConfig';
+import { AnimationState, AnimationDirection, calculateDirectionToTarget } from '../configs/AnimationConfig';
 import { EnemyData } from '../configs/EnemyConfig';
 import { eventManager } from '../managers/EventManager';
 import { GameEvents } from '../components/GameEvents';
@@ -267,17 +267,12 @@ export class MonsterAnimationController extends Component {
         if (!this.isControllerReady) return;
         
         const currentPos = this.node.position;
-        const deltaX = targetPosition.x - currentPos.x;
-        const deltaY = targetPosition.y - currentPos.y;
-        
-        // 根据位置差异确定方向
-        if (Math.abs(deltaX) > Math.abs(deltaY)) {
-            // 水平方向为主
-            this.currentDirection = deltaX > 0 ? AnimationDirection.RIGHT : AnimationDirection.LEFT;
-        } else {
-            // 垂直方向为主
-            this.currentDirection = deltaY > 0 ? AnimationDirection.BACK : AnimationDirection.FRONT;
-        }
+        // 使用统一的动画方向计算函数
+        this.currentDirection = calculateDirectionToTarget(
+            currentPos.x, currentPos.y,
+            targetPosition.x, targetPosition.y,
+            this.node.name
+        );
         
         // 重新播放动画以更新方向
         this.playCurrentAnimation();

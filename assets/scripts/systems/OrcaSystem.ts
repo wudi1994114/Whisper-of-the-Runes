@@ -1,6 +1,7 @@
 import { _decorator, Component, Vec2, Node } from 'cc';
 import { OrcaAgent } from '../components/OrcaAgent';
 import { gridManager } from './GridManager'; // 直接复用！
+import { poolManager } from '../managers/PoolManager';
 import { TempVarPool } from '../utils/TempVarPool';
 
 // 代表ORCA计算出的一条速度约束线
@@ -36,14 +37,11 @@ export class OrcaSystem extends Component {
     }
 
     private agents: OrcaAgent[] = [];
-    // 【性能优化】降低更新频率以减少计算负担，从20FPS降到15FPS
-    private readonly UPDATE_INTERVAL = 0.067; // 约15FPS，在保持基本响应性的同时显著减少计算量
+    // 【抖动优化】调整更新频率平衡性能与平滑度，15FPS提供更好的避让响应
+    private readonly UPDATE_INTERVAL = 0.067; // 约15FPS，平衡性能和避让平滑度
     private lastUpdateTime = 0;
 
-    // 临时变量，避免GC
-    private tempVec2_1 = new Vec2();
-    private tempVec2_2 = new Vec2();
-    private tempVec2_3 = new Vec2();
+    // 【性能优化】使用 poolManager 管理临时变量，避免频繁创建对象
     
     // 性能统计
     private performanceStats = {
@@ -187,20 +185,71 @@ export class OrcaSystem extends Component {
         const radiusB = agentB.getEffectiveRadius(); // 使用有效半径
         const timeHorizon = agentA.getEffectiveTimeHorizon(); // 使用有效时间域
 
-        // 根据响应敏感度调整互惠性
-        const responsiveness = agentA.responsiveness;
-        const reciprocityFactor = Math.min(1.0, responsiveness);
+        // 【新功能】根据主动/被动状态调整互惠性
+        let reciprocityFactor = Math.min(1.0, agentA.responsiveness);
+        
+        // 【专注锁定和攻击状态处理】检查各种锁定状态，调整避让责任
+        const agentAAttacking = agentA.isAttacking && agentA.isAttacking();
+        const agentBAttacking = agentB.isAttacking && agentB.isAttacking();
+        const agentAFocusLock = agentA.getFocusLockPriority && agentA.getFocusLockPriority() >= 1;
+        const agentBFocusLock = agentB.getFocusLockPriority && agentB.getFocusLockPriority() >= 1;
+        
+        // 【调试】只在有特殊状态时输出日志
+        if (agentAAttacking || agentBAttacking || agentAFocusLock || agentBFocusLock) {
+            console.log(`[ORCA_DEBUG] 🎯 状态检查: ${agentA.node.name}[攻击=${agentAAttacking}, 专注=${agentAFocusLock}], ${agentB.node.name}[攻击=${agentBAttacking}, 专注=${agentBFocusLock}]`);
+        }
+        
+        // 【优先级1：专注锁定状态】专注锁定优先级最高
+        if (agentAFocusLock && !agentBFocusLock) {
+            // A在专注锁定，B不在：A几乎完全坚持位置
+            const resistance = agentA.getEffectiveResistance();
+            reciprocityFactor *= (1.0 - resistance); // 减少A的避让责任
+            console.log(`[ORCA] 🔒 ${agentA.node.name} 专注锁定中，抗推力=${resistance.toFixed(2)}, 避让责任减少到${reciprocityFactor.toFixed(2)}`);
+        } else if (!agentAFocusLock && agentBFocusLock) {
+            // A不在专注锁定，B在：A主动避让B
+            reciprocityFactor = Math.min(1.0, reciprocityFactor * 2.0); // 大幅增加A的避让责任
+            console.log(`[ORCA] 🔒 ${agentB.node.name} 专注锁定中，${agentA.node.name} 主动避让`);
+        } else if (agentAFocusLock && agentBFocusLock) {
+            // 两个都在专注锁定：各自坚持位置，但适度调整
+            const resistanceA = agentA.getEffectiveResistance();
+            reciprocityFactor *= (1.0 - resistanceA * 0.7); // 较强的抗推力
+            console.log(`[ORCA] 🔒 双方都在专注锁定，适度调整避让`);
+        }
+        // 【优先级2：攻击状态】如果没有专注锁定，才考虑攻击状态
+        else if (agentAAttacking && !agentBAttacking) {
+            // A在攻击，B不在攻击：A坚持位置，B负责避让
+            const resistance = agentA.getEffectiveResistance();
+            reciprocityFactor *= (1.0 - resistance); // 减少A的避让责任
+            console.log(`[ORCA] ⚔️ ${agentA.node.name} 攻击中，抗推力=${resistance.toFixed(2)}, 避让责任减少到${reciprocityFactor.toFixed(2)}`);
+        } else if (!agentAAttacking && agentBAttacking) {
+            // A不在攻击，B在攻击：A主动避让B
+            reciprocityFactor = Math.min(1.0, reciprocityFactor * 1.5); // 增加A的避让责任
+        } else if (agentAAttacking && agentBAttacking) {
+            // 两个都在攻击：保持原有逻辑，但各自应用抗推力
+            const resistanceA = agentA.getEffectiveResistance();
+            reciprocityFactor *= (1.0 - resistanceA * 0.5); // 部分抗推力
+        }
+        
+        // 如果当前代理A是主动的，代理B是被动的，则A承担全部避让责任
+        if (!agentA.isPassive && agentB.isPassive) {
+            reciprocityFactor = Math.max(reciprocityFactor, 1.0); // A承担避让责任，但不低于当前值
+        }
+        // 如果当前代理A是被动的，代理B是主动的，则A不承担避让责任
+        else if (agentA.isPassive && !agentB.isPassive) {
+            reciprocityFactor = 0.0; // A不承担避让责任，让B来处理
+        }
+        // 其他情况（两个都是主动或两个都是被动）使用调整后的逻辑
 
-        // 计算相对位置和相对速度
-        const relativePosition = this.tempVec2_1.set(posB).subtract(posA);
-        const relativeVelocity = this.tempVec2_2.set(velA).subtract(velB);
+        // 【性能优化】使用对象池管理临时Vec2对象
+        const relativePosition = poolManager.getVec2(posB.x, posB.y).subtract(posA);
+        const relativeVelocity = poolManager.getVec2(velA.x, velA.y).subtract(velB);
         
         const dist = relativePosition.length();
         const combinedRadius = radiusA + radiusB;
         
-        // 【调试】输出半径信息，特别是当距离接近70时
-        if (dist > 50 && dist < 100) {
-            console.log(`🔍 ORCA计算: ${agentA.node.name} vs ${agentB.node.name}, 距离=${dist.toFixed(1)}, 半径A=${radiusA}, 半径B=${radiusB}, 组合=${combinedRadius}`);
+        // 【抖动优化】减少调试输出频率，避免日志干扰性能测量
+        if (dist > 50 && dist < 100 && Math.random() < 0.05) { // 5%概率输出
+            console.log(`🔍 ORCA计算: ${agentA.node.name} vs ${agentB.node.name}, 距离=${dist.toFixed(1)}, 时间域=${timeHorizon.toFixed(1)}, 邻居距离=${agentA.getEffectiveNeighborDist().toFixed(1)}`);
         }
 
         let u: Vec2; // 从当前相对速度指向VO边界的最小修正向量
@@ -290,8 +339,19 @@ export class OrcaSystem extends Component {
                 // 【性能优化】使用临时变量池避免GC压力
                 TempVarPool.tempVec2_4.set(Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(combinedRadius);
             
-            // 计算达到分离所需的相对速度：距离/时间
-            const requiredRelativeVel = separationVector.multiplyScalar(invTimeStep);
+            // 【专注锁定和攻击状态优化】计算达到分离所需的相对速度，考虑各种锁定状态的抗推力
+            let separationStrength = invTimeStep;
+            if (agentAFocusLock) {
+                const resistance = agentA.getEffectiveResistance();
+                separationStrength *= (1.0 - resistance * 0.8); // 专注锁定中的角色分离力度大幅降低
+                console.log(`[ORCA] 🔒 ${agentA.node.name} 专注锁定重叠分离，强度降低到${(separationStrength/invTimeStep).toFixed(2)}`);
+            } else if (agentAAttacking) {
+                const resistance = agentA.getEffectiveResistance();
+                separationStrength *= (1.0 - resistance * 0.7); // 攻击中的角色分离力度降低
+                console.log(`[ORCA] ⚔️ ${agentA.node.name} 攻击中重叠分离，强度降低到${(separationStrength/invTimeStep).toFixed(2)}`);
+            }
+            
+            const requiredRelativeVel = separationVector.multiplyScalar(separationStrength);
             
             // u: 从当前相对速度到所需相对速度的修正向量
             u = requiredRelativeVel.subtract(relativeVelocity);
@@ -340,9 +400,21 @@ export class OrcaSystem extends Component {
         for (const agent of this.agents) {
             if (!agent || !agent.isAgentValid()) continue;
 
-
-            if (agent.prefVelocity.lengthSqr() < 0.01) {
-    
+            // 【专注锁定特殊处理】专注锁定状态下的强制坚持逻辑
+            const focusLockPriority = agent.getFocusLockPriority && agent.getFocusLockPriority();
+            if (focusLockPriority && focusLockPriority >= 1) {
+                // 专注锁定中：如果期望速度很小（想要保持位置），就强制保持不动
+                if (agent.prefVelocity.lengthSqr() < 0.5) { // 期望速度很小，想要保持位置
+                    const newVelocity = new Vec2(0, 0); // 强制保持静止
+                    agent.newVelocity = newVelocity;
+                    agent.setVelocity(newVelocity);
+                    solvedCount++;
+                    console.log(`[ORCA] 🔒 ${agent.node.name} 专注锁定中且期望静止，强制保持不动`);
+                    continue;
+                } else {
+                    // 专注锁定但有移动意图：大幅降低约束影响
+                    console.log(`[ORCA] 🔒 ${agent.node.name} 专注锁定中但有移动意图，降低约束影响`);
+                }
             }
 
             const orcaLines: OrcaLine[] = (agent as any)._orcaLines || [];
@@ -403,7 +475,7 @@ export class OrcaSystem extends Component {
         
         for (const line of lines) {
             // 计算当前速度到约束线的距离（作为紧急程度指标）
-            const relativePoint = this.tempVec2_1.set(
+            const relativePoint = TempVarPool.tempVec2_1.set(
                 agentVel.x - line.point.x,
                 agentVel.y - line.point.y
             );
@@ -443,7 +515,7 @@ export class OrcaSystem extends Component {
             
             // 处理所有约束，记录最大违反程度
             for (const {line, urgency} of sortedLines) {
-                const relativePoint = this.tempVec2_1.set(
+                const relativePoint = TempVarPool.tempVec2_2.set(
                     velocity.x - line.point.x,
                     velocity.y - line.point.y
                 );
@@ -452,6 +524,13 @@ export class OrcaSystem extends Component {
                 if (violation < -convergenceThreshold) {
                     // 违反约束，进行投影
                     let projectionStrength = 1.0;
+                    
+                    // 【专注锁定特殊处理】大幅降低投影强度
+                    const focusLockPriority = agent?.getFocusLockPriority && agent.getFocusLockPriority();
+                    if (focusLockPriority && focusLockPriority >= 1) {
+                        projectionStrength *= 0.01; // 专注锁定时投影强度降低99%
+                        console.log(`[ORCA] 🔒 ${agent?.node.name} 专注锁定中，约束投影强度降低到${projectionStrength.toFixed(3)}`);
+                    }
                     
                     // 根据激进程度调整投影强度
                     projectionStrength *= (1.0 + (1.0 - aggressiveness) * 0.5);
@@ -473,7 +552,13 @@ export class OrcaSystem extends Component {
                     
                     // 紧急约束的额外处理
                     if (urgency > 0.5 && violation < -0.01) {
-                        const urgencyBoost = Math.min(2.0, urgency);
+                        let urgencyBoost = Math.min(2.0, urgency);
+                        
+                        // 【专注锁定特殊处理】紧急约束也要考虑专注锁定
+                        if (focusLockPriority && focusLockPriority >= 1) {
+                            urgencyBoost *= 0.01; // 专注锁定时紧急约束也大幅降低
+                        }
+                        
                         // 【修复Bug】同样需要取负号才能正确推开
                         const secondProjection = line.direction.clone().multiplyScalar(-violation * 0.1 * urgencyBoost);
                         velocity.subtract(secondProjection);
@@ -523,6 +608,98 @@ export class OrcaSystem extends Component {
         console.log(`平均邻居数/代理: ${stats.averageNeighborsPerAgent.toFixed(2)}`);
         console.log(`更新间隔: ${this.UPDATE_INTERVAL}s`);
         console.log('========================\n');
+    }
+
+    /**
+     * 【抖动优化】批量应用抖动优化预设到所有代理
+     * @param presetName 预设名称
+     * @param filterFaction 可选，只对特定阵营应用
+     */
+    public applyAntiJitterPresetToAll(presetName: string, filterFaction?: string): void {
+        let appliedCount = 0;
+        
+        for (const agent of this.agents) {
+            if (!agent || !agent.isAgentValid()) continue;
+            
+            // 阵营过滤
+            if (filterFaction) {
+                const agentFaction = agent.getFaction();
+                if (agentFaction !== filterFaction) continue;
+            }
+            
+            agent.applyAntiJitterPreset(presetName);
+            appliedCount++;
+        }
+        
+        console.log(`[OrcaSystem] 🔧 已对 ${appliedCount} 个代理应用抖动优化预设: ${presetName}`);
+    }
+
+    /**
+     * 【抖动优化】分析系统整体抖动风险
+     */
+    public analyzeSystemJitterRisk(): void {
+        if (this.agents.length === 0) {
+            console.log('[OrcaSystem] 📊 无活跃代理，无法分析抖动风险');
+            return;
+        }
+        
+        let totalRisk = 0;
+        let highRiskCount = 0;
+        let mediumRiskCount = 0;
+        let lowRiskCount = 0;
+        
+        const agentRisks: Array<{name: string, risk: number}> = [];
+        
+        for (const agent of this.agents) {
+            if (!agent || !agent.isAgentValid()) continue;
+            
+            const risk = agent.getJitterRiskAssessment();
+            totalRisk += risk;
+            agentRisks.push({name: agent.node.name, risk});
+            
+            if (risk > 0.6) highRiskCount++;
+            else if (risk > 0.3) mediumRiskCount++;
+            else lowRiskCount++;
+        }
+        
+        const averageRisk = totalRisk / this.agents.length;
+        
+        console.log('\n=== ORCA抖动风险分析 ===');
+        console.log(`整体平均风险: ${(averageRisk * 100).toFixed(1)}%`);
+        console.log(`高风险代理 (>60%): ${highRiskCount}`);
+        console.log(`中风险代理 (30-60%): ${mediumRiskCount}`);
+        console.log(`低风险代理 (<30%): ${lowRiskCount}`);
+        
+        // 显示最高风险的前5个代理
+        agentRisks.sort((a, b) => b.risk - a.risk);
+        console.log('\n最高风险代理:');
+        for (let i = 0; i < Math.min(5, agentRisks.length); i++) {
+            const agent = agentRisks[i];
+            console.log(`  ${agent.name}: ${(agent.risk * 100).toFixed(1)}%`);
+        }
+        
+        // 给出优化建议
+        if (averageRisk > 0.5) {
+            console.log('\n🔧 建议: 系统整体抖动风险较高，推荐应用 "smooth" 预设');
+        } else if (averageRisk > 0.3) {
+            console.log('\n🔧 建议: 系统有一定抖动风险，推荐应用 "stable" 预设');
+        } else {
+            console.log('\n✅ 系统抖动风险在可接受范围内');
+        }
+        console.log('========================\n');
+    }
+
+    /**
+     * 【抖动优化】实时参数监控和自适应调整
+     */
+    public enableAdaptiveAntiJitter(enable: boolean = true): void {
+        // 这里可以实现自适应逻辑，根据实时性能数据自动调整参数
+        if (enable) {
+            console.log('[OrcaSystem] 🔧 启用自适应抖动优化 (未来功能)');
+            // TODO: 实现自适应逻辑
+        } else {
+            console.log('[OrcaSystem] 🔧 禁用自适应抖动优化');
+        }
     }
 
     /**

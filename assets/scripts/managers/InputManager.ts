@@ -1,6 +1,6 @@
 // assets/scripts/core/InputManager.ts
 
-import { _decorator, Component, input, Input, EventKeyboard, KeyCode, Vec2, director } from 'cc';
+import { _decorator, Component, input, Input, EventKeyboard, EventMouse, KeyCode, Vec2, Vec3, director, Camera, view } from 'cc';
 import { eventManager } from './EventManager';
 import { GameEvents } from '../components/GameEvents';
 
@@ -22,6 +22,10 @@ export class InputManager extends Component {
     
     // 初始化状态
     private isInitialized: boolean = false;
+    
+    // 鼠标状态记录
+    private currentMousePosition: Vec3 = new Vec3(0, 0, 0);
+    private lastMousePosition: Vec3 = new Vec3(0, 0, 0);
     
     // 允许的移动按键列表
     private readonly MOVEMENT_KEYS: KeyCode[] = [
@@ -84,6 +88,10 @@ export class InputManager extends Component {
         input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
         input.on(Input.EventType.KEY_UP, this.onKeyUp, this);
         
+        // 注册鼠标事件监听
+        input.on(Input.EventType.MOUSE_DOWN, this.onMouseDown, this);
+        input.on(Input.EventType.MOUSE_MOVE, this.onMouseMove, this);
+        
         this.isInitialized = true;
         console.log('InputManager: Initialized as component');
         console.log('InputManager: Movement restricted to WASD and Arrow keys only');
@@ -96,6 +104,8 @@ export class InputManager extends Component {
         if (this.isInitialized) {
             input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
             input.off(Input.EventType.KEY_UP, this.onKeyUp, this);
+            input.off(Input.EventType.MOUSE_DOWN, this.onMouseDown, this);
+            input.off(Input.EventType.MOUSE_MOVE, this.onMouseMove, this);
             this.isInitialized = false;
         }
         
@@ -232,6 +242,71 @@ export class InputManager extends Component {
             }
         }
         return pressedKeys;
+    }
+    
+    /**
+     * 鼠标点击事件处理
+     */
+    private onMouseDown = (event: EventMouse): void => {
+        const worldPosition = this.screenToWorldPosition(event.getLocationX(), event.getLocationY());
+        this.currentMousePosition.set(worldPosition);
+        
+        console.log(`InputManager: 鼠标点击 - 屏幕坐标:(${event.getLocationX()}, ${event.getLocationY()}), 世界坐标:(${worldPosition.x.toFixed(2)}, ${worldPosition.y.toFixed(2)})`);
+        
+        // 发送鼠标点击事件
+        eventManager.emit(GameEvents.MOUSE_CLICKED, worldPosition.clone());
+    }
+    
+    /**
+     * 鼠标移动事件处理
+     */
+    private onMouseMove = (event: EventMouse): void => {
+        const worldPosition = this.screenToWorldPosition(event.getLocationX(), event.getLocationY());
+        
+        // 只有当鼠标位置确实发生变化时才发送事件（避免过多的事件触发）
+        const threshold = 1.0; // 像素阈值
+        if (Vec3.distance(this.currentMousePosition, worldPosition) > threshold) {
+            this.lastMousePosition.set(this.currentMousePosition);
+            this.currentMousePosition.set(worldPosition);
+            
+            // 发送鼠标移动事件
+            eventManager.emit(GameEvents.MOUSE_MOVED, worldPosition.clone());
+        }
+    }
+    
+    /**
+     * 将屏幕坐标转换为世界坐标
+     * @param screenX 屏幕X坐标
+     * @param screenY 屏幕Y坐标
+     * @returns 世界坐标
+     */
+    private screenToWorldPosition(screenX: number, screenY: number): Vec3 {
+        // 获取屏幕尺寸
+        const visibleSize = view.getVisibleSize();
+        
+        // 将屏幕坐标转换为相对于屏幕中心的坐标
+        const centerX = visibleSize.width / 2;
+        const centerY = visibleSize.height / 2;
+        
+        // 计算相对于中心的偏移量
+        const offsetX = screenX - centerX;
+        const offsetY = centerY - screenY; // Y轴需要翻转
+        
+        return new Vec3(offsetX, offsetY, 0);
+    }
+    
+    /**
+     * 获取当前鼠标位置（世界坐标）
+     */
+    public getCurrentMousePosition(): Vec3 {
+        return this.currentMousePosition.clone();
+    }
+    
+    /**
+     * 获取上一次鼠标位置（世界坐标）
+     */
+    public getLastMousePosition(): Vec3 {
+        return this.lastMousePosition.clone();
     }
 }
 

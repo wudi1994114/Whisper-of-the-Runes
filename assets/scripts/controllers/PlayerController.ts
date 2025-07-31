@@ -125,7 +125,9 @@ export class PlayerController extends Component {
         this.targetPosition.x = Math.max(-960 + this.boundaryPadding, Math.min(960 - this.boundaryPadding, this.targetPosition.x));
         this.targetPosition.y = Math.max(-540 + this.boundaryPadding, Math.min(540 - this.boundaryPadding, this.targetPosition.y));
 
-        // 应用位置
+        // 应用位置（包含z轴深度更新）
+        const newZDepth = -this.targetPosition.y * 0.1; // Y轴越大，Z轴越小
+        this.targetPosition.z = newZDepth;
         this.node.position = this.targetPosition;
 
         // 发送移动事件
@@ -165,7 +167,9 @@ export class PlayerController extends Component {
      * 公共方法：设置玩家位置
      */
     public setPosition(position: Vec3): void {
-        this.node.position = position;
+        // 确保z轴深度正确
+        const newZDepth = -position.y * 0.1; // Y轴越大，Z轴越小
+        this.node.setPosition(position.x, position.y, newZDepth);
     }
 
     /**

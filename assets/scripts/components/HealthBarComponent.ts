@@ -100,6 +100,9 @@ export class HealthBarComponent extends Component {
         // 更新血条显示
         this.updateHealthBar();
         
+        // 【新增】同时更新血条的z轴位置（跟随目标角色）
+        this.updateHealthBarZDepth();
+        
         if (this.showDebugInfo) {
             console.log(`[HealthBarComponent] 血量变化: ${currentHealth}/${maxHealth} (${((currentHealth/maxHealth)*100).toFixed(1)}%)`);
         }
@@ -158,8 +161,12 @@ export class HealthBarComponent extends Component {
         this.healthBarNode = new Node('HealthBar');
         this.healthBarNode.setParent(this.node);
         
-        // 设置血条位置
-        this.healthBarNode.setPosition(0, finalConfig.offsetY, 0);
+        // 设置血条位置（包含z轴深度）
+        let characterZDepth = 0;
+        if (this._targetNode) {
+            characterZDepth = this._targetNode.position.z;
+        }
+        this.healthBarNode.setPosition(0, finalConfig.offsetY, characterZDepth + finalConfig.zOffset);
         
         // 添加 UITransform 组件
         const transform = this.healthBarNode.addComponent(UITransform);
@@ -289,5 +296,39 @@ export class HealthBarComponent extends Component {
      */
     public getCharacterType(): string {
         return this._characterType;
+    }
+
+    /**
+     * 更新血条的z轴位置（跟随目标角色）
+     */
+    private updateHealthBarZDepth(): void {
+        if (!this.healthBarNode || !this._targetNode) return;
+        
+        // 获取当前血条配置
+        const baseConfig = systemConfigManager.getHealthBarConfigForCharacter(this._characterType);
+        const finalConfig = systemConfigManager.calculateFinalHealthBarConfig(
+            baseConfig, 
+            64, // 默认值，这里只需要zOffset
+            64,
+            null // 没有直接访问enemyData，使用默认值
+        );
+        
+        // 获取目标角色的当前z轴位置
+        const targetZDepth = this._targetNode.position.z;
+        
+        // 更新血条z轴位置
+        const healthBarPosition = this.healthBarNode.position;
+        this.healthBarNode.setPosition(
+            healthBarPosition.x,
+            healthBarPosition.y,
+            targetZDepth + finalConfig.zOffset
+        );
+    }
+
+    /**
+     * 强制更新血条位置（供外部调用）
+     */
+    public forceUpdatePosition(): void {
+        this.updateHealthBarZDepth();
     }
 } 

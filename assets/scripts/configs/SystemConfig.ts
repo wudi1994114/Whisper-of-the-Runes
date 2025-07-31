@@ -27,6 +27,7 @@ export interface HealthBarConfig {
     width?: number;              // 血条宽度（像素值，如果设置则优先使用）
     height?: number;             // 血条高度（像素值，如果设置则优先使用）
     offsetY?: number;            // Y轴偏移（像素值，如果设置则优先使用）
+    zOffset?: number;            // Z轴偏移（像素值，血条相对于角色的z轴偏移，默认100）
     
     // === 按比例配置（作为后备方案） ===
     widthRatio?: number;         // 血条宽度比例（基于角色宽度，默认0.3）
@@ -93,7 +94,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
                 // 巫妖血条配置 - 使用比例配置（动态适应角色大小）
                 height: 2,              // 高度固定2像素
                 widthRatio: 0.25,       // 宽度 = 角色宽度 × 25%
-                offsetYRatio: 0.35      // Y偏移 = 角色高度 × 35%
+                offsetYRatio: 0.35,     // Y偏移 = 角色高度 × 35%
+                zOffset: 100            // Z轴偏移，血条比角色靠前100单位
                 
                 // 移除的固定配置: width: 32, offsetY: 32
                 // 现在会根据角色实际尺寸动态计算
@@ -102,7 +104,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
                 // 树精血条配置 - 混合配置模式
                 height: 2,              // 高度固定2像素
                 widthRatio: 0.3,        // 宽度 = 角色宽度 × 30%  
-                offsetYRatio: 0.25      // Y偏移 = 角色高度 × 25%
+                offsetYRatio: 0.25,     // Y偏移 = 角色高度 × 25%
+                zOffset: 100            // Z轴偏移，血条比角色靠前100单位
                 
                 // 移除的固定配置: width: 40, offsetY: 40
                 // 现在会根据角色实际尺寸动态计算
@@ -111,11 +114,13 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
                 // 默认血条配置 - 纯比例配置（用于未指定的敌人类型）
                 height: 2,              // 高度固定2像素
                 widthRatio: 0.3,        // 宽度 = 角色宽度 × 30%
-                offsetYRatio: 0.4       // Y偏移 = 角色高度 × 40%
+                offsetYRatio: 0.4,      // Y偏移 = 角色高度 × 40%
+                zOffset: 100            // Z轴偏移，血条比角色靠前100单位
                 
                 // 示例计算（假设角色64×64像素）：
                 // width = 64 × 0.3 = 19.2 ≈ 19像素
                 // offsetY = 64 × 0.4 = 25.6 ≈ 26像素
+                // zOffset = 100，血条z轴比角色大100
             }
         },
         cleanupInterval: 30000,
@@ -208,7 +213,8 @@ export class SystemConfigManager {
             return {
                 width: enemyData.healthBar.width,
                 height: enemyData.healthBar.height,
-                offsetY: enemyData.healthBar.offsetY
+                offsetY: enemyData.healthBar.offsetY,
+                zOffset: enemyData.healthBar.zOffset || 100  // 向后兼容，如果没有zOffset则使用默认值
             };
         }
 
@@ -220,7 +226,8 @@ export class SystemConfigManager {
             return {
                 width: 40,
                 height: 2,
-                offsetY: 40
+                offsetY: 40,
+                zOffset: 100
             };
         }
 
@@ -228,7 +235,8 @@ export class SystemConfigManager {
         return {
             width: 32,
             height: 2,
-            offsetY: 32
+            offsetY: 32,
+            zOffset: 100
         };
     }
 
@@ -246,7 +254,7 @@ export class SystemConfigManager {
         characterWidth: number = 64, 
         characterHeight: number = 64,
         enemyData?: any
-    ): { width: number; height: number; offsetY: number } {
+    ): { width: number; height: number; offsetY: number; zOffset: number } {
         
         // 优先使用敌人配置中的UI尺寸进行比例计算
         let effectiveWidth = characterWidth;
@@ -275,10 +283,16 @@ export class SystemConfigManager {
             ? baseConfig.offsetY 
             : Math.round(effectiveHeight * (baseConfig.offsetYRatio || 0.4));
         
+        // 计算最终Z偏移：优先使用固定值，否则使用默认值100
+        const finalZOffset = baseConfig.zOffset !== undefined 
+            ? baseConfig.zOffset 
+            : 100;
+        
         return {
             width: finalWidth,
             height: finalHeight,
-            offsetY: finalOffsetY
+            offsetY: finalOffsetY,
+            zOffset: finalZOffset
         };
     }
 

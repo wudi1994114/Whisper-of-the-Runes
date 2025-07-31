@@ -118,9 +118,20 @@ export class AINavigationController extends Component {
     private stateEnterTime: number = 0;
     private lastDebugTime: number = 0;
     
+    // 【重新寻路逻辑】被阻挡时的处理
+    private lastRerouteTime: number = 0;
+    private rerouteInterval: number = 1.0; // 重新寻路间隔
+    private isInIdleState: boolean = false;
+    private idleStartTime: number = 0;
+    private readonly IDLE_DURATION = 0.2; // idle持续时间0.2秒
+    
     // AI属性
     private aiRole: string = '';
     private originalPosition: Vec3 = new Vec3(); // AI的原始位置（用于回归）
+    
+    // 外部目标控制 - 用于鼠标跟随等功能
+    private externalTarget: Vec3 | null = null;
+    private externalTargetEnabled: boolean = false;
     // 移除重复的aiFaction属性，统一从BaseCharacterDemo获取
     
     // 性能统计
@@ -245,12 +256,28 @@ export class AINavigationController extends Component {
      * 输出：期望移动速度和攻击意图
      */
     public computeDecision(): AINavigationOutput {
+        const currentTime = Date.now() / 1000;
         const output: AINavigationOutput = {
             prefVelocity: new Vec2(0, 0),
             wantsToAttack: false,
             targetDirection: null,
             debugInfo: `${this.node.name}: 计算决策`
         };
+
+        // 【优先检查】是否在idle状态
+        if (this.isInIdleState) {
+            if (currentTime - this.idleStartTime < this.IDLE_DURATION) {
+                // 仍在idle期间，保持停止状态
+                output.prefVelocity.set(0, 0);
+                output.wantsToAttack = false;
+                output.debugInfo = `${this.node.name}: 寻路失败idle中 (${(this.IDLE_DURATION - (currentTime - this.idleStartTime)).toFixed(2)}s)`;
+                return output;
+            } else {
+                // idle结束，恢复正常状态
+                this.isInIdleState = false;
+                console.log(`%c[AINavigationController] 🔄 ${this.node.name}: idle结束，恢复寻路`, 'color: green');
+            }
+        }
 
         // 检查AI是否已初始化
         const currentFaction = this.getCurrentFaction();
@@ -272,11 +299,28 @@ export class AINavigationController extends Component {
                 output.targetDirection = currentTarget.position;
                 output.debugInfo = `${this.node.name}: 攻击范围内(${distance.toFixed(1)} <= ${this.attackRange})，准备攻击`;
             } else {
-                // 不在攻击范围：计算移动速度
-                output.prefVelocity = this.calculateMoveVelocityTowards(currentTarget.position);
-                output.wantsToAttack = false;
-                output.targetDirection = currentTarget.position;
-                output.debugInfo = `${this.node.name}: 追击目标(距离=${distance.toFixed(1)})`;
+                // 不在攻击范围：检查路径是否被阻挡
+                if (this.isPathBlocked()) {
+                    // 【重新寻路机制】被阻挡时尝试重新寻路
+                    if (currentTime - this.lastRerouteTime > this.rerouteInterval) {
+                        this.lastRerouteTime = currentTime;
+                        this.tryRerouteToTarget(currentTarget.position);
+                        output.debugInfo = `${this.node.name}: 路径被阻挡，正在重新寻路`;
+                    } else {
+                        output.debugInfo = `${this.node.name}: 路径被阻挡，等待重新寻路冷却`;
+                    }
+                    
+                    // 阻挡期间暂停移动
+                    output.prefVelocity.set(0, 0);
+                    output.wantsToAttack = false;
+                    output.targetDirection = currentTarget.position;
+                } else {
+                    // 路径通畅：计算移动速度
+                    output.prefVelocity = this.calculateMoveVelocityTowards(currentTarget.position);
+                    output.wantsToAttack = false;
+                    output.targetDirection = currentTarget.position;
+                    output.debugInfo = `${this.node.name}: 追击目标(距离=${distance.toFixed(1)})`;
+                }
             }
             
             // 更新内部目标引用（用于路径计算）
@@ -315,6 +359,16 @@ export class AINavigationController extends Component {
         if (this.currentPath && currentTime - this.currentPath.timestamp > this.maxPathAge) {
             this.clearCurrentPath();
         }
+        
+        // 【官方推荐方式】定期检查阻挡状态，用于stateEnterTime更新
+        if (currentTime - this.lastBlockedCheckTime > this.blockedCheckInterval) {
+            this.lastBlockedCheckTime = currentTime;
+            
+            if (this.isPathBlocked()) {
+                // 重置状态进入时间，避免长期阻挡误判
+                this.stateEnterTime = currentTime;
+            }
+        }
     }
     
     // 【移除】旧的状态机更新方法已被computeDecision()替代
@@ -352,6 +406,18 @@ export class AINavigationController extends Component {
      * 【新架构】搜索最佳目标
      */
     private findBestTarget(): TargetInfo | null {
+        // 【鼠标跟随支持】优先检查外部目标
+        if (this.externalTargetEnabled && this.externalTarget) {
+            // 创建外部目标的TargetInfo
+            return {
+                node: null,
+                position: this.externalTarget.clone(),
+                faction: 'external', // 特殊标记
+                priority: 999, // 最高优先级
+                distance: Vec3.distance(this.node.position, this.externalTarget)
+            };
+        }
+        
         if (!this.targetSelector) {
             return null;
         }
@@ -368,6 +434,50 @@ export class AINavigationController extends Component {
         );
     }
     
+    /**
+     * 【重新寻路机制】尝试重新寻路到目标
+     */
+    private tryRerouteToTarget(targetPosition: Vec3): void {
+        if (!this.pathfindingManager) {
+            // 没有寻路管理器，直接进入idle状态
+            this.enterIdleState();
+            console.log(`%c[AINavigationController] ⚠️ ${this.node.name}: 无寻路管理器，进入idle`, 'color: orange');
+            return;
+        }
+
+        // 清理当前路径
+        this.clearCurrentPath();
+        
+        // 请求新路径
+        const currentPos = this.node.position;
+        this.pathfindingManager.requestPath(
+            currentPos,
+            targetPosition,
+            (path) => {
+                if (path && path.nodes.length > 1) {
+                    // 寻路成功，更新路径
+                    this.currentPath = path;
+                    this.currentPathIndex = 0;
+                    console.log(`%c[AINavigationController] 🛤️ ${this.node.name}: 重新寻路成功，${path.nodes.length}个节点`, 'color: cyan');
+                } else {
+                    // 寻路失败，进入idle状态
+                    this.enterIdleState();
+                    console.log(`%c[AINavigationController] 😴 ${this.node.name}: 重新寻路失败，进入${this.IDLE_DURATION}s idle`, 'color: yellow');
+                }
+            },
+            1 // 阻挡重寻路有较高优先级
+        );
+    }
+
+    /**
+     * 进入idle状态
+     */
+    private enterIdleState(): void {
+        this.isInIdleState = true;
+        this.idleStartTime = Date.now() / 1000;
+        this.clearCurrentPath(); // 清理失效路径
+    }
+
     /**
      * 【新架构】计算朝向目标的移动速度
      */
@@ -487,7 +597,53 @@ export class AINavigationController extends Component {
     protected onDestroy(): void {
         this.clearCurrentPath();
         this.currentTarget = null;
+        this.clearExternalTarget(); // 清理外部目标
         console.log(`%c[AINavigationController] 🗑️ AI导航控制器已销毁: ${this.node.name}`, 'color: gray');
+    }
+    
+    // ===== 外部目标控制接口 =====
+    
+    /**
+     * 设置外部目标位置（用于鼠标跟随等功能）
+     * @param targetPosition 目标位置
+     */
+    public setExternalTarget(targetPosition: Vec3): void {
+        if (!this.externalTarget) {
+            this.externalTarget = new Vec3();
+        }
+        this.externalTarget.set(targetPosition);
+        this.externalTargetEnabled = true;
+        
+        // 清除当前路径，强制重新寻路到新目标
+        this.clearCurrentPath();
+    }
+    
+    /**
+     * 清除外部目标设置
+     */
+    public clearExternalTarget(): void {
+        this.externalTarget = null;
+        this.externalTargetEnabled = false;
+        
+        // 清除当前路径，让AI回到正常行为
+        this.clearCurrentPath();
+    }
+    
+    /**
+     * 检查是否设置了外部目标
+     */
+    public hasExternalTarget(): boolean {
+        return this.externalTargetEnabled && this.externalTarget !== null;
+    }
+    
+    /**
+     * 获取当前外部目标位置（如果有的话）
+     */
+    public getExternalTarget(): Vec3 | null {
+        if (this.hasExternalTarget()) {
+            return this.externalTarget.clone();
+        }
+        return null;
     }
 }
 

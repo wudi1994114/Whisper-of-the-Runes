@@ -15,6 +15,15 @@ export enum GameEvents {
     /** 移动方向变化事件 - 参数: Vec2 */
     MOVE_DIRECTION_CHANGED = 'MoveDirectionChanged',
     
+    /** 鼠标点击事件 - 参数: Vec3 (世界坐标) */
+    MOUSE_CLICKED = 'MouseClicked',
+    
+    /** 鼠标移动事件 - 参数: Vec3 (世界坐标) */
+    MOUSE_MOVED = 'MouseMoved',
+    
+    /** AI鼠标跟随模式切换事件 - 参数: boolean */
+    AI_MOUSE_FOLLOW_TOGGLED = 'AiMouseFollowToggled',
+    
     // ========== 游戏状态事件 ==========
     /** 游戏数据加载完成事件 - 参数: 无 */
     GAME_DATA_LOADED = 'GameDataLoaded',
@@ -74,6 +83,9 @@ export interface GameEventParams {
     [GameEvents.KEY_PRESSED]: [number]; // KeyCode
     [GameEvents.KEY_RELEASED]: [number]; // KeyCode
     [GameEvents.MOVE_DIRECTION_CHANGED]: [any]; // Vec2
+    [GameEvents.MOUSE_CLICKED]: [any]; // Vec3 世界坐标
+    [GameEvents.MOUSE_MOVED]: [any]; // Vec3 世界坐标
+    [GameEvents.AI_MOUSE_FOLLOW_TOGGLED]: [boolean]; // 是否启用AI跟随鼠标模式
     [GameEvents.GAME_DATA_LOADED]: [];
     [GameEvents.GAME_STATE_CHANGED]: [any]; // GameState
     [GameEvents.GAME_MODE_CHANGED]: [any, any]; // GameMode, GameMode
@@ -96,6 +108,9 @@ export const GameEventDescriptions: Record<GameEvents, string> = {
     [GameEvents.KEY_PRESSED]: '当任何按键被按下时触发',
     [GameEvents.KEY_RELEASED]: '当任何按键被松开时触发',
     [GameEvents.MOVE_DIRECTION_CHANGED]: '当移动方向发生变化时触发（仅限WASD和方向键）',
+    [GameEvents.MOUSE_CLICKED]: '当鼠标点击时触发，提供世界坐标位置',
+    [GameEvents.MOUSE_MOVED]: '当鼠标移动时触发，提供世界坐标位置',
+    [GameEvents.AI_MOUSE_FOLLOW_TOGGLED]: '当AI鼠标跟随模式开关切换时触发',
     [GameEvents.GAME_DATA_LOADED]: '当游戏配置数据加载完成时触发',
     [GameEvents.GAME_STATE_CHANGED]: '当游戏状态发生变化时触发（如菜单、游戏中、暂停等）',
     [GameEvents.GAME_MODE_CHANGED]: '当游戏模式发生变化时触发（如正常模式、测试模式）',
@@ -144,7 +159,10 @@ export const EventCategories = {
     Input: [
         GameEvents.KEY_PRESSED,
         GameEvents.KEY_RELEASED,
-        GameEvents.MOVE_DIRECTION_CHANGED
+        GameEvents.MOVE_DIRECTION_CHANGED,
+        GameEvents.MOUSE_CLICKED,
+        GameEvents.MOUSE_MOVED,
+        GameEvents.AI_MOUSE_FOLLOW_TOGGLED
     ],
     
     /** 游戏状态相关事件 */

@@ -61,6 +61,10 @@ export class MonsterSpawner extends Component {
     // 是否已初始化
     private isInitialized: boolean = false;
     
+    // 【性能优化】生成器更新定时控制
+    private spawnUpdateTimer: number = 0;
+    private readonly SPAWN_UPDATE_INTERVAL = 0.5; // 0.5秒更新一次
+    
     // 移除spawnerFaction，每个敌人按照自己的配置设置阵营
     
     protected onLoad(): void {
@@ -81,8 +85,12 @@ export class MonsterSpawner extends Component {
             return;
         }
         
-        // 更新生成计时器
-        this.updateSpawnTimers(deltaTime);
+        // 【性能优化】降低生成计时器更新频率
+        this.spawnUpdateTimer += deltaTime;
+        if (this.spawnUpdateTimer >= this.SPAWN_UPDATE_INTERVAL) {
+            this.updateSpawnTimers(this.spawnUpdateTimer);
+            this.spawnUpdateTimer = 0;
+        }
     }
     
     /**

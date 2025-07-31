@@ -139,10 +139,17 @@ export class CharacterPoolFactory {
         
         // 设置位置（在重用回调之后，确保不被重置）
         if (options?.position) {
-            node.setPosition(options.position);
+            // 使用角色的统一位置设置接口，确保z轴深度正确
+            if (character.setNodePosition) {
+                character.setNodePosition(options.position.x, options.position.y, options.position.z);
+            } else {
+                // 如果没有统一接口，手动设置z轴深度
+                const newZDepth = -options.position.y * 0.1; // Y轴越大，Z轴越小
+                node.setPosition(options.position.x, options.position.y, newZDepth);
+            }
             // 确保角度锁定为0
             node.setRotationFromEuler(0, 0, 0);
-            console.log(`[PoolFactory] ✅ 设置最终位置: (${options.position.x}, ${options.position.y})`);
+            console.log(`[PoolFactory] ✅ 设置最终位置: (${options.position.x}, ${options.position.y}, z深度: ${node.position.z})`);
         }
         
         // 加入活跃角色集合

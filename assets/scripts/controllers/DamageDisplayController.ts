@@ -68,7 +68,6 @@ export class DamageDisplayController {
         if (this.displayTimes.length < this.MAX_DISPLAYS_PER_WINDOW) {
             // 可以立即显示
             this.executeDisplay(damage, position, parentNode, currentTime);
-            console.log(`DamageDisplayController: 立即显示伤害 ${damage} [${characterName}] (当前窗口: ${this.displayTimes.length}/${this.MAX_DISPLAYS_PER_WINDOW})`);
             return true;
         } else {
             // 超出限制，跳过显示（根据用户要求，我们选择跳过而不是延迟）

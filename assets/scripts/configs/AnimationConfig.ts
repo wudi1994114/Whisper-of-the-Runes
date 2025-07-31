@@ -1333,6 +1333,63 @@ export function getMappedAnimationState(state: string): AnimationState {
     return animationStateMapping[state] || AnimationState.IDLE;
 }
 
+/**
+ * 根据移动向量计算动画方向 - 按向量分量大小决定
+ * 优先级：X轴和Y轴中绝对值较大的分量决定方向
+ * @param deltaX X轴分量
+ * @param deltaY Y轴分量
+ * @returns 动画方向
+ */
+export function calculateAnimationDirectionFromVector(deltaX: number, deltaY: number, nodeName?: string): AnimationDirection {
+    const nodePrefix = nodeName ? `[${nodeName}]` : '';
+    
+    // 如果向量长度为0（没有移动），返回默认朝向
+    if (Math.abs(deltaX) < 0.001 && Math.abs(deltaY) < 0.001) {
+        console.log(`${nodePrefix}[Direction] 零向量，返回默认朝向: FRONT`);
+        return AnimationDirection.FRONT;
+    }
+    
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+    let result: AnimationDirection;
+    
+    // 比较X轴和Y轴分量的绝对值，选择绝对值更大的轴
+    if (absX > absY) {
+        // 水平方向为主导
+        result = deltaX > 0 ? AnimationDirection.RIGHT : AnimationDirection.LEFT;
+    } else {
+        // 垂直方向为主导
+        result = deltaY > 0 ? AnimationDirection.BACK : AnimationDirection.FRONT;
+    }
+    
+    return result;
+}
+
+/**
+ * 根据目标位置计算朝向 - 统一接口
+ * @param currentX 当前X坐标
+ * @param currentY 当前Y坐标
+ * @param targetX 目标X坐标
+ * @param targetY 目标Y坐标
+ * @param nodeName 节点名称（用于调试）
+ * @returns 动画方向
+ */
+export function calculateDirectionToTarget(currentX: number, currentY: number, targetX: number, targetY: number, nodeName?: string): AnimationDirection {
+    const deltaX = targetX - currentX;
+    const deltaY = targetY - currentY;
+    return calculateAnimationDirectionFromVector(deltaX, deltaY, nodeName);
+}
+
+/**
+ * 从Vec2向量计算动画方向 - 便利方法
+ * @param vector 移动向量
+ * @param nodeName 节点名称（用于调试）
+ * @returns 动画方向
+ */
+export function calculateDirectionFromVec2(vector: { x: number, y: number }, nodeName?: string): AnimationDirection {
+    return calculateAnimationDirectionFromVector(vector.x, vector.y, nodeName);
+}
+
 // ============= 投射物动画配置 =============
 
 /**

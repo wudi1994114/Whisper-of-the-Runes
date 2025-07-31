@@ -46,28 +46,28 @@ export class AIPerformanceManager extends Component {
         tooltip: "每帧最多更新多少个AI"
     })
     // 【性能优化】减少每帧最大AI数量，分散计算负担避免单帧卡顿
-    public maxAIPerFrame: number = 6;
+    public maxAIPerFrame: number = 4;
     
     @property({
         displayName: "高LOD距离",
         tooltip: "高详细度AI的最大距离"
     })
     // 【性能优化】缩小高LOD距离，让更多AI进入低频更新模式
-    public highLODDistance: number = 150;
+    public highLODDistance: number = 100;
     
     @property({
         displayName: "中LOD距离", 
         tooltip: "中等详细度AI的最大距离"
     })
     // 【性能优化】适当缩小中LOD距离
-    public mediumLODDistance: number = 300;
+    public mediumLODDistance: number = 200;
     
     @property({
         displayName: "低LOD距离",
         tooltip: "低详细度AI的最大距离"
     })
     // 【性能优化】缩小低LOD距离，让远处AI进入最低更新频率
-    public lowLODDistance: number = 600;
+    public lowLODDistance: number = 400;
     
     @property({
         displayName: "启用动态调整",
@@ -549,6 +549,13 @@ export class AIPerformanceManager extends Component {
         console.log(`%c[AIPerformanceManager] 🎯 LOD分布: H=${stats.highLODAIs}, M=${stats.mediumLODAIs}, L=${stats.lowLODAIs}, Min=${stats.minimalLODAIs}`, 'color: green');
         console.log(`%c[AIPerformanceManager] ⏱️ 性能: 帧率=${stats.currentFrameRate.toFixed(1)}fps, 平均帧时间=${stats.averageFrameTime.toFixed(2)}ms`, 'color: purple');
         console.log(`%c[AIPerformanceManager] ⚙️ 设置: 每帧AI=${stats.maxAIPerFrame}, LOD距离=[${stats.lodDistances.high}, ${stats.lodDistances.medium}, ${stats.lodDistances.low}]`, 'color: orange');
+    }
+    
+    /**
+     * 获取所有AI代理列表（用于外部系统访问）
+     */
+    public getAiAgents(): AIAgentInfo[] {
+        return [...this.aiAgents]; // 返回副本以防止外部修改
     }
 }
 

@@ -73,9 +73,13 @@ export class IdleState extends State {
  * 行走状态
  */
 export class WalkingState extends State {
+    private lastDirection: string | null = null;
+    
     enter(): void {
-        // 移除状态转换日志
+        // 进入时先播放一次动画
         this.character.playCurrentAnimation(AnimationState.WALK);
+        // 记录当前方向
+        this.lastDirection = (this.character as any).currentDirection;
     }
     
     update(deltaTime: number): void {
@@ -92,11 +96,19 @@ export class WalkingState extends State {
 
         // 如果没有发生状态转换，则执行当前状态的逻辑
         this.character.handleMovement(deltaTime);
+        
+        const currentDirection = (this.character as any).currentDirection;
+        if (this.lastDirection !== currentDirection) {
+            this.character.playCurrentAnimation(AnimationState.WALK);
+            this.lastDirection = currentDirection;
+        }
     }
     
     exit(): void {
         // 移除状态转换日志
         this.character.stopPhysicalMovement();
+        // 重置方向记录
+        this.lastDirection = null;
     }
     
     canTransitionTo(newState: CharacterState): boolean {
@@ -117,6 +129,8 @@ export class AttackingState extends State {
         // 【优化后】通过接口停止移动，不再直接访问具体组件
         this.character.stopMovement();
         
+        // 【修改】不再在这里设置攻击状态，而是由onAttackDamageFrame精确控制
+        
         // 播放攻击动画，并传入一个回调，在动画完成时设置标志
         this.character.playAttackAnimation(() => {
             this.animationFinished = true;
@@ -129,19 +143,46 @@ export class AttackingState extends State {
         
         // 在update中检查动画是否完成
         if (this.animationFinished) {
-            // 动画完成后，总是先切换到闲置状态，让闲置状态在下一帧处理移动逻辑
-            this.character.transitionToState(CharacterState.IDLE);
+            // 【修复后 - 推荐代码】
+            // 动画完成后，根据移动意图直接决定下一个状态
+            if (this.character.hasMovementInput()) {
+                this.character.transitionToState(CharacterState.WALKING);
+            } else {
+                this.character.transitionToState(CharacterState.IDLE);
+            }
         }
     }
     
     exit(): void {
         this.animationFinished = false; // 重置标志
+        
+        // 【修改】确保攻击动画完成时清理ORCA攻击状态
+        // 这里无论目标是否死亡，都要确保攻击状态被清理
+        this.setOrcaAttackingState(false);
+        console.log('[AttackingState] 攻击动画完成，确保清理攻击状态');
     }
     
     canTransitionTo(newState: CharacterState): boolean {
-        // 攻击中只允许被死亡打断，或者动画完成后转换到IDLE
+        // 攻击中只允许被死亡打断，或者动画完成后转换到IDLE/WALKING
         return newState === CharacterState.DEAD || 
-               (newState === CharacterState.IDLE && this.animationFinished);
+               ( (newState === CharacterState.IDLE || newState === CharacterState.WALKING) && this.animationFinished );
+    }
+
+    /**
+     * 设置ORCA代理的攻击状态
+     */
+    private setOrcaAttackingState(isAttacking: boolean): void {
+        try {
+            const orcaAgent = (this.character as any).node?.getComponent('OrcaAgent');
+            if (orcaAgent && orcaAgent.setAttackingState) {
+                orcaAgent.setAttackingState(isAttacking);
+                console.log(`[AttackingState] ✅ ORCA攻击状态设置成功: ${isAttacking} (角色: ${(this.character as any).node?.name})`);
+            } else {
+                console.warn(`[AttackingState] ❌ ORCA代理不存在或无方法: agent=${!!orcaAgent}, method=${!!(orcaAgent?.setAttackingState)} (角色: ${(this.character as any).node?.name})`);
+            }
+        } catch (error) {
+            console.warn(`[AttackingState] ❌ 设置ORCA攻击状态失败:`, error);
+        }
     }
 }
 

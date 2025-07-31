@@ -4,7 +4,7 @@ import { EnemyData } from '../configs/EnemyConfig';
 import { CharacterStats } from '../components/CharacterStats';
 import { HealthBarComponent } from '../components/HealthBarComponent';
 import { systemConfigManager } from '../configs/SystemConfig';
-import { AnimationState, AnimationDirection } from '../configs/AnimationConfig';
+import { AnimationState, AnimationDirection, calculateAnimationDirectionFromVector, calculateDirectionFromVec2 } from '../configs/AnimationConfig';
 import { animationManager } from '../managers/AnimationManager';
 import { Faction, FactionUtils } from '../configs/FactionConfig';
 import { TargetInfo } from '../components/MonsterAI';
@@ -38,6 +38,12 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         tooltip: "角色移动速度（像素/秒）"
     })
     protected moveSpeed: number =5;
+
+    @property({
+        displayName: "速度平滑系数",
+        tooltip: "速度变化的平滑度，值越小越平滑，建议范围 0.1 - 0.5"
+    })
+    protected velocitySmoothingFactor: number = 0.2;
 
     @property({
         displayName: "角色ID",
@@ -91,11 +97,15 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     protected lastAttackTime: number = 0;
     protected attackCooldown: number = 1.0; // 默认攻击间隔（秒）
     
+    // 【性能优化】AI协调逻辑的定时更新控制
+    private lastAICoordinationTime: number = 0;
+    private readonly AI_COORDINATION_INTERVAL = 0.2; // 0.2秒更新一次，保持攻击响应性
+    
     // AI相关属性已整合到enemyData中
     protected currentTarget: Node | null = null;
     protected targetInfo: TargetInfo | null = null;
     protected lastTargetSearchTime: number = 0;
-    protected targetSearchInterval: number = 1000; // 1秒搜索一次目标
+    protected targetSearchInterval: number = 200; // 0.2秒搜索一次目标，提高攻击响应性
     protected originalPosition: Vec3 = new Vec3(); // AI回归位置
     protected lastAIDebugTime: number = 0; // AI调试日志频率控制
     protected lastFallbackWarningTime: number = 0; // 回退系统警告频率控制
@@ -111,10 +121,17 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     // 无敌状态标志位
     private isInvincible: boolean = false;
 
+    // 专注锁定检查器状态
+    private focusLockCheckerActive: boolean = false;
+
     // 智能攻击系统 (从UniversalCharacterDemo合并)
     private fireballLauncher: FireballLauncher | null = null;
     private isRangedAttacker: boolean = false;
     private hasRangedSkills: boolean = false;
+
+    private stuckTimer: number = 0;
+    private readonly STUCK_TIME_MICRO_ADJUST = 0.5; // 中期拥堵阈值
+    private readonly STUCK_TIME_REPATH = 1.5;  
     
     // 显式设置的敌人类型（用于正常模式下MonsterSpawner设置）
     private explicitEnemyType: string | null = null;
@@ -183,28 +200,54 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
 
     /**
      * 执行特殊攻击逻辑 - 智能判断攻击方式 (从UniversalCharacterDemo合并)
+     * @returns 攻击结果，包含目标是否死亡等信息
      */
-    protected performSpecialAttack(): void {
+    protected performSpecialAttack(): { isDead: boolean, isStunned: boolean } | null {
         if (!this.enemyData) {
-            this.performMeleeAttack();
-            return;
+            return this.performMeleeAttack();
         }
 
         // 检查是否为远程攻击敌人
         if (this.isRangedAttacker) {
             this.performRangedAttack();
+            // 远程攻击目前不返回结果，返回默认值
+            return { isDead: false, isStunned: false };
         } else {
-            this.performMeleeAttack();
+            return this.performMeleeAttack();
+        }
+    }
+
+    /**
+     * 执行特殊攻击逻辑并返回目标信息 - 专注锁定系统专用
+     * @returns 攻击结果，包含目标是否死亡和目标节点信息
+     */
+    protected performSpecialAttackWithTarget(): { isDead: boolean, isStunned: boolean, target: Node | null } | null {
+        if (!this.enemyData) {
+            return this.performMeleeAttackWithTarget();
+        }
+
+        // 检查是否为远程攻击敌人
+        if (this.isRangedAttacker) {
+            this.performRangedAttack();
+            // 远程攻击目前不返回目标信息，返回当前目标
+            return { 
+                isDead: false, 
+                isStunned: false, 
+                target: this.currentTarget 
+            };
+        } else {
+            return this.performMeleeAttackWithTarget();
         }
     }
 
     /**
      * 执行近战攻击伤害逻辑
+     * @returns 攻击结果，包含目标是否死亡等信息
      */
-    protected performMeleeAttack(): void {
+    protected performMeleeAttack(): { isDead: boolean, isStunned: boolean } | null {
         if (!this.characterStats || !this.enemyData) {
             console.warn(`[${this.getCharacterDisplayName()}] 缺少必要组件，无法执行近战攻击`);
-            return;
+            return null;
         }
 
         let targetToAttack: Node | null = null;
@@ -227,8 +270,52 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
 
         // 对目标造成伤害
         if (targetToAttack) {
-            this.dealDamageToTarget(targetToAttack, attackDamage);
+            return this.dealDamageToTarget(targetToAttack, attackDamage);
         }
+        
+        return null;
+    }
+
+    /**
+     * 执行近战攻击伤害逻辑并返回目标信息 - 专注锁定系统专用
+     * @returns 攻击结果，包含目标是否死亡和目标节点信息
+     */
+    protected performMeleeAttackWithTarget(): { isDead: boolean, isStunned: boolean, target: Node | null } | null {
+        if (!this.characterStats || !this.enemyData) {
+            console.warn(`[${this.getCharacterDisplayName()}] 缺少必要组件，无法执行近战攻击`);
+            return null;
+        }
+
+        let targetToAttack: Node | null = null;
+        let attackDamage = this.characterStats.baseAttack;
+
+        // AI模式：攻击当前目标
+        if (this.controlMode === ControlMode.AI && this.currentTarget) {
+            const distance = Vec2.distance(this.node.position, this.currentTarget.position);
+            const attackRange = this.enemyData?.attackRange || 60;
+            
+            if (distance <= attackRange) {
+                targetToAttack = this.currentTarget;
+            }
+        }
+        // 手动模式：搜索附近的敌人
+        else if (this.controlMode === ControlMode.MANUAL) {
+            targetToAttack = this.findNearestEnemy();
+        }
+
+        // 对目标造成伤害
+        if (targetToAttack) {
+            const damageResult = this.dealDamageToTarget(targetToAttack, attackDamage);
+            if (damageResult) {
+                return {
+                    isDead: damageResult.isDead,
+                    isStunned: damageResult.isStunned,
+                    target: targetToAttack
+                };
+            }
+        }
+        
+        return null;
     }
 
     /**
@@ -399,25 +486,44 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
 
     /**
      * 对目标造成伤害
+     * @param target 攻击目标
+     * @param damage 伤害值
+     * @returns 伤害结果，包含目标是否死亡等信息
      */
-    protected dealDamageToTarget(target: Node, damage: number): void {
+    protected dealDamageToTarget(target: Node, damage: number): { isDead: boolean, isStunned: boolean } | null {
         if (!target || !target.isValid) {
             console.warn(`[${this.getCharacterDisplayName()}] 无效的攻击目标`);
-            return;
+            return null;
         }
 
-        // 获取目标的BaseCharacterDemo组件来造成伤害（优先使用类型获取，效率更高）
+        // 【修复】正确的伤害处理流程：先获取结果，再处理完整逻辑
         const targetCharacterDemo = target.getComponent(BaseCharacterDemo);
-        if (targetCharacterDemo && targetCharacterDemo.takeDamage) {
+        const targetStats = target.getComponent(CharacterStats);
+        
+        if (targetCharacterDemo && targetStats) {
+            // 理想情况：既有BaseCharacterDemo又有CharacterStats
+            // 调用BaseCharacterDemo.takeDamage处理完整逻辑
             targetCharacterDemo.takeDamage(damage);
+            
+            // 攻击后检查目标状态
+            const isDead = !targetStats.isAlive;
+            const isStunned = isDead || targetStats.currentHealth <= targetStats.maxHealth * 0.3;
+            const result = { isDead, isStunned };
+            
+            console.log(`[${this.getCharacterDisplayName()}] 攻击目标 ${target.name}, 伤害=${damage}, 死亡=${result.isDead}`);
+            return result;
+        } else if (targetStats) {
+            // 只有CharacterStats，直接处理
+            const result = targetStats.takeDamage(damage);
+            console.log(`[${this.getCharacterDisplayName()}] 攻击目标 ${target.name} (仅CharacterStats), 伤害=${damage}, 死亡=${result.isDead}`);
+            return result;
+        } else if (targetCharacterDemo) {
+            // 只有BaseCharacterDemo
+            targetCharacterDemo.takeDamage(damage);
+            return { isDead: !target.isValid, isStunned: false };
         } else {
-            // 如果没有BaseCharacterDemo，尝试CharacterStats组件
-            const targetStats = target.getComponent(CharacterStats);
-            if (targetStats && targetStats.takeDamage) {
-                targetStats.takeDamage(damage);
-            } else {
-                console.warn(`[${this.getCharacterDisplayName()}] 目标 ${target.name} 没有可攻击的组件`);
-            }
+            console.warn(`[${this.getCharacterDisplayName()}] 目标 ${target.name} 没有可攻击的组件`);
+            return null;
         }
     }
 
@@ -563,8 +669,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         this.healthBarNode = new Node('HealthBar');
         this.healthBarNode.setParent(this.node);
         
-        // 设置血条位置
-        this.healthBarNode.setPosition(0, finalConfig.offsetY, 0);
+        // 设置血条位置（包含z轴深度）
+        const characterZDepth = this.node.position.z;
+        this.healthBarNode.setPosition(0, finalConfig.offsetY, characterZDepth + finalConfig.zOffset);
         
         // 添加 UITransform 组件
         const transform = this.healthBarNode.addComponent(UITransform);
@@ -855,15 +962,13 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     }
 
     private updateDirectionTowards(targetPosition: Vec3): void {
-        // 【性能优化】复用静态临时变量，避免频繁创建对象
-        const direction = TempVarPool.tempVec3_2;
-        Vec3.subtract(direction, targetPosition, this.node.position);
-    
-        if (Math.abs(direction.x) > Math.abs(direction.y)) {
-            this.currentDirection = direction.x > 0 ? AnimationDirection.RIGHT : AnimationDirection.LEFT;
-        } else {
-            this.currentDirection = direction.y > 0 ? AnimationDirection.BACK : AnimationDirection.FRONT;
-        }
+        // 使用统一的动画方向计算函数
+        const currentPos = this.node.position;
+        this.currentDirection = calculateAnimationDirectionFromVector(
+            targetPosition.x - currentPos.x,
+            targetPosition.y - currentPos.y,
+            this.node.name
+        );
     }
 
     async onLoad() {
@@ -931,6 +1036,12 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         // 初始化状态机
         this.stateMachine = new StateMachine(this);
         this.stateMachine.start();
+        
+        // 【自动被动模式】初始化时根据起始状态设置ORCA被动模式
+        const initialState = this.getCurrentState();
+        if (initialState) {
+            this.updateOrcaPassiveState(initialState);
+        }
 
         if (GameManager.instance) {
             console.log(`[BaseCharacterDemo] GameManager 可用敌人类型: ${GameManager.instance.getAvailableEnemyTypes().join(', ')}`);
@@ -1234,6 +1345,56 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         // 只有当Z轴值发生变化时才更新，避免不必要的设置
         if (Math.abs(currentPosition.z - newZDepth) > 0.01) {
             this.node.setPosition(currentPosition.x, currentPosition.y, newZDepth);
+            
+            // 【新增】同步更新血条的z轴位置
+            this.updateHealthBarZDepth(newZDepth);
+        }
+    }
+
+    /**
+     * 统一的位置设置接口 - 确保z轴深度同步更新
+     */
+    public setNodePosition(x: number, y: number, z?: number): void {
+        if (z !== undefined) {
+            this.node.setPosition(x, y, z);
+        } else {
+            // 如果没有指定z值，根据y值自动计算
+            const newZDepth = -y * 0.1;
+            this.node.setPosition(x, y, newZDepth);
+        }
+        
+        // 同步更新血条z轴位置
+        this.updateHealthBarZDepth(this.node.position.z);
+    }
+
+    /**
+     * 更新血条的z轴深度
+     */
+    private updateHealthBarZDepth(characterZDepth: number): void {
+        if (!this.healthBarNode) return;
+        
+        // 获取血条配置中的z轴偏移
+        const characterName = this.getCharacterDisplayName();
+        const baseConfig = systemConfigManager.getHealthBarConfigForCharacter(characterName);
+        const finalConfig = systemConfigManager.calculateFinalHealthBarConfig(
+            baseConfig, 
+            64, // 默认值，这里只需要zOffset
+            64,
+            this.enemyData
+        );
+        
+        // 血条显示在比角色更靠前的位置（z轴值更大）
+        const healthBarPosition = this.healthBarNode.position;
+        this.healthBarNode.setPosition(
+            healthBarPosition.x, 
+            healthBarPosition.y, 
+            characterZDepth + finalConfig.zOffset
+        );
+
+        // 【新增】如果使用了HealthBarComponent，也通知它更新
+        const healthBarComponent = this.node.getComponent('HealthBarComponent') as any;
+        if (healthBarComponent && typeof healthBarComponent.forceUpdatePosition === 'function') {
+            healthBarComponent.forceUpdatePosition();
         }
     }
 
@@ -1428,16 +1589,11 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         // 【重构】移除prefVelocity设置 - 现在由AINavigationController统一控制
         // 手动模式下的速度控制将通过AINavigationController.setDesiredVelocity()或专门的PlayerController处理
         
-        // 更新角色朝向
+        // 更新角色朝向 - 使用统一的动画方向计算函数
         if (this.moveDirection.length() > 0) {
-            // 根据移动方向更新朝向
-            if (Math.abs(this.moveDirection.x) > Math.abs(this.moveDirection.y)) {
-                // 水平移动为主
-                this.currentDirection = this.moveDirection.x > 0 ? AnimationDirection.RIGHT : AnimationDirection.LEFT;
-            } else {
-                // 垂直移动为主
-                this.currentDirection = this.moveDirection.y > 0 ? AnimationDirection.BACK : AnimationDirection.FRONT;
-            }
+            const oldDirection = this.currentDirection;
+            this.currentDirection = calculateDirectionFromVec2(this.moveDirection, this.node.name);
+            console.log(`[${this.node.name}][${this.getCharacterDisplayName()}] 控制模式: ${this.controlMode}, 移动方向计算: 输入向量(${this.moveDirection.x.toFixed(2)}, ${this.moveDirection.y.toFixed(2)}) -> ${oldDirection} -> ${this.currentDirection}`);
         }
     }
 
@@ -1456,9 +1612,8 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         // 使用 AnimationManager 播放动画
         const success = animationManager.playAnimation(this.animationComponent, animationName);
         
-        // 移除频繁的动画播放日志
         if (!success) {
-            console.warn(`[${this.getCharacterDisplayName()}] 动画播放失败: ${animationName}`);
+            console.warn(`[${this.node.name}][${this.getCharacterDisplayName()}] 动画播放失败: ${animationName}`);
         }
     }
 
@@ -1503,23 +1658,195 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     /**
      * 攻击伤害帧回调 - 在动画的指定帧触发实际攻击逻辑
      * 这个方法在攻击动画的伤害帧被调用，负责执行实际的攻击效果
+     * 【新功能】专注锁定系统 - 攻击目标未死亡时持续锁定位置
      */
     protected onAttackDamageFrame(): void {
         const damageFrame = this.enemyData?.attackDamageFrame || 5;
         const animSpeed = this.enemyData?.animationSpeed || 8;
         const actualDelay = (damageFrame - 1) / animSpeed;
         
+        // 【新增】攻击触发时，设置ORCA攻击状态，开始不被推动
+        this.setOrcaAttackingState(true);
+        console.log(`[${this.getCharacterDisplayName()}] 🎯 攻击触发，开始攻击状态锁定`);
+        
         // 执行实际的攻击逻辑（之前在playAttackAnimation中立即执行的逻辑）
-        this.performSpecialAttack();
+        const attackResult = this.performSpecialAttackWithTarget();
+        
+        // 【专注锁定逻辑】根据攻击结果设置专注锁定
+        if (attackResult) {
+            const { isDead, target } = attackResult;
+            
+            if (isDead) {
+                console.log(`[${this.getCharacterDisplayName()}] 🎯 目标 ${target?.name} 已死亡，不设置专注锁定`);
+                // 目标死亡，不需要设置专注锁定
+            } else if (target) {
+                console.log(`[${this.getCharacterDisplayName()}] 🔒 目标 ${target.name} 未死亡，设置专注锁定`);
+                // 目标未死亡，设置专注锁定
+                this.setFocusLockOnTarget(target);
+            }
+        } else {
+            console.log(`[${this.getCharacterDisplayName()}] ⚠️ 攻击未命中目标`);
+        }
+    }
+
+    /**
+     * 设置ORCA攻击状态的便捷方法
+     */
+    private setOrcaAttackingState(isAttacking: boolean): void {
+        try {
+            if (this.orcaAgent && this.orcaAgent.setAttackingState) {
+                this.orcaAgent.setAttackingState(isAttacking);
+                console.log(`[${this.getCharacterDisplayName()}] ✅ ORCA攻击状态设置成功: ${isAttacking}`);
+            } else {
+                console.warn(`[${this.getCharacterDisplayName()}] ❌ ORCA代理不存在或无setAttackingState方法: agent=${!!this.orcaAgent}, method=${!!(this.orcaAgent?.setAttackingState)}`);
+            }
+        } catch (error) {
+            console.warn(`[${this.getCharacterDisplayName()}] ❌ 设置ORCA攻击状态失败:`, error);
+        }
+    }
+
+    /**
+     * 设置专注锁定目标
+     * @param target 要锁定的目标节点
+     */
+    private setFocusLockOnTarget(target: Node): void {
+        try {
+            if (this.orcaAgent && this.orcaAgent.addLockTarget) {
+                this.orcaAgent.addLockTarget(target);
+                
+                // 启动定期检查（如果还没启动）
+                if (!this.focusLockCheckerActive) {
+                    this.schedule(this.checkFocusLockTargets, 0.5);
+                    this.focusLockCheckerActive = true;
+                    console.log(`[${this.getCharacterDisplayName()}] 🔄 启动专注锁定检查器`);
+                }
+            } else {
+                console.warn(`[${this.getCharacterDisplayName()}] ❌ ORCA代理不存在或无addLockTarget方法`);
+            }
+        } catch (error) {
+            console.warn(`[${this.getCharacterDisplayName()}] ❌ 设置专注锁定失败:`, error);
+        }
+    }
+
+    /**
+     * 定期检查专注锁定目标状态（0.5秒检查一次）
+     */
+    private checkFocusLockTargets = (): void => {
+        if (!this.orcaAgent || !this.enemyData) {
+            return;
+        }
+
+        const lockTargets = this.orcaAgent.getLockTargets();
+        if (lockTargets.length === 0) {
+            // 没有锁定目标，停止检查
+            this.unschedule(this.checkFocusLockTargets);
+            this.focusLockCheckerActive = false;
+            console.log(`[${this.getCharacterDisplayName()}] 🔄 停止专注锁定检查器（无目标）`);
+            return;
+        }
+
+        const attackRange = this.enemyData.attackRange || 60;
+        const targetsToRemove: Node[] = [];
+
+        for (const target of lockTargets) {
+            if (!this.shouldKeepLockingTarget(target, attackRange)) {
+                targetsToRemove.push(target);
+            }
+        }
+
+        // 移除不需要继续锁定的目标
+        for (const target of targetsToRemove) {
+            if (this.orcaAgent.removeLockTarget) {
+                this.orcaAgent.removeLockTarget(target);
+            }
+        }
+
+        // 如果没有锁定目标了，停止检查
+        if (this.orcaAgent.getLockTargetCount() === 0) {
+            this.unschedule(this.checkFocusLockTargets);
+            this.focusLockCheckerActive = false;
+            console.log(`[${this.getCharacterDisplayName()}] 🔄 停止专注锁定检查器（目标已清空）`);
+        }
+    }
+
+    /**
+     * 检查是否应该继续锁定目标
+     * @param target 目标节点
+     * @param attackRange 攻击范围
+     */
+    private shouldKeepLockingTarget(target: Node, attackRange: number): boolean {
+        // 检查目标是否还有效
+        if (!target || !target.isValid) {
+            console.log(`[${this.getCharacterDisplayName()}] 🔓 目标无效，解除锁定: ${target?.name}`);
+            return false;
+        }
+
+        // 检查目标是否还活着
+        const targetStats = target.getComponent(CharacterStats);
+        if (targetStats && !targetStats.isAlive) {
+            console.log(`[${this.getCharacterDisplayName()}] 🔓 目标已死亡，解除锁定: ${target.name}`);
+            return false;
+        }
+
+        // 检查目标是否脱离攻击范围
+        const distance = Vec2.distance(this.node.position, target.position);
+        if (distance > attackRange) {
+            console.log(`[${this.getCharacterDisplayName()}] 🔓 目标脱离攻击范围，解除锁定: ${target.name} (距离=${distance.toFixed(1)} > 范围=${attackRange})`);
+            return false;
+        }
+
+        // 应该继续锁定
+        return true;
+    }
+
+    /**
+     * 清除所有专注锁定（角色死亡或重置时调用）
+     */
+    private clearAllFocusLocks(): void {
+        try {
+            if (this.orcaAgent && this.orcaAgent.clearAllLockTargets) {
+                this.orcaAgent.clearAllLockTargets();
+            }
+            
+            // 停止定期检查
+            this.unschedule(this.checkFocusLockTargets);
+            this.focusLockCheckerActive = false;
+            console.log(`[${this.getCharacterDisplayName()}] 🔓 清除所有专注锁定`);
+        } catch (error) {
+            console.warn(`[${this.getCharacterDisplayName()}] ❌ 清除专注锁定失败:`, error);
+        }
     }
 
 
 
     /**
      * 状态机转换接口
+     * 【新功能】状态切换时自动调整ORCA被动模式
      */
     public transitionToState(state: CharacterState): void {
         this.stateMachine?.transitionTo(state);
+        
+        // 【自动被动模式】根据新状态调整ORCA代理的被动属性
+        this.updateOrcaPassiveState(state);
+    }
+    
+    /**
+     * 根据角色状态更新ORCA被动模式
+     * IDLE和ATTACKING状态下变为被动，其他状态为主动
+     */
+    private updateOrcaPassiveState(state: CharacterState): void {
+        if (!this.orcaAgent) return;
+        
+        const shouldBePassive = (state === CharacterState.IDLE || state === CharacterState.ATTACKING);
+        
+        // 只在状态真正改变时更新并输出日志
+        if (this.orcaAgent.isPassive !== shouldBePassive) {
+            this.orcaAgent.isPassive = shouldBePassive;
+            
+            const stateStr = shouldBePassive ? '被动' : '主动';
+            const reasonStr = state === CharacterState.IDLE ? '空闲状态' : 
+                             state === CharacterState.ATTACKING ? '攻击状态' : '移动状态';
+        }       
     }
 
     /**
@@ -1537,7 +1864,8 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 根据控制模式调用不同的协调逻辑
         if (this.controlMode === ControlMode.AI && this.characterStats?.isAlive) {
-            this.updateAICoordination(deltaTime);
+            // 【性能优化】分时更新AI协调逻辑
+            this.updateAICoordinationWithTiming(deltaTime);
         } else if (this.controlMode === ControlMode.MANUAL) {
             this.updateManualCoordination(deltaTime);
         }
@@ -1547,6 +1875,25 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 重置一次性信号
         this.currentInputSignals.wantsToAttack = false;
+    }
+    
+    /**
+     * 【性能优化】带时间控制的AI协调逻辑更新
+     */
+    private updateAICoordinationWithTiming(deltaTime: number): void {
+        const currentTime = Date.now();
+        const currentState = this.getCurrentState();
+        
+        // 攻击状态下不调用AI协调逻辑（被动模式已生效）
+        if (currentState === CharacterState.ATTACKING) {
+            return;
+        }
+        
+        // 非攻击状态下每1秒调用一次AI协调逻辑
+        if (currentTime - this.lastAICoordinationTime >= this.AI_COORDINATION_INTERVAL * 1000) {
+            this.updateAICoordination(deltaTime);
+            this.lastAICoordinationTime = currentTime;
+        }
     }
 
     /**
@@ -1568,15 +1915,65 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         // 3. 定义最终将要执行的决策变量
         let finalPrefVelocity = aiDecision.prefVelocity;
         let finalWantsToAttack = aiDecision.wantsToAttack;
+        let isBlockedByFriendly = false;
+        if (finalPrefVelocity.lengthSqr() > 0.01 && this.orcaAgent) {
+            const CROWDING_DISTANCE_MULTIPLIER = 1.5;
+            const checkRadius = this.orcaAgent.getEffectiveRadius() * CROWDING_DISTANCE_MULTIPLIER;
+            const nearbyCharacters = gridManager.getNearbyCharacters(this.node.position, checkRadius);
+    
+            for (const otherChar of nearbyCharacters) {
+                // ... (和之前一样的筛选逻辑)
+                const otherAgent = otherChar.node?.getComponent(OrcaAgent);
+                if (!otherAgent || otherAgent === this.orcaAgent || !otherAgent.isAgentValid() || otherChar.getFaction() !== this.getFaction()) {
+                    continue;
+                }
+                const toOther = TempVarPool.tempVec2_1.set(otherAgent.position.x - this.node.position.x, otherAgent.position.y - this.node.position.y);
+                if (toOther.dot(finalPrefVelocity) > 0) {
+                    isBlockedByFriendly = true;
+                    break;
+                }
+            }
+        }
+    
+        if (isBlockedByFriendly) {
+            // 如果被堵住，增加计时器
+            this.stuckTimer += deltaTime;
+    
+            // **决策层**
+            if (this.stuckTimer > this.STUCK_TIME_REPATH) {
+                // 策略三：长期拥堵 -> 重新导航
+                console.log(`[${this.node.name}] 长期拥堵，请求重新导航！`);
+                this.aiNavigationController.requestRepath(); // 假设AINavigationController有这个方法
+                this.stuckTimer = 0; // 重置计时器
+                finalPrefVelocity = Vec2.ZERO; // 在新路径计算出来前先停下
+    
+            } else if (this.stuckTimer > this.STUCK_TIME_MICRO_ADJUST) {
+                // 策略二：中期拥堵 -> 微观调整 (给一个侧向速度)
+                const originalSpeed = finalPrefVelocity.length();
+                // 将原始速度方向旋转90度，制造一个侧向的“微操”意图
+                // 随机左右，避免所有单位都往一个方向挤
+                const randomSign = Math.random() < 0.5 ? 1 : -1;
+                finalPrefVelocity.set(-finalPrefVelocity.y * randomSign, finalPrefVelocity.x * randomSign);
+                finalPrefVelocity.normalize().multiplyScalar(originalSpeed * 0.5); // 侧向移动速度慢一点
+                
+            } else {
+                // 策略一：短期拥堵 -> 原地等待
+                finalPrefVelocity = Vec2.ZERO;
+            }
+    
+        } else {
+            // 如果没有被堵住，重置计时器
+            this.stuckTimer = 0;
+        }
 
         // 4. 处理攻击意图和冷却计时
         if (finalWantsToAttack) {
             if (isCoolingDown) {
                 // 正在冷却中，强制取消本次攻击意图
-                finalWantsToAttack = false; 
+                finalWantsToAttack = false;  
             } else {
                 // 不在冷却中，这是一个有效的攻击请求，记录下当前时间作为新的攻击起始时间
-                this.lastAttackTime = currentTime; 
+                this.lastAttackTime = currentTime;  
             }
         }
 
@@ -1585,9 +1982,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         const hasTarget = this.aiNavigationController.getCurrentTarget() != null;
         if (isCoolingDown && hasTarget) {
             // 强制将期望速度设置为零，覆盖导航的移动决策
-            finalPrefVelocity = Vec2.ZERO; 
+            finalPrefVelocity = Vec2.ZERO;  
             // 为了调试清晰，可以打印日志
-            // console.log(`[${this.node.name}] 攻击冷却中，强制停止移动。`);
+            // console.log(`[${this.node.name}] 攻击冷却中，强制站定。`);
         }
 
         // 6. 应用最终修正后的决策到物理和动画系统
@@ -1598,6 +1995,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 更新角色朝向
         if (aiDecision.targetDirection) {
+            const oldDirection = this.currentDirection;
             this.updateDirectionTowards(aiDecision.targetDirection);
         }
         
@@ -1660,14 +2058,22 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
             // ORCA系统完全接管移动控制，prefVelocity由AINavigationController设置
             // 这里不再基于moveDirection来覆盖prefVelocity，避免干扰AI导航
             
-            // 【修复】应用ORCA系统计算出的最终速度到刚体
-            if (this.orcaAgent.newVelocity && this.orcaAgent.newVelocity.length() > 0.01) {
-                
-                this.rigidBody.linearVelocity = this.orcaAgent.newVelocity;
-            } else {
-                // 【性能优化】使用临时变量池设置零速度
-                this.rigidBody.linearVelocity = TempVarPool.tempVec2_2.set(0, 0);
-            }
+            // 【修复后 - 速度平滑】使用平滑过渡替代瞬时应用
+            const targetVelocity = this.orcaAgent.newVelocity || Vec2.ZERO;
+            const currentVelocity = this.rigidBody.linearVelocity;
+            
+            // 【性能优化】使用临时变量池进行插值计算
+            const smoothedVelocity = TempVarPool.tempVec2_1;
+            
+            // 使用基于帧时间的平滑插值，避免受帧率影响
+            // 公式: v_new = lerp(v_current, v_target, 1 - exp(-k * dt))
+            // 这里用一个简化版，效果也很好
+            const alpha = 1.0 - Math.pow(1.0 - this.velocitySmoothingFactor, deltaTime * 60); // 假设基准帧率60
+            
+            smoothedVelocity.x = currentVelocity.x + (targetVelocity.x - currentVelocity.x) * alpha;
+            smoothedVelocity.y = currentVelocity.y + (targetVelocity.y - currentVelocity.y) * alpha;
+
+            this.rigidBody.linearVelocity = smoothedVelocity;
         } else {
 
             // 【回退逻辑】没有ORCA代理时，使用原有的移动逻辑
@@ -1777,6 +2183,12 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         // 启动状态机
         if (this.stateMachine) {
             this.stateMachine.start();
+            
+            // 【自动被动模式】重用时根据起始状态设置ORCA被动模式
+            const initialState = this.getCurrentState();
+            if (initialState) {
+                this.updateOrcaPassiveState(initialState);
+            }
         }
         
         // 【修复5】延迟重新注册到拥挤系统，确保状态完全重置
@@ -1803,6 +2215,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 【修复5】确保从网格系统完全清理
         this.unregisterFromCrowdingSystem();
+        
+        // 【新增】清理专注锁定系统
+        this.clearAllFocusLocks();
         
         // 【性能优化】清理AI目标搜索定时器
         this.unschedule(this.updateAITargetSearch);

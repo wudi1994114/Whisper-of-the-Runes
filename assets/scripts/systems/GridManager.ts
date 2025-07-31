@@ -146,7 +146,6 @@ export class GridManager extends Component {
         this.characterToGrid.set(character, gridKey);
         
         this.updateStats();
-        console.log(`GridManager: 角色已添加到网格 ${gridKey} (当前数量: ${gridCharacters.length})`);
     }
 
     /**
@@ -173,7 +172,6 @@ export class GridManager extends Component {
 
         this.characterToGrid.delete(character);
         this.updateStats();
-        console.log(`GridManager: 角色已从网格 ${gridKey} 移除`);
     }
 
     /**
@@ -328,22 +326,6 @@ export class GridManager extends Component {
     public getStats(): GridStats {
         this.updateStats();
         return { ...this.stats };
-    }
-
-    /**
-     * 打印调试信息
-     */
-    public printDebugInfo(): void {
-        const stats = this.getStats();
-        console.log('\n=== GridManager 调试信息 ===');
-        console.log(`网格尺寸: ${this.CELL_SIZE}px`);
-        console.log(`总网格数: ${stats.totalGrids}`);
-        console.log(`活跃网格数: ${stats.activeGrids}`);
-        console.log(`总角色数: ${stats.totalCharacters}`);
-        console.log(`平均每网格角色数: ${stats.averageCharactersPerGrid.toFixed(2)}`);
-        console.log(`最大单网格角色数: ${stats.maxCharactersInGrid}`);
-        console.log(`查询次数: ${stats.queryCount}`);
-        console.log('=========================\n');
     }
 
     /**

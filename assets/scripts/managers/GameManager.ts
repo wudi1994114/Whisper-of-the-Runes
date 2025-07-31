@@ -130,6 +130,12 @@ export class GameManager extends Component {
     })
     public showSizeRanges: boolean = false;
 
+    @property({
+        displayName: "AI鼠标跟随模式",
+        tooltip: "启用后，所有AI控制的角色都会向鼠标位置移动\n快捷键: M 切换此功能"
+    })
+    public aiMouseFollowEnabled: boolean = false;
+
     private _gameState: GameState = GameState.MainMenu;
 
     // 输入分发相关
@@ -145,6 +151,9 @@ export class GameManager extends Component {
 
     // 测试控制面板引用
     private testControlPanel: any = null;
+
+    // 鼠标跟随功能相关
+    private currentMouseWorldPosition: Vec3 = new Vec3(0, 0, 0);
 
     // 便捷方法
     public get testMode(): boolean {

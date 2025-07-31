@@ -1,6 +1,6 @@
 // assets/scripts/launcher/FireballLauncher.ts
 
-import { _decorator, Component, Node, Prefab, Vec3, instantiate, input, Input, EventMouse, view, UITransform, Sprite, Animation, AnimationClip, animation, SpriteFrame, SpriteAtlas, Vec2, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, js } from 'cc';
+import { _decorator, Component, Node, Prefab, Vec3, instantiate, input, Input, EventMouse, view, UITransform, Sprite, Animation, AnimationClip, animation, SpriteFrame, SpriteAtlas, Vec2, Collider2D, Contact2DType, IPhysics2DContact, RigidBody2D, js, director } from 'cc';
 import { eventManager } from '../managers/EventManager';
 import { IProjectileController } from './ProjectileLauncher';
 import { FireballController } from './FireballController';
@@ -30,6 +30,10 @@ export class FireballLauncher extends Component implements IProjectileController
     // === 火球行为配置 ===
     @property({ tooltip: "火球移动速度（像素/秒）" })
     public moveSpeed: number = 1;
+    
+    // 【性能优化】分帧更新控制
+    private updateFrameOffset: number = 0;
+    private readonly UPDATE_FRAME_INTERVAL = 3; // 每3帧更新一次
     
     @property({ tooltip: "火球伤害值" })
     public damage: number = 50;
@@ -84,6 +88,9 @@ export class FireballLauncher extends Component implements IProjectileController
     }
     
     protected start() {
+        // 【性能优化】初始化随机帧偏移，避免所有火球同时更新
+        this.updateFrameOffset = Math.floor(Math.random() * this.UPDATE_FRAME_INTERVAL);
+        
         if (this.isLauncher) {
             
             console.log('FireballLauncher: 发射器初始化完成');
@@ -95,8 +102,12 @@ export class FireballLauncher extends Component implements IProjectileController
     
     protected update(deltaTime: number): void {
         if (!this.isLauncher && !this.isDestroying && this.isInitialized) {
-            // 火球控制器更新逻辑
-            this.updateFireballLogic(deltaTime);
+            // 【性能优化】分帧更新：每3帧更新一次
+            const currentFrame = director.getTotalFrames();
+            if ((currentFrame + this.updateFrameOffset) % this.UPDATE_FRAME_INTERVAL === 0) {
+                // 补偿时间差
+                this.updateFireballLogic(deltaTime * this.UPDATE_FRAME_INTERVAL);
+            }
         }
     }
     
