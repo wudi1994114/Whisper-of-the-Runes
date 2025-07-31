@@ -285,6 +285,15 @@ export class TargetSelector extends Component implements ITargetSelector {
     }
     
     /**
+     * 打印包围统计信息（基础版本-空实现）
+     * @param target 目标
+     * @param myFaction 我方阵营
+     */
+    public printSurroundStats(target: Node, myFaction: Faction): void {
+        // 基础版本不支持包围系统，空实现
+    }
+    
+    /**
      * 【调试方法】打印完整的注册表信息
      */
     public printFullRegistryInfo(): void {

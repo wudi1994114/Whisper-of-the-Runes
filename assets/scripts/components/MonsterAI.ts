@@ -99,4 +99,19 @@ export interface ITargetSelector {
     
     // 从指定阵营中反注册目标
     deregisterTarget(target: Node, faction: Faction): void;
+    
+    // 【新增】尝试锁定最佳目标（1对1对战）
+    findAndLockBestTarget?(attacker: Node, myPosition: Vec3, myFaction: Faction, detectionRange: number): TargetInfo | null;
+    
+    // 【新增】释放攻击者的目标锁定
+    releaseAttackerLock?(attacker: Node): void;
+    
+    // 【新增】检查目标是否被锁定
+    isTargetLocked?(target: Node, attacker?: Node): boolean;
+    
+    // 【新增】检查攻击者是否正在锁定其他目标
+    isAttackerLocked?(attacker: Node): boolean;
+    
+    // 【新增】打印包围统计信息
+    printSurroundStats?(target: Node, myFaction: Faction): void;
 } 

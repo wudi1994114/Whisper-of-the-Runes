@@ -913,28 +913,50 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         // 使用CharacterStats中的实际阵营
         const myFaction = this.aiFaction;
         
-        // 搜索最佳目标
+        // 搜索最佳目标 - 使用1对1锁定系统
         const detectionRange = this.enemyData.detectionRange || 200;
-        const bestTarget = selector.findBestTarget(
-            this.node.position,
-            FactionUtils.stringToFaction(myFaction),
-            detectionRange
-        );
+        const myFactionEnum = FactionUtils.stringToFaction(myFaction);
+        
+        let bestTarget: TargetInfo | null = null;
+        
+        // 尝试使用增强版的1对1锁定系统
+        if (selector.findAndLockBestTarget) {
+            bestTarget = selector.findAndLockBestTarget(this.node, this.node.position, myFactionEnum, detectionRange);
+        } else {
+            // 回退到基础版本
+            bestTarget = selector.findBestTarget(this.node.position, myFactionEnum, detectionRange);
+        }
 
         // 更新目标 - 只在目标变化时输出日志
         if (bestTarget && bestTarget.node !== this.currentTarget) {
+            // 释放旧目标的锁定
+            if (this.currentTarget && selector.releaseAttackerLock) {
+                selector.releaseAttackerLock(this.node);
+            }
+            
             // 只在目标变化时输出简化日志
             this.currentTarget = bestTarget.node;
             this.targetInfo = bestTarget;
+            console.log(`%c[${this.getCharacterDisplayName()}] 🎯 切换目标: ${bestTarget.node.name}`, 'color: green');
         } else if (this.currentTarget) {
             // 检查当前目标是否仍然有效
             const targetStats = this.currentTarget.getComponent(CharacterStats);
             const distance = Vec3.distance(this.node.position, this.currentTarget.position);
             const pursuitRange = this.enemyData.pursuitRange || 300;
 
-            if (!targetStats || !targetStats.isAlive || distance > pursuitRange) {
+            // 死锁机制：只有目标死亡才释放锁定，距离过远不释放
+            if (!targetStats || !targetStats.isAlive) {
+                // 释放目标锁定
+                if (selector.releaseAttackerLock) {
+                    selector.releaseAttackerLock(this.node);
+                }
+                
+                console.log(`%c[${this.getCharacterDisplayName()}] ⚰️ 目标死亡，释放死锁`, 'color: gray');
                 this.currentTarget = null;
                 this.targetInfo = null;
+            } else if (distance > pursuitRange) {
+                // 距离过远但不释放锁定（死锁机制）
+                console.log(`%c[${this.getCharacterDisplayName()}] 💀 死锁模式: 目标 ${this.currentTarget.name} 距离过远 (${distance.toFixed(0)}) 但保持死锁`, 'color: yellow');
             }
         }
     }
@@ -2298,6 +2320,17 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     }
 
     /**
+     * 释放目标锁定（销毁时调用）
+     */
+    private releaseTargetLockOnDestroy(): void {
+        const selector = TargetSelectorFactory.getInstance();
+        if (selector && selector.releaseAttackerLock) {
+            selector.releaseAttackerLock(this.node);
+            console.log(`%c[${this.getCharacterDisplayName()}] 🔓 销毁时释放目标锁定`, 'color: gray');
+        }
+    }
+    
+    /**
      * 清理输入监听
      */
     protected cleanupInput(): void {
@@ -2594,6 +2627,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 从目标选择器反注册
         this.deregisterFromTargetSelector();
+        
+        // 【新增】释放目标锁定
+        this.releaseTargetLockOnDestroy();
         
         // 清理输入监听
         this.cleanupInput();

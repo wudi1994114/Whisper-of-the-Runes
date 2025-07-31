@@ -31,7 +31,7 @@ export class OrcaAgent extends Component {
         displayName: "时间域",
         tooltip: "预测碰撞的时间（秒），2.0-5.0秒可有效减少抖动，避免短视行为"
     })
-    public timeHorizon: number = 1.0; // 【抖动优化】增加到3秒，提供更平滑的避让行为
+    public timeHorizon: number = 0.6; // 【抖动优化】增加到3秒，提供更平滑的避让行为
     
     @property({
         displayName: "障碍物时间域",
