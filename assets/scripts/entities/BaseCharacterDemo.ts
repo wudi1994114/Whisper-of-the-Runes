@@ -15,23 +15,16 @@ import { eventManager } from '../managers/EventManager';
 import { FireballLauncher } from '../controllers/FireballLauncher';
 import { GameManager } from '../managers/GameManager';
 import { damageDisplayController } from '../controllers/DamageDisplayController';
-import { ICrowdableCharacter } from '../systems/GridManager';
-import { OrcaAgent } from '../components/OrcaAgent';
-import { getOrcaSystem } from '../systems/OrcaSystem';
-import { gridManager } from '../systems/GridManager';
-import { AINavigationController } from '../controllers/AINavigationController';
-import { AIPerformanceManager } from '../systems/AIPerformanceManager';
 import { TempVarPool } from '../utils/TempVarPool';
 import { ControlMode, CharacterState } from '../state-machine/CharacterEnums';
 import { StateMachine, ICharacterController } from '../state-machine/CharacterStateMachine';
 import { CharacterPoolFactory } from '../pool/CharacterPoolSystem';
-import { TargetSelectorFactory } from '../configs/TargetSelectorFactory';
 
 
 const { ccclass, property } = _decorator;
 
 @ccclass('BaseCharacterDemo')
-export class BaseCharacterDemo extends Component implements ICrowdableCharacter, ICharacterController {
+export class BaseCharacterDemo extends Component implements ICharacterController {
 
     @property({
         displayName: "移动速度",
@@ -79,8 +72,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     protected characterStats: CharacterStats | null = null;
     protected rigidBody: RigidBody2D | null = null;
     protected collider: CircleCollider2D | null = null;
-    protected orcaAgent: OrcaAgent | null = null;
-    protected aiNavigationController: AINavigationController | null = null;
+
     
     // 敌人配置数据
     protected enemyData: EnemyData | null = null;
@@ -129,9 +121,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
     private isRangedAttacker: boolean = false;
     private hasRangedSkills: boolean = false;
 
-    private stuckTimer: number = 0;
-    private readonly STUCK_TIME_MICRO_ADJUST = 0.5; // 中期拥堵阈值
-    private readonly STUCK_TIME_REPATH = 1.5;  
+  
     
     // 显式设置的敌人类型（用于正常模式下MonsterSpawner设置）
     private explicitEnemyType: string | null = null;
@@ -576,23 +566,12 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      * 【新架构】统一的停止移动接口 - 封装所有停止移动的细节
      */
     public stopMovement(): void {
-        // 1. 通过ORCA系统停止移动（最重要的控制点）
-        if (this.orcaAgent) {
-            this.orcaAgent.prefVelocity.set(0, 0);
-        }
-        
-        // 2. 通过物理系统停止移动（直接控制）
+        // 通过物理系统停止移动
         if (this.rigidBody) {
-            // 【性能优化】使用临时变量池设置零速度
             this.rigidBody.linearVelocity = TempVarPool.tempVec2_5.set(0, 0);
         }
         
-        // 3. 通过导航系统停止移动（如果存在，作为补充保障）
-        if (this.aiNavigationController) {
-            this.aiNavigationController.stopMovement();
-        }
-        
-        // 4. 清空移动方向（特别是手动模式）
+        // 清空移动方向（特别是手动模式）
         this.moveDirection.set(0, 0);
     }
 
@@ -853,7 +832,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
 
 
     /**
-     * 初始化AI - 使用新的AINavigationController系统
+     * 初始化AI
      */
     public initializeAI(): void {
         if (this.controlMode !== ControlMode.AI) {
@@ -864,102 +843,13 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
             return;
         }
         
-        // 【修复】只在首次初始化时设置原始位置，重用时保持原有位置
+        // 只在首次初始化时设置原始位置，重用时保持原有位置
         if (!this.originalPosition || this.originalPosition.equals(Vec3.ZERO)) {
             this.originalPosition.set(this.node.position);
         }
-
-        // 初始化AINavigationController
-        if (this.aiNavigationController) {
-            const faction = this.getFaction();
-            
-            this.aiNavigationController.initializeNavigation(this.aiBehaviorType, faction, {
-                detectionRange: this.enemyData.detectionRange || 200,
-                attackRange: this.enemyData.attackRange || 60,
-                pathUpdateInterval: 2.0,
-                pathNodeThreshold: 20,
-                maxPathAge: 10.0,
-                blockedCheckInterval: 1.0,
-                giveUpDistance: this.enemyData.pursuitRange || 400
-            });
-            
-            // 【性能优化】安全地注册到AI性能管理器（支持重复调用）
-            const performanceManager = AIPerformanceManager.getInstance();
-            if (performanceManager) {
-                // 先反注册再注册，确保不会重复
-                performanceManager.unregisterAI(this.node);
-                performanceManager.registerAI(this.node, this.aiNavigationController);
-            }
-        } else {
-            // 【修复】清理可能存在的旧定时器，避免重复
-            this.unschedule(this.updateAITargetSearch);
-            // 回退到旧的目标搜索系统
-            const searchInterval = this.targetSearchInterval / 1000;
-            this.schedule(this.updateAITargetSearch, searchInterval);
-        }
     }
 
-    /**
-     * AI目标搜索（性能优化：改为定时器调用，无需时间间隔检查）
-     */
-    private updateAITargetSearch(): void {
-        if (!this.enemyData) return;
-        
-        const selector = TargetSelectorFactory.getInstance();
-        if (!selector) {
-            console.warn(`[${this.getCharacterDisplayName()}] 目标选择器工厂未初始化`);
-            return;
-        }
-        // 使用CharacterStats中的实际阵营
-        const myFaction = this.aiFaction;
-        
-        // 搜索最佳目标 - 使用1对1锁定系统
-        const detectionRange = this.enemyData.detectionRange || 200;
-        const myFactionEnum = FactionUtils.stringToFaction(myFaction);
-        
-        let bestTarget: TargetInfo | null = null;
-        
-        // 尝试使用增强版的1对1锁定系统
-        if (selector.findAndLockBestTarget) {
-            bestTarget = selector.findAndLockBestTarget(this.node, this.node.position, myFactionEnum, detectionRange);
-        } else {
-            // 回退到基础版本
-            bestTarget = selector.findBestTarget(this.node.position, myFactionEnum, detectionRange);
-        }
 
-        // 更新目标 - 只在目标变化时输出日志
-        if (bestTarget && bestTarget.node !== this.currentTarget) {
-            // 释放旧目标的锁定
-            if (this.currentTarget && selector.releaseAttackerLock) {
-                selector.releaseAttackerLock(this.node);
-            }
-            
-            // 只在目标变化时输出简化日志
-            this.currentTarget = bestTarget.node;
-            this.targetInfo = bestTarget;
-            console.log(`%c[${this.getCharacterDisplayName()}] 🎯 切换目标: ${bestTarget.node.name}`, 'color: green');
-        } else if (this.currentTarget) {
-            // 检查当前目标是否仍然有效
-            const targetStats = this.currentTarget.getComponent(CharacterStats);
-            const distance = Vec3.distance(this.node.position, this.currentTarget.position);
-            const pursuitRange = this.enemyData.pursuitRange || 300;
-
-            // 死锁机制：只有目标死亡才释放锁定，距离过远不释放
-            if (!targetStats || !targetStats.isAlive) {
-                // 释放目标锁定
-                if (selector.releaseAttackerLock) {
-                    selector.releaseAttackerLock(this.node);
-                }
-                
-                console.log(`%c[${this.getCharacterDisplayName()}] ⚰️ 目标死亡，释放死锁`, 'color: gray');
-                this.currentTarget = null;
-                this.targetInfo = null;
-            } else if (distance > pursuitRange) {
-                // 距离过远但不释放锁定（死锁机制）
-                console.log(`%c[${this.getCharacterDisplayName()}] 💀 死锁模式: 目标 ${this.currentTarget.name} 距离过远 (${distance.toFixed(0)}) 但保持死锁`, 'color: yellow');
-            }
-        }
-    }
 
     /**
      * 设置AI移动方向（基于物理系统的移动）
@@ -1059,11 +949,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         this.stateMachine = new StateMachine(this);
         this.stateMachine.start();
         
-        // 【自动被动模式】初始化时根据起始状态设置ORCA被动模式
-        const initialState = this.getCurrentState();
-        if (initialState) {
-            this.updateOrcaPassiveState(initialState);
-        }
+
 
         if (GameManager.instance) {
             console.log(`[BaseCharacterDemo] GameManager 可用敌人类型: ${GameManager.instance.getAvailableEnemyTypes().join(', ')}`);
@@ -1079,7 +965,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         this.registerToTargetSelector();
         
         // 注册到拥挤系统
-        this.registerToCrowdingSystem();
+
         
         // 【修复4】延迟初始化AI，确保所有组件都已准备好
         if (this.controlMode === ControlMode.AI) {
@@ -1188,13 +1074,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         this.rigidBody = this.getComponent(RigidBody2D) || this.addComponent(RigidBody2D);
         this.collider = this.getComponent(CircleCollider2D) || this.addComponent(CircleCollider2D);
         
-        // 【新增】获取或添加OrcaAgent组件
-        this.orcaAgent = this.getComponent(OrcaAgent) || this.addComponent(OrcaAgent);
-        
-        // 【新增】获取或添加AINavigationController组件（仅AI模式）
-        if (this.controlMode === ControlMode.AI) {
-            this.aiNavigationController = this.getComponent(AINavigationController) || this.addComponent(AINavigationController);
-        }
+
         
         // // 【新增】根据配置设置UI尺寸
         this.setupUISize();
@@ -1308,16 +1188,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         console.log(`[${this.getCharacterDisplayName()}] 圆形碰撞体组件配置完成: 分组=${physicsGroup}, 半径=${circleCollider.radius}, 偏移=(${circleCollider.offset.x}, ${circleCollider.offset.y})`);
         
-        // 【新增】同步ORCA避让半径与碰撞体半径
-        if (this.orcaAgent) {
-            const oldRadius = this.orcaAgent.radius;
-            this.orcaAgent.radius = circleCollider.radius;
-            console.log(`[${this.getCharacterDisplayName()}] 🔄 ORCA半径同步: ${oldRadius} → ${circleCollider.radius} (碰撞体半径)`);
-            
-            // 验证有效半径计算
-            const effectiveRadius = this.orcaAgent.getEffectiveRadius();
-            console.log(`[${this.getCharacterDisplayName()}] 📏 ORCA有效半径: ${effectiveRadius} (类型: ${this.orcaAgent.agentType})`);
-        }
+
     }
 
     /**
@@ -1608,8 +1479,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
             this.moveDirection.normalize();
         }
         
-        // 【重构】移除prefVelocity设置 - 现在由AINavigationController统一控制
-        // 手动模式下的速度控制将通过AINavigationController.setDesiredVelocity()或专门的PlayerController处理
+
         
         // 更新角色朝向 - 使用统一的动画方向计算函数
         if (this.moveDirection.length() > 0) {
@@ -1687,189 +1557,37 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         const animSpeed = this.enemyData?.animationSpeed || 8;
         const actualDelay = (damageFrame - 1) / animSpeed;
         
-        // 【新增】攻击触发时，设置ORCA攻击状态，开始不被推动
-        this.setOrcaAttackingState(true);
-        console.log(`[${this.getCharacterDisplayName()}] 🎯 攻击触发，开始攻击状态锁定`);
-        
-        // 执行实际的攻击逻辑（之前在playAttackAnimation中立即执行的逻辑）
+        // 执行实际的攻击逻辑
         const attackResult = this.performSpecialAttackWithTarget();
         
-        // 【专注锁定逻辑】根据攻击结果设置专注锁定
         if (attackResult) {
             const { isDead, target } = attackResult;
-            
-            if (isDead) {
-                console.log(`[${this.getCharacterDisplayName()}] 🎯 目标 ${target?.name} 已死亡，不设置专注锁定`);
-                // 目标死亡，不需要设置专注锁定
-            } else if (target) {
-                console.log(`[${this.getCharacterDisplayName()}] 🔒 目标 ${target.name} 未死亡，设置专注锁定`);
-                // 目标未死亡，设置专注锁定
-                this.setFocusLockOnTarget(target);
-            }
+            console.log(`[${this.getCharacterDisplayName()}] 🎯 攻击命中目标: ${target?.name}, 目标死亡: ${isDead}`);
         } else {
             console.log(`[${this.getCharacterDisplayName()}] ⚠️ 攻击未命中目标`);
         }
     }
 
-    /**
-     * 设置ORCA攻击状态的便捷方法
-     */
-    private setOrcaAttackingState(isAttacking: boolean): void {
-        try {
-            if (this.orcaAgent && this.orcaAgent.setAttackingState) {
-                this.orcaAgent.setAttackingState(isAttacking);
-                console.log(`[${this.getCharacterDisplayName()}] ✅ ORCA攻击状态设置成功: ${isAttacking}`);
-            } else {
-                console.warn(`[${this.getCharacterDisplayName()}] ❌ ORCA代理不存在或无setAttackingState方法: agent=${!!this.orcaAgent}, method=${!!(this.orcaAgent?.setAttackingState)}`);
-            }
-        } catch (error) {
-            console.warn(`[${this.getCharacterDisplayName()}] ❌ 设置ORCA攻击状态失败:`, error);
-        }
-    }
 
-    /**
-     * 设置专注锁定目标
-     * @param target 要锁定的目标节点
-     */
-    private setFocusLockOnTarget(target: Node): void {
-        try {
-            if (this.orcaAgent && this.orcaAgent.addLockTarget) {
-                this.orcaAgent.addLockTarget(target);
-                
-                // 启动定期检查（如果还没启动）
-                if (!this.focusLockCheckerActive) {
-                    this.schedule(this.checkFocusLockTargets, 0.5);
-                    this.focusLockCheckerActive = true;
-                    console.log(`[${this.getCharacterDisplayName()}] 🔄 启动专注锁定检查器`);
-                }
-            } else {
-                console.warn(`[${this.getCharacterDisplayName()}] ❌ ORCA代理不存在或无addLockTarget方法`);
-            }
-        } catch (error) {
-            console.warn(`[${this.getCharacterDisplayName()}] ❌ 设置专注锁定失败:`, error);
-        }
-    }
 
-    /**
-     * 定期检查专注锁定目标状态（0.5秒检查一次）
-     */
-    private checkFocusLockTargets = (): void => {
-        if (!this.orcaAgent || !this.enemyData) {
-            return;
-        }
 
-        const lockTargets = this.orcaAgent.getLockTargets();
-        if (lockTargets.length === 0) {
-            // 没有锁定目标，停止检查
-            this.unschedule(this.checkFocusLockTargets);
-            this.focusLockCheckerActive = false;
-            console.log(`[${this.getCharacterDisplayName()}] 🔄 停止专注锁定检查器（无目标）`);
-            return;
-        }
 
-        const attackRange = this.enemyData.attackRange || 60;
-        const targetsToRemove: Node[] = [];
 
-        for (const target of lockTargets) {
-            if (!this.shouldKeepLockingTarget(target, attackRange)) {
-                targetsToRemove.push(target);
-            }
-        }
 
-        // 移除不需要继续锁定的目标
-        for (const target of targetsToRemove) {
-            if (this.orcaAgent.removeLockTarget) {
-                this.orcaAgent.removeLockTarget(target);
-            }
-        }
 
-        // 如果没有锁定目标了，停止检查
-        if (this.orcaAgent.getLockTargetCount() === 0) {
-            this.unschedule(this.checkFocusLockTargets);
-            this.focusLockCheckerActive = false;
-            console.log(`[${this.getCharacterDisplayName()}] 🔄 停止专注锁定检查器（目标已清空）`);
-        }
-    }
 
-    /**
-     * 检查是否应该继续锁定目标
-     * @param target 目标节点
-     * @param attackRange 攻击范围
-     */
-    private shouldKeepLockingTarget(target: Node, attackRange: number): boolean {
-        // 检查目标是否还有效
-        if (!target || !target.isValid) {
-            console.log(`[${this.getCharacterDisplayName()}] 🔓 目标无效，解除锁定: ${target?.name}`);
-            return false;
-        }
 
-        // 检查目标是否还活着
-        const targetStats = target.getComponent(CharacterStats);
-        if (targetStats && !targetStats.isAlive) {
-            console.log(`[${this.getCharacterDisplayName()}] 🔓 目标已死亡，解除锁定: ${target.name}`);
-            return false;
-        }
-
-        // 检查目标是否脱离攻击范围
-        const distance = Vec2.distance(this.node.position, target.position);
-        if (distance > attackRange) {
-            console.log(`[${this.getCharacterDisplayName()}] 🔓 目标脱离攻击范围，解除锁定: ${target.name} (距离=${distance.toFixed(1)} > 范围=${attackRange})`);
-            return false;
-        }
-
-        // 应该继续锁定
-        return true;
-    }
-
-    /**
-     * 清除所有专注锁定（角色死亡或重置时调用）
-     */
-    private clearAllFocusLocks(): void {
-        try {
-            if (this.orcaAgent && this.orcaAgent.clearAllLockTargets) {
-                this.orcaAgent.clearAllLockTargets();
-            }
-            
-            // 停止定期检查
-            this.unschedule(this.checkFocusLockTargets);
-            this.focusLockCheckerActive = false;
-            console.log(`[${this.getCharacterDisplayName()}] 🔓 清除所有专注锁定`);
-        } catch (error) {
-            console.warn(`[${this.getCharacterDisplayName()}] ❌ 清除专注锁定失败:`, error);
-        }
-    }
 
 
 
     /**
      * 状态机转换接口
-     * 【新功能】状态切换时自动调整ORCA被动模式
      */
     public transitionToState(state: CharacterState): void {
         this.stateMachine?.transitionTo(state);
-        
-        // 【自动被动模式】根据新状态调整ORCA代理的被动属性
-        this.updateOrcaPassiveState(state);
     }
     
-    /**
-     * 根据角色状态更新ORCA被动模式
-     * IDLE和ATTACKING状态下变为被动，其他状态为主动
-     */
-    private updateOrcaPassiveState(state: CharacterState): void {
-        if (!this.orcaAgent) return;
-        
-        const shouldBePassive = (state === CharacterState.IDLE || state === CharacterState.ATTACKING);
-        
-        // 只在状态真正改变时更新并输出日志
-        if (this.orcaAgent.isPassive !== shouldBePassive) {
-            this.orcaAgent.isPassive = shouldBePassive;
-            
-            const stateStr = shouldBePassive ? '被动' : '主动';
-            const reasonStr = state === CharacterState.IDLE ? '空闲状态' : 
-                             state === CharacterState.ATTACKING ? '攻击状态' : '移动状态';
-        }       
-    }
+
 
     /**
      * 获取当前状态（供外部查询）
@@ -1899,156 +1617,13 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         this.currentInputSignals.wantsToAttack = false;
     }
     
-    /**
-     * 【性能优化】带时间控制的AI协调逻辑更新
-     */
-    private updateAICoordinationWithTiming(deltaTime: number): void {
-        const currentTime = Date.now();
-        const currentState = this.getCurrentState();
-        
-        // 攻击状态下不调用AI协调逻辑（被动模式已生效）
-        if (currentState === CharacterState.ATTACKING) {
-            return;
-        }
-        
-        // 非攻击状态下每1秒调用一次AI协调逻辑
-        if (currentTime - this.lastAICoordinationTime >= this.AI_COORDINATION_INTERVAL * 1000) {
-            this.updateAICoordination(deltaTime);
-            this.lastAICoordinationTime = currentTime;
-        }
-    }
 
-    /**
-     * 【新架构】AI模式的协调逻辑 (已修复冷却期间移动问题)
-     */
-    private updateAICoordination(deltaTime: number): void {
-        if (!this.characterStats || !this.characterStats.isAlive || !this.enemyData || !this.aiNavigationController) {
-            // 如果必要组件或数据不存在，直接返回，不做任何操作
-            return;
-        }
-        
-        // 1. 从AI导航系统获取原始决策
-        const aiDecision = this.aiNavigationController.computeDecision();
-        
-        // 2. 检查攻击冷却状态
-        const currentTime = Date.now() / 1000;
-        const isCoolingDown = (currentTime - this.lastAttackTime) < this.attackCooldown;
-
-        // 3. 定义最终将要执行的决策变量
-        let finalPrefVelocity = aiDecision.prefVelocity;
-        let finalWantsToAttack = aiDecision.wantsToAttack;
-        let isBlockedByFriendly = false;
-        if (finalPrefVelocity.lengthSqr() > 0.01 && this.orcaAgent) {
-            const CROWDING_DISTANCE_MULTIPLIER = 1.5;
-            const checkRadius = this.orcaAgent.getEffectiveRadius() * CROWDING_DISTANCE_MULTIPLIER;
-            const nearbyCharacters = gridManager.getNearbyCharacters(this.node.position, checkRadius);
-    
-            for (const otherChar of nearbyCharacters) {
-                // ... (和之前一样的筛选逻辑)
-                const otherAgent = otherChar.node?.getComponent(OrcaAgent);
-                if (!otherAgent || otherAgent === this.orcaAgent || !otherAgent.isAgentValid() || otherChar.getFaction() !== this.getFaction()) {
-                    continue;
-                }
-                const toOther = TempVarPool.tempVec2_1.set(otherAgent.position.x - this.node.position.x, otherAgent.position.y - this.node.position.y);
-                if (toOther.dot(finalPrefVelocity) > 0) {
-                    isBlockedByFriendly = true;
-                    break;
-                }
-            }
-        }
-    
-        if (isBlockedByFriendly) {
-            // 如果被堵住，增加计时器
-            this.stuckTimer += deltaTime;
-    
-            // **决策层**
-            if (this.stuckTimer > this.STUCK_TIME_REPATH) {
-                // 策略三：长期拥堵 -> 重新导航
-                console.log(`[${this.node.name}] 长期拥堵，请求重新导航！`);
-                this.aiNavigationController.requestRepath(); // 假设AINavigationController有这个方法
-                this.stuckTimer = 0; // 重置计时器
-                finalPrefVelocity = Vec2.ZERO; // 在新路径计算出来前先停下
-    
-            } else if (this.stuckTimer > this.STUCK_TIME_MICRO_ADJUST) {
-                // 策略二：中期拥堵 -> 微观调整 (给一个侧向速度)
-                const originalSpeed = finalPrefVelocity.length();
-                // 将原始速度方向旋转90度，制造一个侧向的“微操”意图
-                // 随机左右，避免所有单位都往一个方向挤
-                const randomSign = Math.random() < 0.5 ? 1 : -1;
-                finalPrefVelocity.set(-finalPrefVelocity.y * randomSign, finalPrefVelocity.x * randomSign);
-                finalPrefVelocity.normalize().multiplyScalar(originalSpeed * 0.5); // 侧向移动速度慢一点
-                
-            } else {
-                // 策略一：短期拥堵 -> 原地等待
-                finalPrefVelocity = Vec2.ZERO;
-            }
-    
-        } else {
-            // 如果没有被堵住，重置计时器
-            this.stuckTimer = 0;
-        }
-
-        // 4. 处理攻击意图和冷却计时
-        if (finalWantsToAttack) {
-            if (isCoolingDown) {
-                // 正在冷却中，强制取消本次攻击意图
-                finalWantsToAttack = false;  
-            } else {
-                // 不在冷却中，这是一个有效的攻击请求，记录下当前时间作为新的攻击起始时间
-                this.lastAttackTime = currentTime;  
-            }
-        }
-
-        // 5. 【关键修复】处理冷却期间的移动行为
-        // 如果角色正在冷却中，并且依然有目标，那么无论导航想让它怎么动，我们都强制它站住不动。
-        const hasTarget = this.aiNavigationController.getCurrentTarget() != null;
-        if (isCoolingDown && hasTarget) {
-            // 强制将期望速度设置为零，覆盖导航的移动决策
-            finalPrefVelocity = Vec2.ZERO;  
-            // 为了调试清晰，可以打印日志
-            // console.log(`[${this.node.name}] 攻击冷却中，强制站定。`);
-        }
-
-        // 6. 应用最终修正后的决策到物理和动画系统
-        // 设置物理移动
-        if (this.orcaAgent) {
-            this.orcaAgent.prefVelocity.set(finalPrefVelocity.x, finalPrefVelocity.y);
-        }
-        
-        // 更新角色朝向
-        if (aiDecision.targetDirection) {
-            const oldDirection = this.currentDirection;
-            this.updateDirectionTowards(aiDecision.targetDirection);
-        }
-        
-        // 转换为状态机输入信号
-        this.currentInputSignals.hasMovementInput = finalPrefVelocity.lengthSqr() > 0.01;
-        this.currentInputSignals.wantsToAttack = finalWantsToAttack;
-        
-        // 7. 更新目标引用（兼容性）
-        const aiTarget = this.aiNavigationController.getCurrentTarget();
-        this.currentTarget = aiTarget ? aiTarget.node : null;
-    }
     
     /**
      * 【新架构】手动模式的协调逻辑
      */
     private updateManualCoordination(deltaTime: number): void {
-        // 1. 处理键盘输入（现有逻辑）
-        // moveDirection已在按键事件中更新
-        
-        // 2. 设置物理移动
-        if (this.orcaAgent) {
-            const speed = this.moveSpeed;
-            // 【性能优化】使用临时变量池避免GC压力
-            const velocity = TempVarPool.tempVec2_1.set(
-                this.moveDirection.x * speed,
-                this.moveDirection.y * speed
-            );
-            this.orcaAgent.prefVelocity.set(velocity.x, velocity.y);
-        }
-        
-        // 3. 转换为状态机输入信号
+        // 转换为状态机输入信号
         this.currentInputSignals.hasMovementInput = this.moveDirection.lengthSqr() > 0.01;
         // wantsToAttack 已在 tryAttack() 中设置到 currentInputSignals
     }
@@ -2068,75 +1643,35 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         // 记录移动前的位置
         const oldPosition = this.node.position.clone();
         
-        // 【调试增强】详细检查ORCA代理状态
-
-        if (this.orcaAgent) {
-
+        // 检查是否有移动输入
+        if (this.moveDirection.length() === 0) {
+            // 没有移动输入时，立即停止
+            this.rigidBody.linearVelocity = TempVarPool.tempVec2_3.set(0, 0);
+            return;
         }
         
-        // 【ORCA支持】如果有OrcaAgent，使用ORCA系统控制移动
-        if (this.orcaAgent && this.orcaAgent.isAgentValid()) {
-            
-            // ORCA系统完全接管移动控制，prefVelocity由AINavigationController设置
-            // 这里不再基于moveDirection来覆盖prefVelocity，避免干扰AI导航
-            
-            // 【修复后 - 速度平滑】使用平滑过渡替代瞬时应用
-            const targetVelocity = this.orcaAgent.newVelocity || Vec2.ZERO;
-            const currentVelocity = this.rigidBody.linearVelocity;
-            
-            // 【性能优化】使用临时变量池进行插值计算
-            const smoothedVelocity = TempVarPool.tempVec2_1;
-            
-            // 使用基于帧时间的平滑插值，避免受帧率影响
-            // 公式: v_new = lerp(v_current, v_target, 1 - exp(-k * dt))
-            // 这里用一个简化版，效果也很好
-            const alpha = 1.0 - Math.pow(1.0 - this.velocitySmoothingFactor, deltaTime * 60); // 假设基准帧率60
-            
-            smoothedVelocity.x = currentVelocity.x + (targetVelocity.x - currentVelocity.x) * alpha;
-            smoothedVelocity.y = currentVelocity.y + (targetVelocity.y - currentVelocity.y) * alpha;
-
-            this.rigidBody.linearVelocity = smoothedVelocity;
-        } else {
-
-            // 【回退逻辑】没有ORCA代理时，使用原有的移动逻辑
-            // 检查是否有移动输入
-            if (this.moveDirection.length() === 0) {
-
-                // 没有移动输入时，立即停止
-                // 【性能优化】使用临时变量池设置零速度
-                this.rigidBody.linearVelocity = TempVarPool.tempVec2_3.set(0, 0);
-                return;
-            }
-            
-
-            
-            // 使用直接的移动速度（像素/秒）
-            const speed = this.moveSpeed;
-            
-            // 确保移动方向已归一化（对角线移动速度一致）
-            const normalizedDirection = TempVarPool.tempVec2_1;
-            normalizedDirection.set(this.moveDirection.x, this.moveDirection.y);
-            normalizedDirection.normalize();
-            
-            // 【物理移动】设置刚体的线性速度
-            const velocity = TempVarPool.tempVec2_2;
-            velocity.set(
-                normalizedDirection.x * speed,
-                normalizedDirection.y * speed
-            );
-            
-
-            
-            // 应用速度到刚体
-            this.rigidBody.linearVelocity = velocity;
-        }
+        // 使用直接的移动速度
+        const speed = this.moveSpeed;
+        
+        // 确保移动方向已归一化
+        const normalizedDirection = TempVarPool.tempVec2_1;
+        normalizedDirection.set(this.moveDirection.x, this.moveDirection.y);
+        normalizedDirection.normalize();
+        
+        // 设置刚体的线性速度
+        const velocity = TempVarPool.tempVec2_2;
+        velocity.set(
+            normalizedDirection.x * speed,
+            normalizedDirection.y * speed
+        );
+        
+        // 应用速度到刚体
+        this.rigidBody.linearVelocity = velocity;
         
         // 【深度效果】根据Y轴位置更新Z轴深度
         this.updateZDepthBasedOnY();
         
-        // 【网格优化】通知网格系统位置可能发生变化
-        // GridManager会被ORCA和Boids系统同时复用
-        gridManager.updateCharacterPosition(this, oldPosition);
+
         
         // 注释：边界检查现在由物理系统和碰撞体处理
         // 如果需要硬性边界，可以在场景中添加不可见的墙壁碰撞体
@@ -2173,7 +1708,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      */
     public returnToPool(): void {
         // 【网格优化】从拥挤系统反注册
-        this.unregisterFromCrowdingSystem();
+
         
         if (this.isFromPool && this.poolName) {
             // 使用CharacterPoolFactory进行回收
@@ -2215,7 +1750,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         
         // 【修复5】延迟重新注册到拥挤系统，确保状态完全重置
         this.scheduleOnce(() => {
-            this.registerToCrowdingSystem();
+    
             console.log(`[${this.getCharacterDisplayName()}] 延迟重新注册到拥挤系统完成`);
         }, 0.05);
         
@@ -2236,20 +1771,11 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         console.log(`[${this.getCharacterDisplayName()}] 回收到对象池 ID: ${this.characterId}`);
         
         // 【修复5】确保从网格系统完全清理
-        this.unregisterFromCrowdingSystem();
+
         
-        // 【新增】清理专注锁定系统
-        this.clearAllFocusLocks();
+
         
-        // 【性能优化】清理AI目标搜索定时器
-        this.unschedule(this.updateAITargetSearch);
-        console.log(`[${this.getCharacterDisplayName()}] AI目标搜索定时器已清理`);
-        
-        // 【新系统】清理AINavigationController状态
-        if (this.aiNavigationController) {
-            // AINavigationController会在自己的onDestroy中清理状态
-            console.log(`[${this.getCharacterDisplayName()}] AINavigationController状态将自动清理`);
-        }
+
         
         // 清理输入监听
         this.cleanupInput();
@@ -2483,53 +2009,9 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
         }
     }
 
-    /**
-     * 注册到ORCA系统
-     */
-    private registerToCrowdingSystem(): void {
-        // 【修复3】避免重复注册 - 检查是否已经在网格系统中
-        try {
-            // 检查是否已经在GridManager的characterToGrid中
-            if (gridManager && (gridManager as any).characterToGrid && (gridManager as any).characterToGrid.has(this)) {
-                console.log(`%c[BaseCharacterDemo] 🔄 角色已在网格系统中，跳过重复注册: ${this.node.name}`, 'color: orange');
-                return;
-            }
-        } catch (error) {
-            // 如果检查失败，继续注册流程
-            console.log(`%c[BaseCharacterDemo] 🔄 无法检查网格注册状态，继续注册: ${this.node.name}`, 'color: yellow');
-        }
-        
-        // 注册到ORCA系统
-        if (this.orcaAgent && this.orcaAgent.isAgentValid()) {
-            const orcaSystem = getOrcaSystem();
-            if (orcaSystem) {
-                orcaSystem.registerAgent(this.orcaAgent);
-                console.log(`%c[BaseCharacterDemo] 🔀 已注册到ORCA系统: ${this.node.name} → ${this.getFaction()}`, 'color: blue');
-                
-                // 同时注册到GridManager（ORCA系统复用GridManager进行邻居查询）
-                gridManager.addCharacter(this);
-                console.log(`%c[BaseCharacterDemo] 📍 已注册到网格系统: ${this.node.name}`, 'color: green');
-            }
-        }
-    }
 
-    /**
-     * 从ORCA系统反注册
-     */
-    private unregisterFromCrowdingSystem(): void {
-        // 从ORCA系统反注册
-        if (this.orcaAgent) {
-            const orcaSystem = getOrcaSystem();
-            if (orcaSystem) {
-                orcaSystem.unregisterAgent(this.orcaAgent);
-                console.log(`%c[BaseCharacterDemo] 🔀 已从ORCA系统反注册: ${this.node.name} ← ${this.getFaction()}`, 'color: blue');
-            }
-            
-            // 从GridManager反注册
-            gridManager.removeCharacter(this);
-            console.log(`%c[BaseCharacterDemo] 📍 已从网格系统反注册: ${this.node.name}`, 'color: green');
-        }
-    }
+
+
 
     /**
      * 设置默认阵营
@@ -2611,7 +2093,7 @@ export class BaseCharacterDemo extends Component implements ICrowdableCharacter,
      */
     protected onDestroy(): void {
         // 【网格优化】从拥挤系统反注册
-        this.unregisterFromCrowdingSystem();
+
         
         // 停止AI定时器
         this.unschedule(this.updateAITargetSearch);

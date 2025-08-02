@@ -156,10 +156,7 @@ export class AttackingState extends State {
     exit(): void {
         this.animationFinished = false; // 重置标志
         
-        // 【修改】确保攻击动画完成时清理ORCA攻击状态
-        // 这里无论目标是否死亡，都要确保攻击状态被清理
-        this.setOrcaAttackingState(false);
-        console.log('[AttackingState] 攻击动画完成，确保清理攻击状态');
+        console.log('[AttackingState] 攻击动画完成');
     }
     
     canTransitionTo(newState: CharacterState): boolean {
@@ -168,22 +165,7 @@ export class AttackingState extends State {
                ( (newState === CharacterState.IDLE || newState === CharacterState.WALKING) && this.animationFinished );
     }
 
-    /**
-     * 设置ORCA代理的攻击状态
-     */
-    private setOrcaAttackingState(isAttacking: boolean): void {
-        try {
-            const orcaAgent = (this.character as any).node?.getComponent('OrcaAgent');
-            if (orcaAgent && orcaAgent.setAttackingState) {
-                orcaAgent.setAttackingState(isAttacking);
-                console.log(`[AttackingState] ✅ ORCA攻击状态设置成功: ${isAttacking} (角色: ${(this.character as any).node?.name})`);
-            } else {
-                console.warn(`[AttackingState] ❌ ORCA代理不存在或无方法: agent=${!!orcaAgent}, method=${!!(orcaAgent?.setAttackingState)} (角色: ${(this.character as any).node?.name})`);
-            }
-        } catch (error) {
-            console.warn(`[AttackingState] ❌ 设置ORCA攻击状态失败:`, error);
-        }
-    }
+
 }
 
 /**

@@ -12,16 +12,11 @@ import { GameEvents } from '../components/GameEvents';
 import { levelManager } from './LevelManager';
 import { animationManager } from './AnimationManager';
 import { instantiate } from 'cc';
-import { TargetSelector } from '../components/TargetSelector';
-import { getOrcaSystem } from '../systems/OrcaSystem';
-
 import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
 import { BaseCharacterDemo } from '../entities/BaseCharacterDemo';
 import { ControlMode } from '../state-machine/CharacterEnums';
 import { CharacterPoolInitializer, CharacterPoolFactory } from '../pool/CharacterPoolSystem';
 import { damageDisplayController } from '../controllers/DamageDisplayController';
-
-import { gridManager, GridManager } from '../systems/GridManager';
 
 const { ccclass, property } = _decorator;
 
@@ -722,11 +717,7 @@ export class GameManager extends Component {
         // 注册挂载的预制体到对象池
         this.registerMountedPrefabs();
 
-        // 【关键修复】提前初始化目标选择器，确保在角色生成前可用
-        this.initializeTargetSelector();
-        
-        // 【关键修复】初始化ORCA避让系统，确保节点添加到场景中
-        this.initializeOrcaSystem();
+
         
         // 初始化伤害文字池系统
         poolManager.initializeDamageTextPool();
