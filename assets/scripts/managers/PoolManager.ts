@@ -209,11 +209,11 @@ class PoolManager {
 
         // 【关键修复】如果有敌人数据，先设置敌人类型，再进行其他初始化
         if (enemyData) {
-            // 1. 先设置敌人类型到BaseCharacterDemo
-            const baseDemo = node.getComponent('BaseCharacterDemo');
-            if (baseDemo && (baseDemo as any).setEnemyType && enemyData.id) {
-                (baseDemo as any).setEnemyType(enemyData.id);
-                console.log(`PoolManager: ✅ 已设置敌人类型: ${enemyData.id}`);
+            // 1. 先设置敌人类型到ConfigComponent
+            const configComponent = node.getComponent('ConfigComponent');
+            if (configComponent && (configComponent as any).setEnemyType && enemyData.id) {
+                (configComponent as any).setEnemyType(enemyData.id);
+                console.log(`PoolManager: ✅ 已设置敌人类型: ${enemyData.id} (通过ConfigComponent)`);
             }
             
             // 2. 然后进行统一初始化
@@ -234,7 +234,7 @@ class PoolManager {
         }
 
         try {
-            // 注意：BaseCharacterDemo的敌人类型设置交给调用方（GameManager或MonsterSpawner）处理
+            // 注意：ConfigComponent的敌人类型设置交给调用方（GameManager或MonsterSpawner）处理
             // 避免重复调用 setEnemyType() 导致的冲突
 
             // 初始化CharacterStats组件

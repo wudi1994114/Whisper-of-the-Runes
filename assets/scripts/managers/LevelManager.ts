@@ -9,8 +9,8 @@ import { resourceManager } from './ResourceManager';
 import { FactionRelationships } from '../configs/FactionConfig';
 import { factionManager } from './FactionManager';
 import { MonsterSpawner } from './MonsterSpawner';
-import { CharacterPoolInitializer } from '../pool/CharacterPoolSystem';
-import { ModularCharacterFactory } from '../factories/ModularCharacterFactory';
+// import { CharacterPoolInitializer } from '../pool/CharacterPoolSystem'; // 已移除
+// import { ModularCharacterFactory } from '../factories/ModularCharacterFactory'; // 已移除
 
 const { ccclass } = _decorator;
 
@@ -232,7 +232,7 @@ export class LevelManager {
     private initializeCharacterSystemForLevel(levelData: LevelData): void {
         try {
             // 1. 初始化旧的对象池系统（向后兼容）
-            CharacterPoolInitializer.initializePoolsForLevel(levelData);
+            // CharacterPoolInitializer.initializePoolsForLevel(levelData); // 已移除，现在使用UnifiedECSCharacterFactory
             
             // 2. 初始化新的模块化工厂系统
             this.initializeModularCharacterFactory(levelData);
@@ -248,7 +248,7 @@ export class LevelManager {
      * @param levelData 关卡数据
      */
     private initializeModularCharacterFactory(levelData: LevelData): void {
-        const factory = ModularCharacterFactory.getInstance();
+        // const factory = ModularCharacterFactory.getInstance(); // 已移除，现在使用UnifiedECSCharacterFactory
         
         // 从关卡数据提取敌人类型
         const enemyTypes = this.extractEnemyTypesFromLevel(levelData);

@@ -11,6 +11,9 @@ import { Faction } from '../configs/FactionConfig';
 import { factionManager } from '../managers/FactionManager';
 import { PhysicsGroup } from '../configs/PhysicsConfig';
 import { poolManager } from '../managers/PoolManager';
+import { FactionComponent } from '../components/FactionComponent';
+import { CombatComponent } from '../components/CombatComponent';
+import { ConfigComponent } from '../components/ConfigComponent';
 
 const { ccclass, property } = _decorator;
 
@@ -426,10 +429,10 @@ export class FireballLauncher extends Component implements IProjectileController
         const selfGroup = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === selfCollider.group) || selfCollider.group;
         const otherGroup = Object.keys(PhysicsGroup).find(key => (PhysicsGroup as any)[key] === otherCollider.group) || otherCollider.group;
         
-        // 【关键修复】从BaseCharacterDemo组件获取阵营信息，而不是CharacterStats
-        const targetCharacterDemo = otherCollider.node.getComponent('BaseCharacterDemo');
-        if (targetCharacterDemo) {
-            const targetFaction = (targetCharacterDemo as any).getFaction();
+        // 使用新的ECS组件FactionComponent获取阵营信息
+        const targetFactionComponent = otherCollider.node.getComponent(FactionComponent);
+        if (targetFactionComponent) {
+            const targetFaction = targetFactionComponent.getFaction();
             const shouldAttack = factionManager.doesAttack(this.shooterFaction, targetFaction);
             
             // 检查阵营关系 - 只有敌对阵营才造成伤害
@@ -437,7 +440,7 @@ export class FireballLauncher extends Component implements IProjectileController
                 this.dealDamageToTarget(otherCollider.node, this.damage);
             } 
         } else {
-            // 如果没有BaseCharacterDemo组件，可能是墙壁等障碍物，直接爆炸
+            // 如果没有FactionComponent，可能是墙壁等障碍物，直接爆炸
         }
         
         // 触发爆炸
@@ -453,16 +456,18 @@ export class FireballLauncher extends Component implements IProjectileController
             return;
         }
 
-        // 获取目标的BaseCharacterDemo组件来造成伤害
-        const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
+        // 优先使用新的ECS组件CombatComponent来造成伤害
+        const targetCombatComponent = target.getComponent(CombatComponent);
         
-        if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
+        if (targetCombatComponent) {
             try {
-                (targetCharacterDemo as any).takeDamage(damage);
+                targetCombatComponent.takeDamage(damage);
+                console.log(`✅ [DAMAGE] FireballLauncher: 对 ${target.name} 造成 ${damage} 点伤害 (通过CombatComponent)`);
             } catch (error) {
+                console.error(`❌ [DAMAGE] CombatComponent.takeDamage调用失败:`, error);
             }
         } else {
-            // 如果没有BaseCharacterDemo，尝试CharacterStats组件
+            // 如果没有CombatComponent，尝试CharacterStats组件（向后兼容）
             const targetStats = target.getComponent('CharacterStats');
             
             if (targetStats && (targetStats as any).takeDamage) {
@@ -876,9 +881,9 @@ export class FireballLauncher extends Component implements IProjectileController
         try {
             // 优先从发射者节点获取敌人配置
             if (this.shooterNode) {
-                const shooterCharacter = this.shooterNode.getComponent('BaseCharacterDemo');
-                if (shooterCharacter && (shooterCharacter as any).enemyData) {
-                    const enemyData = (shooterCharacter as any).enemyData;
+                const shooterConfigComponent = this.shooterNode.getComponent(ConfigComponent);
+                if (shooterConfigComponent) {
+                    const enemyData = shooterConfigComponent.getEnemyData();
                     if (enemyData.projectileOffsets) {
                         return enemyData.projectileOffsets;
                     }

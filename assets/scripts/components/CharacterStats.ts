@@ -26,7 +26,7 @@ export class CharacterStats extends Component {
     // 霸体值属性
     private _maxPoise: number = 50;
     private _currentPoise: number = 50;
-    // 阵营管理已移至BaseCharacterDemo的aiFaction属性
+    // 阵营管理已移至FactionComponent
     
     // 组件引用
     private _spriteComponent: Sprite | null = null;
@@ -58,7 +58,7 @@ export class CharacterStats extends Component {
         }
     }
     
-    // 注册/反注册逻辑已移至BaseCharacterDemo组件
+            // 注册/反注册逻辑已移至FactionComponent组件
     
     // ========== 属性访问器 ==========
     
@@ -106,7 +106,7 @@ export class CharacterStats extends Component {
         return this._enemyData;
     }
     
-    // 阵营属性已移至BaseCharacterDemo的aiFaction
+            // 阵营属性已移至FactionComponent
     
     public get isInitialized(): boolean {
         return this._isInitialized;

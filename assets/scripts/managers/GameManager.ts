@@ -1,7 +1,6 @@
 // assets/scripts/core/GameManager.ts
 
 import { _decorator, Component, Node, director, Enum, KeyCode, Vec2, Vec3, Prefab, PhysicsSystem2D, UITransform, Label, Color } from 'cc';
-import { TestControlPanelCreator } from '../test/TestControlPanelCreator';
 import { dataManager } from './DataManager';
 import { eventManager } from './EventManager';
 import { inputManager } from './InputManager';
@@ -13,11 +12,11 @@ import { levelManager } from './LevelManager';
 import { animationManager } from './AnimationManager';
 import { instantiate } from 'cc';
 import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
-import { BaseCharacterDemo } from '../entities/BaseCharacterDemo';
+
 import { ControlMode } from '../state-machine/CharacterEnums';
-import { CharacterPoolInitializer, CharacterPoolFactory } from '../pool/CharacterPoolSystem';
+
 import { damageDisplayController } from '../controllers/DamageDisplayController';
-import { ensureFactoryInitialized } from '../factories/UnifiedECSCharacterFactory';
+import { ensureFactoryInitialized, UnifiedECSCharacterFactory } from '../factories/UnifiedECSCharacterFactory';
 
 const { ccclass, property } = _decorator;
 
@@ -46,12 +45,12 @@ export class GameManager extends Component {
     public gameMode: GameMode = GameMode.DEVELOPMENT;
 
     // ===== 简化预制体配置区域 =====
-            // BaseCharacterDemo 智能系统现在只需要两个预制体
+            // ECS 模块化系统现在只需要两个预制体
     
     @property({
         type: Prefab,
         displayName: "通用敌人预制体 (必需)",
-        tooltip: "用于所有敌人类型的基础模板\n包含基础动画、血条、攻击组件\nBaseCharacterDemo 会根据敌人类型自动配置远程攻击能力"
+        tooltip: "用于所有敌人类型的基础模板\n包含基础动画、血条、攻击组件\n模块化ECS系统会根据敌人类型自动配置远程攻击能力"
     })
     public entPrefab: Prefab | null = null;
 
@@ -200,12 +199,6 @@ export class GameManager extends Component {
     }
     
     protected async start(): Promise<void> {
-        // 确保模式互斥
-        this.enforceModeMutex();
-        
-        // 打印详细的模式状态
-        console.log(`GameManager: 模式状态详情 - normalMode: ${this.normalMode}, manualTestMode: ${this.manualTestMode}`);
-        
         // 加载所有player enemy level skill数据
         await this.initManagers();
         this.setupInputDispatcher();
@@ -270,23 +263,6 @@ export class GameManager extends Component {
     private onKeyPressed = (keyCode: KeyCode): void => {
         // 【新增调试】记录所有按键
         console.log(`GameManager: 收到按键 ${keyCode}`);
-        
-        // 处理全局按键
-        if (keyCode === KeyCode.KEY_T) {
-            console.log('GameManager: 处理T键 - 切换模式');
-            this.toggleGameMode();
-            return;
-        }
-
-        if (keyCode === KeyCode.KEY_C) {
-            this.showCacheInfo();
-            return;
-        }
-
-        if (keyCode === KeyCode.KEY_P) {
-            this.toggleTestControlPanel();
-            return;
-        }
 
         // 根据测试模式分发输入
         if (this.testMode) {
@@ -480,23 +456,6 @@ export class GameManager extends Component {
     }
 
     /**
-     * 切换测试控制面板显示/隐藏
-     */
-    public toggleTestControlPanel(): void {
-        if (!this.testControlPanel) {
-            this.findTestControlPanel();
-        }
-        
-        if (this.testControlPanel) {
-            this.testControlPanel.togglePanel();
-            console.log('🎛️ 切换测试控制面板显示状态');
-        } else {
-            console.warn('⚠️ 未找到测试控制面板组件，正在自动创建...');
-            this.createTestControlPanel();
-        }
-    }
-
-    /**
      * 查找测试控制面板组件
      */
     private findTestControlPanel(): void {
@@ -563,101 +522,6 @@ export class GameManager extends Component {
     }
 
     /**
-     * 自动创建测试控制面板
-     */
-    private createTestControlPanel(): void {
-        console.log('🎛️ GameManager: 自动创建测试控制面板...');
-        
-        const scene = director.getScene();
-        if (!scene) {
-            console.error('❌ 无法获取当前场景');
-            return;
-        }
-        
-        // 查找Canvas节点
-        let canvas = scene.getComponentInChildren('cc.Canvas');
-        if (!canvas) {
-            const canvasNode = scene.getChildByName('Canvas');
-            canvas = canvasNode ? canvasNode.getComponent('cc.Canvas') : null;
-        }
-        
-        if (!canvas) {
-            console.error('❌ 未找到Canvas节点，无法创建UI面板');
-            return;
-        }
-        
-        // 创建测试控制面板节点
-        const panelNode = new Node('TestControlPanel');
-        const panelComponent = panelNode.addComponent('TestControlPanel') as any;
-        
-        // 创建面板容器节点
-        const containerNode = new Node('PanelContainer');
-        panelNode.addChild(containerNode);
-        
-        // 设置面板组件的引用
-        (panelComponent as any).panelContainer = containerNode;
-        
-        // 将面板节点添加到Canvas
-        canvas.node.addChild(panelNode);
-        
-        // 注册到GameManager
-        this.testControlPanel = panelComponent;
-        
-        console.log('✅ 测试控制面板已自动创建并添加到Canvas');
-        console.log('🎛️ 面板功能现已可用，再次按P键可显示/隐藏面板');
-        
-        // 创建完整的UI结构
-        this.createCompleteTestControlPanelUI(containerNode, panelComponent);
-    }
-
-    /**
-     * 创建完整的测试控制面板UI
-     */
-    private createCompleteTestControlPanelUI(container: Node, panelComponent: any): void {
-        try {
-            // 使用TestControlPanelCreator创建完整UI
-            TestControlPanelCreator.createCompleteUI(container, panelComponent);
-            
-            // 创建完成后重新设置事件监听（因为UI引用已更新）
-            if (panelComponent.setupEventListeners) {
-                panelComponent.setupEventListeners();
-            }
-            
-            console.log('🎛️ 完整测试控制面板UI已创建并配置完成');
-        } catch (error) {
-            console.error('❌ 创建测试控制面板UI失败:', error);
-            // 降级到简单UI
-            this.createFallbackUI(container);
-        }
-    }
-
-    /**
-     * 创建降级UI（当UI创建器加载失败时）
-     */
-    private createFallbackUI(container: Node): void {
-        console.warn('⚠️ 使用降级UI模式');
-        
-        let uiTransform = container.getComponent(UITransform);
-        if (!uiTransform) {
-            uiTransform = container.addComponent(UITransform);
-        }
-        uiTransform.setContentSize(300, 200);
-        
-        const fallbackLabel = container.addComponent(Label);
-        fallbackLabel.string = 
-            '🎛️ 测试控制面板\n\n' +
-            '基础功能可用:\n' +
-            'P - 显示/隐藏面板\n' +
-            'T - 切换测试模式\n' +
-            'WASD - 移动 (测试模式)\n' +
-            'J - 攻击 (测试模式)\n' +
-            'H - 受伤测试 (测试模式)';
-        fallbackLabel.fontSize = 14;
-        fallbackLabel.color = new Color(220, 220, 220, 255);
-        fallbackLabel.lineHeight = 18;
-    }
-
-    /**
      * 获取当前移动方向
      */
     public getCurrentMoveDirection(): Vec2 {
@@ -700,9 +564,6 @@ export class GameManager extends Component {
         // 初始化关卡管理器
         await levelManager.initialize();
 
-        // 【关键修复】检查并启用物理引擎
-        this.checkAndEnablePhysicsEngine();
-
         // 设置物理碰撞组
         if (PhysicsSystem2D.instance) {
             setupPhysicsGroupCollisions();
@@ -710,10 +571,7 @@ export class GameManager extends Component {
             console.error('GameManager: PhysicsSystem2D实例不存在，无法设置碰撞关系');
         }
 
-        // 【修复初始化顺序】预先注册 BaseCharacterDemo 类到对象池工厂
-        // 这样确保在对象池初始化时类已经可用，避免"类未注册"错误
-        CharacterPoolFactory.registerBaseCharacterClass(BaseCharacterDemo);
-        console.log('[GameManager] ✅ 预先注册 BaseCharacterDemo 类到对象池工厂');
+        // 不再需要注册BaseCharacterDemo类，现在使用纯ECS架构
 
         // 【新增】确保统一ECS工厂在早期初始化
         try {
@@ -743,8 +601,6 @@ export class GameManager extends Component {
         // 数据加载完成后，可以通知其他模块进行初始化
         eventManager.emit(GameEvents.GAME_DATA_LOADED);
         
-        // 检查资源引用完整性
-        this.checkResourceIntegrity();
         
         // 初始化测试模式
         console.log(`GameManager: 检查测试模式状态 - testMode: ${this.testMode}`);
@@ -1260,9 +1116,29 @@ export class GameManager extends Component {
 
 
     /**
+     * 在指定位置生成测试敌人
+     */
+    private async spawnTestEnemyAtPosition(enemyType: string, position: Vec3, characterId?: string): Promise<Node | null> {
+        // 使用新的统一ECS工厂
+        const character = await UnifiedECSCharacterFactory.createAIEnemy(enemyType, {
+            position: position,
+            faction: 'red', // 同阵营测试
+            behaviorType: 'melee'
+        });
+
+        if (character) {
+            console.log(`✅ 在位置 (${position.x}, ${position.y}) 生成角色: ${characterId}`);
+            return (character as any).node;
+        } else {
+            console.error(`❌ 在位置 (${position.x}, ${position.y}) 生成角色失败`);
+            return null;
+        }
+    }
+
+    /**
      * 【网格优化】测试网格化拥挤系统性能
      */
-    public testGridBasedCrowdingPerformance(): void {
+    public async testGridBasedCrowdingPerformance(): Promise<void> {
         console.log('=== 🚀 网格化拥挤系统性能测试 ===');
         
         if (!this.manualTestMode) {
@@ -1273,8 +1149,8 @@ export class GameManager extends Component {
         // 清除现有测试怪物
         this.clearTestEnemy();
 
-        // 重置性能统计
-        gridManager.reset();
+        // 重置性能统计 (gridManager已移除)
+        // gridManager.reset();
 
         // 生成大量同阵营角色进行压力测试
         const testCount = 50; // 50个角色
@@ -1294,28 +1170,33 @@ export class GameManager extends Component {
 
         // 创建角色
         const createdCharacters: Node[] = [];
-        testPositions.forEach((position, index) => {
+        // 使用异步创建角色
+        for (let index = 0; index < testPositions.length; index++) {
+            const position = testPositions[index];
             const enemyType = 'ent_normal'; // 使用轻量级角色
-            const character = this.spawnTestEnemyAtPosition(enemyType, position, `perf_test_${index}`);
-            if (character) {
-                createdCharacters.push(character);
+            try {
+                const character = await this.spawnTestEnemyAtPosition(enemyType, position, `perf_test_${index}`);
+                if (character) {
+                    createdCharacters.push(character);
+                }
+            } catch (error) {
+                console.error(`创建测试角色 ${index} 失败:`, error);
             }
-        });
+        }
 
         console.log(`✅ 成功创建 ${createdCharacters.length} 个测试角色`);
 
         // 等待几秒让系统稳定，然后输出性能报告
         setTimeout(() => {
-            this.printGridPerformanceReport();
-            
             // 清理测试角色
             setTimeout(() => {
                 console.log('🧹 清理测试角色...');
                 createdCharacters.forEach(character => {
                     if (character && character.isValid) {
-                        const demo = character.getComponent('BaseCharacterDemo');
-                        if (demo && (demo as any).returnToPool) {
-                            (demo as any).returnToPool();
+                        // 使用新的ECS组件回收
+                        const lifecycleComponent = character.getComponent('LifecycleComponent');
+                        if (lifecycleComponent && (lifecycleComponent as any).returnToPool) {
+                            (lifecycleComponent as any).returnToPool();
                         }
                     }
                 });
@@ -1325,232 +1206,16 @@ export class GameManager extends Component {
     }
 
     /**
-     * 【网格优化】打印网格性能报告
-     */
-    public printGridPerformanceReport(): void {
-        console.log('\n=== 📊 网格化拥挤系统性能报告 ===');
-        
-
-        
-        // 网格管理器详细统计
-        const gridStats = gridManager.getStats();
-        console.log('\n🏗️ 网格详细统计:');
-        console.log(`- 网格尺寸: 120px × 120px`);
-        console.log(`- 总网格数: ${gridStats.totalGrids}`);
-        console.log(`- 活跃网格数: ${gridStats.activeGrids}`);
-        console.log(`- 网格利用率: ${gridStats.totalGrids > 0 ? ((gridStats.activeGrids / gridStats.totalGrids) * 100).toFixed(1) : 0}%`);
-        console.log(`- 总角色数: ${gridStats.totalCharacters}`);
-        console.log(`- 平均每网格角色数: ${gridStats.averageCharactersPerGrid.toFixed(2)}`);
-        console.log(`- 最大单网格角色数: ${gridStats.maxCharactersInGrid}`);
-        console.log(`- 查询总次数: ${gridStats.queryCount}`);
-        
-        // 性能效益分析
-        const avgCharactersPerGrid = gridStats.averageCharactersPerGrid;
-        const totalCharacters = gridStats.totalCharacters;
-        
-        console.log('\n⚡ 性能效益分析:');
-        if (totalCharacters > 1) {
-            const oldComplexity = totalCharacters * (totalCharacters - 1); // O(n²)
-            const newComplexity = gridStats.queryCount * avgCharactersPerGrid; // O(k)
-            const improvement = oldComplexity > 0 ? (oldComplexity / newComplexity).toFixed(1) : 'N/A';
-            
-            console.log(`- 传统方式计算量: ${oldComplexity} (O(n²))`);
-            console.log(`- 网格方式计算量: ${newComplexity.toFixed(0)} (O(k))`);
-            console.log(`- 性能提升倍数: ${improvement}x`);
-            console.log(`- 内存使用: ${gridStats.totalGrids} 个网格 + ${totalCharacters} 个角色引用`);
-        }
-        
-        console.log('\n💡 优化建议:');
-        if (gridStats.maxCharactersInGrid > 20) {
-            console.log('- ⚠️ 某些网格角色过多，考虑减小网格尺寸');
-        }
-        if (gridStats.averageCharactersPerGrid < 2) {
-            console.log('- ⚠️ 网格利用率较低，考虑增大网格尺寸');
-        }
-        if (gridStats.activeGrids / gridStats.totalGrids < 0.3) {
-            console.log('- ✅ 网格分布合理，空间利用效率良好');
-        }
-        
-        console.log('=====================================\n');
-    }
-
-    /**
-     * 【网格优化】启用网格可视化调试
-     */
-    public enableGridVisualization(): void {
-        console.log('🔍 启用网格可视化调试...');
-        
-        const visualData = gridManager.getGridVisualizationData();
-        console.log(`📊 当前有 ${visualData.length} 个活跃网格:`);
-        
-        visualData.forEach(grid => {
-            const worldX = grid.x * 120; // CELL_SIZE = 120
-            const worldY = grid.y * 120;
-            console.log(`  网格 ${grid.key}: 世界坐标(${worldX}, ${worldY}), 角色数: ${grid.count}`);
-        });
-        
-        // 打印网格热点分析
-        if (visualData.length > 0) {
-            const maxCount = Math.max(...visualData.map(g => g.count));
-            const hotGrids = visualData.filter(g => g.count === maxCount);
-            
-            console.log(`🔥 热点网格分析:`);
-            console.log(`- 最大角色数: ${maxCount}`);
-            console.log(`- 热点网格数: ${hotGrids.length}`);
-            hotGrids.forEach(grid => {
-                const worldX = grid.x * 120;
-                const worldY = grid.y * 120;
-                console.log(`  🔥 热点 ${grid.key}: (${worldX}, ${worldY})`);
-            });
-        }
-    }
-
-    /**
-     * 【网格优化】对比测试：传统模式 vs 网格模式
-     */
-    public compareTraditionalVsGridPerformance(): void {
-        console.log('=== ⚖️ 传统模式 vs 网格模式性能对比 ===');
-        
-        if (!this.manualTestMode) {
-            console.warn('性能对比测试需要在手动测试模式下进行');
-            return;
-        }
-
-        // 模拟传统O(n²)算法的计算量
-        const characterCount = gridManager.getStats().totalCharacters;
-        if (characterCount < 5) {
-            console.warn('角色数量太少，请先创建更多角色进行有意义的对比');
-            return;
-        }
-
-        console.log(`📊 当前角色数量: ${characterCount}`);
-        
-        // 计算理论复杂度
-        const traditionalComplexity = characterCount * (characterCount - 1);
-        const gridComplexity = gridManager.getStats().queryCount * gridManager.getStats().averageCharactersPerGrid;
-        
-        console.log('\n📈 算法复杂度对比:');
-        console.log(`传统遍历法: O(n²) = ${traditionalComplexity} 次计算`);
-        console.log(`网格查询法: O(k) ≈ ${gridComplexity.toFixed(0)} 次计算`);
-        
-        if (traditionalComplexity > 0) {
-            const improvement = traditionalComplexity / gridComplexity;
-            console.log(`🚀 理论性能提升: ${improvement.toFixed(1)}x`);
-            
-            // 性能等级评估
-            if (improvement > 10) {
-                console.log('🏆 性能等级: 优秀 (>10x提升)');
-            } else if (improvement > 5) {
-                console.log('🥈 性能等级: 良好 (5-10x提升)');
-            } else if (improvement > 2) {
-                console.log('🥉 性能等级: 一般 (2-5x提升)');
-            } else {
-                console.log('⚠️ 性能等级: 需优化 (<2x提升)');
-            }
-        }
-        
-        // 内存使用对比
-        const gridMemory = gridManager.getStats().totalGrids * 32 + characterCount * 16; // 估算字节
-        const traditionalMemory = characterCount * 8; // 简单数组
-        
-        console.log('\n💾 内存使用对比:');
-        console.log(`传统方式: ~${traditionalMemory} 字节`);
-        console.log(`网格方式: ~${gridMemory} 字节`);
-        console.log(`内存开销: ${(gridMemory / traditionalMemory).toFixed(1)}x`);
-        
-        // 推荐使用场景
-        console.log('\n💡 推荐使用场景:');
-        if (characterCount > 20) {
-            console.log('✅ 角色数量较多，强烈推荐使用网格优化');
-        } else if (characterCount > 10) {
-            console.log('✅ 角色数量中等，推荐使用网格优化');
-        } else {
-            console.log('⚪ 角色数量较少，网格优化效果有限');
-        }
-        
-        console.log('==========================================\n');
-    }
-
-    /**
-     * 【网格优化】动态调整网格参数测试
-     */
-    public testDynamicGridParameters(): void {
-        console.log('=== 🔧 动态网格参数测试 ===');
-        
-        const currentStats = gridManager.getStats();
-        console.log(`当前状态: ${currentStats.totalCharacters} 个角色，${currentStats.activeGrids} 个活跃网格`);
-        
-        if (currentStats.totalCharacters < 10) {
-            console.warn('角色数量太少，请先创建更多角色进行参数测试');
-            return;
-        }
-        
-        // 分析当前网格密度
-        const avgDensity = currentStats.averageCharactersPerGrid;
-        const maxDensity = currentStats.maxCharactersInGrid;
-        
-        console.log('\n📊 当前网格密度分析:');
-        console.log(`平均密度: ${avgDensity.toFixed(2)} 角色/网格`);
-        console.log(`最大密度: ${maxDensity} 角色/网格`);
-        
-        // 给出调优建议
-        console.log('\n💡 参数调优建议:');
-        
-        if (avgDensity > 8) {
-            console.log('📏 建议减小网格尺寸 (当前120px → 建议80px)');
-            console.log('   原因: 网格密度过高，影响查询效率');
-        } else if (avgDensity < 2) {
-            console.log('📏 建议增大网格尺寸 (当前120px → 建议160px)');
-            console.log('   原因: 网格密度过低，空间浪费');
-        } else {
-            console.log('✅ 当前网格尺寸 (120px) 较为合适');
-        }
-        
-        if (maxDensity > 15) {
-            console.log('⚠️ 存在热点网格，考虑增加拥挤半径限制');
-        }
-        
-        if (currentStats.activeGrids / currentStats.totalGrids > 0.8) {
-            console.log('📈 网格利用率很高，系统运行高效');
-        }
-        
-        console.log('================================\n');
-    }
-
-    /**
-     * 在指定位置生成测试敌人
-     */
-    private spawnTestEnemyAtPosition(enemyType: string, position: Vec3, characterId?: string): Node | null {
-        const factory = CharacterPoolFactory.getInstance();
-        
-        const character = factory.createCharacter(enemyType, {
-            characterId: characterId || `${enemyType}_${Date.now()}`,
-            position: position,
-            controlMode: ControlMode.AI,
-            aiFaction: 'red', // 同阵营测试
-            aiBehaviorType: 'melee'
-        });
-
-        if (character) {
-            console.log(`✅ 在位置 (${position.x}, ${position.y}) 生成角色: ${characterId}`);
-            return character.node;
-        } else {
-            console.error(`❌ 在位置 (${position.x}, ${position.y}) 生成角色失败`);
-            return null;
-        }
-    }
-
-    /**
      * 初始化测试模式
      */
     private async initTestMode(): Promise<void> {
         console.log('🧪 [测试模式] 初始化角色对象池系统...');
         
-        // 初始化所有角色对象池（测试模式）
-        CharacterPoolInitializer.initializeAllPools();
+        // 初始化所有角色对象池（测试模式）- 已移除，现在使用UnifiedECSCharacterFactory
+        // CharacterPoolInitializer.initializeAllPools();
         
-        // 打印对象池状态
-        this.printPoolStatus();
+        // 打印对象池状态 - 方法已移除
+        // this.printPoolStatus();
         
         // 自动生成默认测试怪物
         await this.spawnTestEnemy(this.getEnemyTypeFromIndex(this.testEnemyType));
@@ -1579,9 +1244,11 @@ export class GameManager extends Component {
             return;
         }
 
-        // 使用新的对象池系统创建手动控制的角色
+        // 使用新的ECS工厂创建手动控制的角色
         const testPosition = new Vec3(0, 0, 0); // 屏幕中心
-        const character = await BaseCharacterDemo.createPlayer(enemyType, testPosition);
+        const character = await UnifiedECSCharacterFactory.createPlayer(enemyType, {
+            position: testPosition
+        });
         
         if (!character) {
             console.error(`❌ 无法从新对象池系统创建怪物: ${enemyType}`);
@@ -1657,15 +1324,16 @@ export class GameManager extends Component {
     public clearTestEnemy(): void {
         if (this.currentTestEnemy && this.currentTestEnemy.isValid) {
             // 检查是否是新对象池系统创建的角色
-            const characterDemo = this.currentTestEnemy.getComponent('BaseCharacterDemo');
-            if (characterDemo && (characterDemo as any).getIsFromPool && (characterDemo as any).getIsFromPool()) {
-                // 使用新对象池系统回收
-                (characterDemo as any).returnToPool();
-                console.log('🗑️ 测试怪物已通过新对象池系统回收');
+            // 使用新的ECS组件回收
+            const lifecycleComponent = this.currentTestEnemy.getComponent('LifecycleComponent');
+            if (lifecycleComponent && (lifecycleComponent as any).getIsFromPool && (lifecycleComponent as any).getIsFromPool()) {
+                // 使用新ECS系统回收
+                (lifecycleComponent as any).returnToPool();
+                console.log('🗑️ 测试怪物已通过ECS系统回收');
             } else {
-                // 使用旧对象池系统回收
+                // 使用基础对象池系统回收
                 poolManager.put(this.currentTestEnemy);
-                console.log('🗑️ 测试怪物已通过旧对象池系统回收');
+                console.log('🗑️ 测试怪物已通过基础对象池系统回收');
             }
         }
         this.currentTestEnemy = null;
@@ -1851,72 +1519,6 @@ export class GameManager extends Component {
     }
 
     /**
-     * 打印对象池状态
-     */
-    public printPoolStatus(): void {
-        console.log('\n=== 对象池状态 ===');
-        
-        // 检查所有可用的敌人类型对象池
-        const allPools = [...this.availableEnemyTypes, 'fireball'];
-        
-        allPools.forEach(poolName => {
-            const stats = poolManager.getStats(poolName) as any;
-            if (stats && !Array.isArray(stats)) {
-                console.log(`📦 ${poolName}: ${stats.size}/${stats.maxSize} (获取${stats.getCount}次, 放回${stats.putCount}次, 创建${stats.createCount}次)`);
-            } else {
-                console.log(`❌ ${poolName}: 池不存在`);
-            }
-        });
-        
-        console.log('==================\n');
-    }
-
-    /**
-     * 打印场景节点树结构
-     */
-    public printSceneTree(): void {
-        const scene = director.getScene();
-        if (!scene) {
-            console.error('找不到场景');
-            return;
-        }
-        
-        console.log('=== 场景节点树 ===');
-        this.printNodeTree(scene, 0);
-    }
-    
-    private printNodeTree(node: Node, depth: number): void {
-        const indent = '  '.repeat(depth);
-        console.log(`${indent}${node.name} (${node.children.length} children)`);
-        
-        node.children.forEach(child => {
-            this.printNodeTree(child, depth + 1);
-        });
-    }
-
-    /**
-     * 检查资源引用完整性
-     */
-    public checkResourceIntegrity(): void {
-        console.log('=== 检查资源引用完整性 ===');
-        
-        // 检查预制体资源完整性
-        if (this.entPrefab) {
-            console.log('✅ 通用敌人预制体已挂载');
-        } else {
-            console.error('❌ 通用敌人预制体未挂载');
-        }
-        
-        if (this.firePrefab) {
-            console.log('✅ 火球预制体已挂载');
-        } else {
-            console.error('❌ 火球预制体未挂载');
-        }
-        
-        console.log('=== 资源检查完成 ===');
-    }
-
-    /**
      * 尝试自动修复资源问题
      */
     public async attemptResourceFix(): Promise<void> {
@@ -1955,114 +1557,6 @@ export class GameManager extends Component {
             console.error('资源修复过程中出现错误:', error);
         }
     }
-    
-    /**
-     * 初始化目标选择器（全局单例）
-     */
-    private initializeTargetSelector(): void {
-        // 【修复】首先检查是否已有有效的单例实例
-        const existingInstance = TargetSelector.getInstance();
-        if (existingInstance && existingInstance.node && existingInstance.node.isValid) {
-            console.log(`GameManager: TargetSelector单例已存在，位于 ${existingInstance.node.parent?.name || 'unknown'} 下`);
-            return;
-        }
-
-        // 查找场景和Canvas节点
-        const scene = director.getScene();
-        if (!scene) {
-            console.error('GameManager: 无法获取场景');
-            return;
-        }
-        
-        let canvasNode = scene.getChildByName('Canvas');
-        if (!canvasNode) {
-            // 如果找不到Canvas，尝试查找第一个Canvas组件
-            const canvasComponent = scene.getComponentInChildren('Canvas');
-            canvasNode = canvasComponent ? canvasComponent.node : null;
-        }
-        
-        if (!canvasNode) {
-            console.warn('GameManager: 未找到Canvas节点，将TargetSelector放在场景根级别');
-            canvasNode = scene;
-        }
-
-        // 【修复】清理可能存在的重复TargetSelector节点
-        const existingSelectors = canvasNode.children.filter(child => child.name === 'TargetSelector');
-        if (existingSelectors.length > 0) {
-            console.log(`GameManager: 清理 ${existingSelectors.length} 个重复的TargetSelector节点`);
-            existingSelectors.forEach(node => {
-                if (node.isValid) {
-                    node.destroy();
-                }
-            });
-        }
-
-        // 创建新的TargetSelector节点
-        const targetSelectorNode = new Node('TargetSelector');
-        targetSelectorNode.addComponent(TargetSelector);
-        canvasNode.addChild(targetSelectorNode);
-        
-        console.log(`GameManager: ✅ 全局TargetSelector已创建并添加到 ${canvasNode.name} 下`);
-        console.log(`GameManager: 所有AI角色将共享此TargetSelector实例`);
-    }
-    
-    /**
-     * 初始化ORCA避让系统（全局单例）
-     */
-    private initializeOrcaSystem(): void {
-        // 【修复】检查是否已有有效的ORCA系统实例
-        const existingOrcaSystem = getOrcaSystem();
-        if (existingOrcaSystem && existingOrcaSystem.node && existingOrcaSystem.node.isValid && existingOrcaSystem.node.parent) {
-            console.log(`GameManager: OrcaSystem已存在并已添加到场景，位于 ${existingOrcaSystem.node.parent.name} 下`);
-            return;
-        }
-
-        // 查找场景和Canvas节点
-        const scene = director.getScene();
-        if (!scene) {
-            console.error('GameManager: 无法获取场景');
-            return;
-        }
-        
-        let canvasNode = scene.getChildByName('Canvas');
-        if (!canvasNode) {
-            // 如果找不到Canvas，尝试查找第一个Canvas组件
-            const canvasComponent = scene.getComponentInChildren('Canvas');
-            canvasNode = canvasComponent ? canvasComponent.node : null;
-        }
-        
-        if (!canvasNode) {
-            console.warn('GameManager: 未找到Canvas节点，将OrcaSystem放在场景根级别');
-            canvasNode = scene;
-        }
-
-        // 【修复】清理可能存在的重复OrcaSystem节点
-        const existingOrcaNodes = canvasNode.children.filter(child => child.name === 'OrcaSystem');
-        if (existingOrcaNodes.length > 0) {
-            console.log(`GameManager: 清理 ${existingOrcaNodes.length} 个重复的OrcaSystem节点`);
-            existingOrcaNodes.forEach(node => {
-                if (node.isValid) {
-                    node.destroy();
-                }
-            });
-        }
-
-        // 【关键修复】获取OrcaSystem单例并将其节点添加到场景
-        const orcaSystem = getOrcaSystem(); // 这会创建单例实例
-        if (orcaSystem && orcaSystem.node) {
-            // 确保节点还没有父节点，避免重复添加
-            if (!orcaSystem.node.parent) {
-                canvasNode.addChild(orcaSystem.node);
-                console.log(`🔀 GameManager: ✅ OrcaSystem已初始化并添加到 ${canvasNode.name}`);
-                console.log(`🔀 GameManager: ORCA避让系统现在可以正常运行，update方法将被调用`);
-            } else {
-                console.log(`🔀 GameManager: OrcaSystem节点已有父节点: ${orcaSystem.node.parent.name}`);
-            }
-        } else {
-            console.error('GameManager: 无法创建OrcaSystem实例');
-        }
-    }
-
     /**
      * 设置模式（互斥）
      */
@@ -2070,278 +1564,4 @@ export class GameManager extends Component {
         this.normalMode = normal;
         this.manualTestMode = manual;
     }
-    
-    /**
-     * 强制模式互斥
-     */
-    private enforceModeMutex(): void {
-        // 统计勾选的模式数量
-        const isNormal = this.normalMode;
-        const isManual = this.manualTestMode;
-
-        if (isNormal && isManual) {
-            // 如果都勾选了，默认保留正常模式
-            this.setMode(true, false);
-            console.warn('GameManager: 正常模式和手动测试模式不能同时启用，已默认切换到正常模式。');
-        } else if (!isNormal && !isManual) {
-            // 如果都没选，默认开启正常模式
-            this.setMode(true, false);
-            console.log('GameManager: 没有选择模式，默认启用正常模式');
-        }
-        
-        const currentMode = this.normalMode ? '正常模式' : '手动测试模式';
-        console.log(`GameManager: 当前模式 - ${currentMode}`);
-    }
-
-    /**
-     * 调试物理分组映射问题
-     */
-    public debugPhysicsGroupMapping(): void {
-        console.log('\n=== 🔍 物理分组映射调试 ===');
-        
-        // 1. 打印代码中的映射关系
-        console.log('📋 代码中的阵营-物理分组映射:');
-        
-        // 2. 打印具体的数值
-        console.log('🔢 具体数值映射:');
-        console.log(`RED: ${(1 << 3)} (二进制: ${(1 << 3).toString(2)})`);
-        console.log(`BLUE: ${(1 << 5)} (二进制: ${(1 << 5).toString(2)})`);
-        console.log(`GREEN: ${(1 << 7)} (二进制: ${(1 << 7).toString(2)})`);
-        console.log(`PURPLE: ${(1 << 9)} (二进制: ${(1 << 9).toString(2)})`);
-        
-        // 3. 检查当前测试怪物的分组（如果存在）
-        if (this.currentTestEnemy && this.currentTestEnemy.isValid) {
-            console.log('\n🎯 当前测试怪物信息:');
-            const baseDemo = this.currentTestEnemy.getComponent('BaseCharacterDemo');
-            if (baseDemo && (baseDemo as any).getCollisionInfo) {
-                console.log((baseDemo as any).getCollisionInfo());
-            }
-            
-            // 检查实际的物理分组
-            const collider = this.currentTestEnemy.getComponent('cc.Collider2D') as any;
-            const rigidbody = this.currentTestEnemy.getComponent('cc.RigidBody2D') as any;
-            if (collider) {
-                console.log(`实际碰撞体分组: ${collider.group}`);
-            }
-            if (rigidbody) {
-                console.log(`实际刚体分组: ${rigidbody.group}`);
-            }
-        }
-        
-        // 4. 提示检查编辑器设置
-        console.log('\n⚠️  请检查以下设置:');
-        console.log('1. 打开 Cocos Creator 编辑器');
-        console.log('2. 菜单栏 -> 项目 -> 项目设置');
-        console.log('3. 选择"物理"选项卡');
-        console.log('4. 检查"分组管理器"中的分组设置');
-        console.log('5. 确保分组顺序为:');
-        console.log('   Group 0: DEFAULT');
-        console.log('   Group 1: PLAYER');
-        console.log('   Group 2: PLAYER_PROJECTILE');
-        console.log('   Group 3: RED ← 应该是红色');
-        console.log('   Group 4: RED_PROJECTILE');
-        console.log('   Group 5: BLUE ← 应该是蓝色');
-        console.log('   Group 6: BLUE_PROJECTILE');
-        console.log('   Group 7: GREEN ← 应该是绿色');
-        console.log('   Group 8: GREEN_PROJECTILE');
-        console.log('   ...');
-        console.log('\n🎨 如果编辑器中的颜色与名称不匹配，请修改编辑器中的分组名称或颜色');
-        console.log('=========================\n');
-    }
-
-    /**
-     * 快速修复物理分组映射问题的建议
-     */
-    public suggestPhysicsGroupFix(): void {
-        console.log('\n=== 🔧 物理分组修复建议 ===');
-        console.log('问题：蓝色映射到绿色，红色映射到蓝色');
-        console.log('\n方案1: 修改编辑器中的分组颜色');
-        console.log('- 打开项目设置 -> 物理 -> 分组管理器');
-        console.log('- 将Group 3的颜色改为红色');
-        console.log('- 将Group 5的颜色改为蓝色');
-        console.log('- 将Group 7的颜色改为绿色');
-        
-        console.log('\n方案2: 修改代码中的映射关系');
-        console.log('- 如果编辑器中Group 3是蓝色，Group 5是绿色，Group 7是红色');
-        console.log('- 则需要调整FactionManager中的映射表');
-        
-        console.log('\n⚠️  推荐使用方案1，保持代码清晰');
-        console.log('======================\n');
-    }
-
-    /**
-     * 检查并启用物理引擎
-     */
-    private checkAndEnablePhysicsEngine(): void {
-        console.log('GameManager: 检查物理引擎状态...');
-        
-        // 检查PhysicsSystem2D是否存在
-        const physicsSystem = PhysicsSystem2D.instance;
-        if (!physicsSystem) {
-            console.error('❌ GameManager: PhysicsSystem2D实例不存在！这通常意味着：');
-            console.error('   1. 项目设置中physics-2d模块未启用');
-            console.error('   2. 具体的物理引擎实现(如physics-2d-box2d)未启用');
-            console.error('   3. 请检查项目设置 -> 功能剪裁 -> 物理系统');
-            return;
-        }
-        
-        // 检查物理引擎是否启用
-        console.log(`✅ GameManager: PhysicsSystem2D实例存在`);
-        console.log(`📊 GameManager: 物理引擎状态详情:`);
-        console.log(`   - 重力: (${physicsSystem.gravity.x}, ${physicsSystem.gravity.y})`);
-        console.log(`   - 时间步长: ${physicsSystem.fixedTimeStep}`);
-        console.log(`   - 速度迭代: ${physicsSystem.velocityIterations}`);
-        console.log(`   - 位置迭代: ${physicsSystem.positionIterations}`);
-        
-        // 强制启用物理引擎（如果支持）
-        try {
-            // 设置合适的物理参数以确保2D俯视角游戏正常工作
-            physicsSystem.gravity = new Vec2(0, 0); // 2D俯视角游戏通常不需要重力
-            console.log('🔧 GameManager: 已设置重力为(0,0)，适合2D俯视角游戏');
-            
-            // 输出碰撞矩阵状态
-            if (physicsSystem.collisionMatrix) {
-                console.log('📋 GameManager: 碰撞矩阵已配置');
-            } else {
-                console.warn('⚠️ GameManager: 碰撞矩阵未配置');
-            }
-        } catch (error) {
-            console.error('❌ GameManager: 设置物理引擎参数失败', error);
-        }
-        
-        console.log('✅ GameManager: 物理引擎检查完成');
-    }
-
-    /**
-     * 【网格优化】完整的网格拥挤系统调试套件
-     */
-    public debugGridCrowdingSystem(): void {
-        console.log('\n=== 🔧 网格拥挤系统调试套件 ===');
-        console.log('可用的调试命令:');
-        console.log('');
-        console.log('📊 性能测试:');
-        console.log('  GameManager.instance.testGridBasedCrowdingPerformance()');
-        console.log('  - 生成50个角色进行压力测试');
-        console.log('');
-        console.log('📈 性能报告:');
-        console.log('  GameManager.instance.printGridPerformanceReport()');
-        console.log('  - 显示详细的性能统计');
-        console.log('');
-        console.log('🔍 可视化调试:');
-        console.log('  GameManager.instance.enableGridVisualization()');
-        console.log('  - 显示网格分布和热点');
-        console.log('');
-        console.log('⚖️ 性能对比:');
-        console.log('  GameManager.instance.compareTraditionalVsGridPerformance()');
-        console.log('  - 对比传统算法和网格算法');
-        console.log('');
-        console.log('🔧 参数调优:');
-        console.log('  GameManager.instance.testDynamicGridParameters()');
-        console.log('  - 分析并建议网格参数');
-        console.log('');
-        console.log('🧹 系统清理:');
-        console.log('  gridManager.reset()');
-        console.log('  crowdingSystem.resetPerformanceStats()');
-        console.log('');
-        console.log('📋 快速状态:');
-        console.log('  crowdingSystem.printStatusInfo()');
-        console.log('  gridManager.printDebugInfo()');
-        console.log('================================\n');
-    }
-
-    /**
-     * 【网格优化】快速性能检查
-     */
-    public quickGridPerformanceCheck(): void {
-        const gridStats = gridManager.getStats();
-        
-        console.log('\n=== ⚡ 快速性能检查 ===');
-        console.log(`角色总数: ${gridStats.totalCharacters}`);
-        console.log(`活跃网格: ${gridStats.activeGrids}`);
-        console.log(`查询次数: ${gridStats.queryCount}`);
-        
-        if (gridStats.totalCharacters > 20) {
-            console.log('⚠️  角色数量较多，建议观察性能');
-        }
-        
-        if (gridStats.activeGrids > 100) {
-            console.log('⚠️  活跃网格过多，可能需要优化网格大小');
-        }
-    }
-
-    /**
-     * 高级网格性能分析
-     */
-    public advancedGridPerformanceAnalysis(): void {
-        const gridStats = gridManager.getStats();
-        
-        console.log('\n=== 🔬 高级网格性能分析 ===');
-        console.log('基础统计:');
-        console.log(`  角色总数: ${gridStats.totalCharacters}`);
-        console.log(`  活跃网格数: ${gridStats.activeGrids}`);
-        console.log(`  查询总数: ${gridStats.queryCount}`);
-        console.log(`  平均每网格角色数: ${gridStats.averageCharactersPerGrid.toFixed(2)}`);
-        
-        // 性能建议
-        console.log('\n性能建议:');
-        if (gridStats.averageCharactersPerGrid > 10) {
-            console.log('  🔧 建议减小网格尺寸以均匀分布角色');
-        }
-        if (gridStats.queryCount > gridStats.totalCharacters * 2) {
-            console.log('  🔧 查询频率过高，建议增加更新间隔');
-        }
-        
-        // 实时性能监控建议
-        console.log('\n实时监控:');
-        console.log('  使用 gameManager.quickGridPerformanceCheck() 进行快速检查');
-        console.log('  使用 gridManager.printDebugInfo() 查看详细网格信息');
-    }
-
-    /**
-     * 深度系统性能分析（完整版）
-     */
-    public deepSystemPerformanceAnalysis(): void {
-        console.log('\n=== 🏗️ 深度系统性能分析 ===');
-        
-        // 网格管理器分析
-        const gridStats = gridManager.getStats();
-        console.log('1. 网格管理器:');
-        console.log(`   ✓ 角色总数: ${gridStats.totalCharacters}`);
-        console.log(`   ✓ 活跃网格: ${gridStats.activeGrids} 个`);
-        console.log(`   ✓ 网格密度: ${gridStats.averageCharactersPerGrid.toFixed(2)} 角色/网格`);
-        console.log(`   ✓ 查询效率: ${gridStats.queryCount} 次查询`);
-        
-
-        
-        // 性能建议
-        console.log('\n性能建议:');
-        if (gridStats.averageCharactersPerGrid > 10) {
-            console.log('  🔧 建议减小网格尺寸以均匀分布角色');
-        }
-        if (gridStats.queryCount > gridStats.totalCharacters * 2) {
-            console.log('  🔧 查询频率过高，建议增加更新间隔');
-        }
-        
-        // 实时性能监控建议
-        console.log('\n实时监控:');
-        console.log('  使用 gameManager.quickGridPerformanceCheck() 进行快速检查');
-        console.log('  使用 gridManager.printDebugInfo() 查看详细网格信息');
-    }
-
-    /**
-     * 【网格优化】停止实时监控
-     */
-    public stopGridMonitoring(): void {
-        this.gridMonitoringActive = false;
-        if (this.gridMonitoringInterval) {
-            clearInterval(this.gridMonitoringInterval);
-            this.gridMonitoringInterval = null;
-        }
-        console.log('🛑 网格系统实时监控已停止');
-    }
-
-    // 监控相关属性
-    private gridMonitoringActive = false;
-    private gridMonitoringInterval: any = null;
-
 }

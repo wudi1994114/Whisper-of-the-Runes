@@ -18,7 +18,7 @@ import { RenderComponent } from '../components/RenderComponent';
 import { ControlComponent } from '../components/ControlComponent';
 import { AIIntentionComponent } from '../components/AIIntentionComponent';
 import { ModularCharacter } from '../entities/ModularCharacter';
-import { BaseCharacterDemo } from '../entities/BaseCharacterDemo';
+
 
 const { ccclass } = _decorator;
 
@@ -36,13 +36,11 @@ export interface CharacterCreationOptions {
     aiBehaviorType?: string;
     /** 角色ID */
     characterId?: string;
-    /** 是否使用 BaseCharacterDemo（兼容模式） */
-    useBaseCharacterDemo?: boolean;
 }
 
 /**
  * 统一的 ECS 角色工厂
- * 支持 ModularCharacter 和 BaseCharacterDemo 两种角色类型
+ * 基于 ModularCharacter 的纯 ECS 架构
  * 统一初始化流程，解决组件依赖问题
  */
 @ccclass('UnifiedECSCharacterFactory')
@@ -96,13 +94,9 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
                 return null;
             }
 
-            // 3. 选择角色实现类型
+            // 3. 使用 ModularCharacter 的纯 ECS 架构
             let character: ICharacter | null = null;
-            if (options.useBaseCharacterDemo) {
-                character = await this.setupBaseCharacterDemo(characterNode, characterType, options);
-            } else {
-                character = await this.setupModularCharacter(characterNode, characterType, options);
-            }
+            character = await this.setupModularCharacter(characterNode, characterType, options);
 
             if (!character) {
                 console.error(`[UnifiedECSFactory] 角色组件设置失败: ${characterType}`);
@@ -113,7 +107,7 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
             // 4. 注册到活跃角色列表
             this.activeCharacters.add(character);
 
-            console.log(`[UnifiedECSFactory] ✅ 角色创建成功: ${characterType} (类型: ${options.useBaseCharacterDemo ? 'BaseCharacterDemo' : 'ModularCharacter'})`);
+            console.log(`[UnifiedECSFactory] ✅ 角色创建成功: ${characterType} (类型: ModularCharacter)`);
             return character;
 
         } catch (error) {
@@ -152,33 +146,7 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
         return character;
     }
 
-    /**
-     * 设置 BaseCharacterDemo（兼容模式）
-     */
-    private async setupBaseCharacterDemo(node: Node, characterType: string, options: CharacterCreationOptions): Promise<ICharacter | null> {
-        // 检查是否已有 BaseCharacterDemo 组件
-        let character = node.getComponent(BaseCharacterDemo);
-        
-        if (!character) {
-            // 添加 BaseCharacterDemo 组件
-            character = node.addComponent(BaseCharacterDemo);
-        }
 
-        if (!character) {
-            console.error(`[UnifiedECSFactory] BaseCharacterDemo 组件添加失败`);
-            return null;
-        }
-
-        // 配置角色属性（直接设置，不通过 onLoad）
-        this.configureBaseCharacterDemo(character, characterType, options);
-
-        // 调用工厂初始化方法（替代原来的 onLoad 逻辑）
-        await character.initializeFromFactory();
-
-        // 使用适配器包装
-        const { adaptBaseCharacter } = await import('../interfaces/adapters/BaseCharacterAdapter');
-        return adaptBaseCharacter(character);
-    }
 
     /**
      * 从对象池创建基础节点
@@ -281,30 +249,7 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
         console.log(`[UnifiedECSFactory] 🎛️ 角色配置完成: ${characterType}`);
     }
 
-    /**
-     * 配置 BaseCharacterDemo（直接设置属性，跳过 onLoad）
-     */
-    private configureBaseCharacterDemo(character: BaseCharacterDemo, characterType: string, options: CharacterCreationOptions): void {
-        // 设置角色类型
-        character.setEnemyType(characterType);
-        
-        // 设置控制模式
-        if (options.controlMode !== undefined) {
-            character.controlMode = options.controlMode;
-        }
-        
-        // 设置阵营
-        if (options.aiFaction) {
-            character.aiFaction = options.aiFaction;
-        }
-        
-        // 设置行为类型
-        if (options.aiBehaviorType) {
-            character.aiBehaviorType = options.aiBehaviorType;
-        }
 
-        console.log(`[UnifiedECSFactory] 🎛️ BaseCharacterDemo 配置完成: ${characterType}`);
-    }
 
     /**
      * 统一组件初始化流程 - 重构版本，解决初始化时序问题
@@ -558,14 +503,12 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
         position?: Vec3;
         faction: string;
         behaviorType?: string;
-        useBaseCharacterDemo?: boolean;
     }): Promise<ICharacter | null> {
         return await UnifiedECSCharacterFactory.getInstance().createCharacter(characterType, {
             controlMode: ControlMode.AI,
             position: options.position,
             aiFaction: options.faction,
-            aiBehaviorType: options.behaviorType || 'melee',
-            useBaseCharacterDemo: options.useBaseCharacterDemo || false
+            aiBehaviorType: options.behaviorType || 'melee'
         });
     }
 
@@ -574,13 +517,11 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
      */
     public static async createPlayer(characterType: string, options: {
         position?: Vec3;
-        useBaseCharacterDemo?: boolean;
     } = {}): Promise<ICharacter | null> {
         return await UnifiedECSCharacterFactory.getInstance().createCharacter(characterType, {
             controlMode: ControlMode.MANUAL,
             position: options.position,
-            aiFaction: "player",
-            useBaseCharacterDemo: options.useBaseCharacterDemo || false
+            aiFaction: "player"
         });
     }
 

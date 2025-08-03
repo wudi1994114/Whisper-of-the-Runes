@@ -180,9 +180,10 @@ export class FireballController extends Component {
     private onCollisionEnter(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null): void {
         if (this.isDestroying) return;
         
-        const targetCharacterDemo = otherCollider.node.getComponent('BaseCharacterDemo');
-        if (targetCharacterDemo) {
-            const targetFaction = (targetCharacterDemo as any).getFaction();
+        // 使用新的ECS组件检查目标
+        const targetFactionComponent = otherCollider.node.getComponent(FactionComponent);
+        if (targetFactionComponent) {
+            const targetFaction = targetFactionComponent.getFaction();
             const shouldAttack = factionManager.doesAttack(this.shooterFaction, targetFaction);
             
             // 检查阵营关系 - 只有敌对阵营才造成伤害
@@ -190,8 +191,8 @@ export class FireballController extends Component {
                 this.dealDamageToTarget(otherCollider.node, this.damage);
             }
         } else {
-            // 如果没有BaseCharacterDemo组件，可能是墙壁等障碍物，直接爆炸
-            console.log(`FireballController: 撞击障碍物 ${otherCollider.node.name}（无BaseCharacterDemo组件）`);
+            // 如果没有FactionComponent，可能是墙壁等障碍物，直接爆炸
+            console.log(`FireballController: 撞击障碍物 ${otherCollider.node.name}（无FactionComponent）`);
         }
         this.explode();
     }
@@ -205,17 +206,18 @@ export class FireballController extends Component {
             return;
         }
 
-        // 获取目标的BaseCharacterDemo组件来造成伤害
-        const targetCharacterDemo = target.getComponent('BaseCharacterDemo');
+        // 优先使用新的ECS组件CombatComponent来造成伤害
+        const targetCombatComponent = target.getComponent(CombatComponent);
         
-        if (targetCharacterDemo && (targetCharacterDemo as any).takeDamage) {
+        if (targetCombatComponent) {
             try {
-                (targetCharacterDemo as any).takeDamage(damage);
+                targetCombatComponent.takeDamage(damage);
+                console.log(`✅ [DAMAGE] FireballController: 对 ${target.name} 造成 ${damage} 点伤害 (通过CombatComponent)`);
             } catch (error) {
-                console.error(`❌ [DAMAGE] BaseCharacterDemo.takeDamage调用失败:`, error);
+                console.error(`❌ [DAMAGE] CombatComponent.takeDamage调用失败:`, error);
             }
         } else {
-            // 如果没有BaseCharacterDemo，尝试CharacterStats组件
+            // 如果没有CombatComponent，尝试CharacterStats组件（向后兼容）
             const targetStats = target.getComponent('CharacterStats');
             
             if (targetStats && (targetStats as any).takeDamage) {

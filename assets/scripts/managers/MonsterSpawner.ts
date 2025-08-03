@@ -8,7 +8,7 @@ import { poolManager } from './PoolManager';
 import { eventManager } from './EventManager';
 import { GameEvents } from '../components/GameEvents';
 import { GameManager } from './GameManager';
-import { BaseCharacterDemo } from '../entities/BaseCharacterDemo';
+
 import { ControlMode } from '../state-machine/CharacterEnums';
 import { UnifiedECSCharacterFactory, ensureFactoryInitialized } from '../factories/UnifiedECSCharacterFactory';
 
@@ -271,8 +271,7 @@ export class MonsterSpawner extends Component {
                 character = await UnifiedECSCharacterFactory.createAIEnemy(enemyType, {
                     position: position,
                     faction: enemyConfig?.faction || 'red',
-                    behaviorType: behaviorType,
-                    useBaseCharacterDemo: false // 默认使用 ModularCharacter
+                    behaviorType: behaviorType
                 });
             } catch (factoryError) {
                 console.error(`[MonsterSpawner] 工厂初始化失败:`, factoryError);
@@ -374,19 +373,13 @@ export class MonsterSpawner extends Component {
      */
     private ensureEnemyTypeSet(monsterNode: Node, enemyType: string): void {
         try {
-            // 1. 设置BaseCharacterDemo的explicitEnemyType
-            const baseDemo = monsterNode.getComponent('BaseCharacterDemo');
-            if (baseDemo && (baseDemo as any).setEnemyType) {
-                (baseDemo as any).setEnemyType(enemyType);
-                console.log(`MonsterSpawner: ✅ 确认敌人类型已设置: ${enemyType}`);
+            // 1. 使用新的ECS组件设置敌人类型
+            const configComponent = monsterNode.getComponent('ConfigComponent');
+            if (configComponent && (configComponent as any).setEnemyType) {
+                (configComponent as any).setEnemyType(enemyType);
+                console.log(`MonsterSpawner: ✅ 确认敌人类型已设置: ${enemyType} (通过ConfigComponent)`);
             } else {
-                console.warn(`MonsterSpawner: ⚠️ 未找到BaseCharacterDemo组件或setEnemyType方法`);
-            }
-
-            // 2. 设置BaseCharacterDemo的相关属性（如果需要）
-            if (baseDemo) {
-                // 可以在这里设置其他相关属性
-                console.log(`MonsterSpawner: BaseCharacterDemo组件已找到，敌人类型: ${enemyType}`);
+                console.warn(`MonsterSpawner: ⚠️ 未找到ConfigComponent组件或setEnemyType方法`);
             }
 
             // 3. 设置节点名称（便于调试）
@@ -478,24 +471,23 @@ export class MonsterSpawner extends Component {
             // 【强化】在AI设置开始前确保敌人类型已设置
             this.ensureEnemyTypeSet(monster, enemyType);
             
-            // 获取BaseCharacterDemo组件
-            const characterDemo = monster.getComponent('BaseCharacterDemo');
-            if (!characterDemo) {
-                console.warn(`MonsterSpawner: ${monster.name} 没有BaseCharacterDemo组件，无法设置AI`);
+            // 使用新的ECS组件检查和设置AI
+            const controlComponent = monster.getComponent('ControlComponent');
+            if (!controlComponent) {
+                console.warn(`MonsterSpawner: ${monster.name} 没有ControlComponent组件，无法设置AI`);
                 return;
             }
 
-            // 检查是否已经通过新对象池系统设置了AI（避免重复设置）
-            if ((characterDemo as any).controlMode === ControlMode.AI) {
-                console.log(`MonsterSpawner: ${monster.name} 已通过新对象池系统设置AI，跳过重复设置`);
+            // 检查是否已经设置了AI模式（避免重复设置）
+            if ((controlComponent as any).controlMode === ControlMode.AI) {
+                console.log(`MonsterSpawner: ${monster.name} 已通过ECS系统设置AI，跳过重复设置`);
                 return;
             }
 
             // 【关键修复】确保MonsterSpawner只在正常模式下设置AI，不干扰其他模式
-            // 检查当前是否为正常模式（正常模式下通过关卡生成的怪物需要设置AI）
             const gameManager = GameManager?.instance;
             if (gameManager && gameManager.normalMode) {
-                // 【重构】每个敌人必须有自己的阵营配置
+                // 检查阵营配置
                 if (!enemyConfig || !enemyConfig.faction) {
                     console.error(`MonsterSpawner: 敌人 ${enemyType} 缺少阵营配置，无法设置AI`);
                     return;
@@ -506,29 +498,27 @@ export class MonsterSpawner extends Component {
                 
                 console.log(`MonsterSpawner: 开始设置 ${enemyType} 的阵营和AI - 目标阵营: ${targetFaction}`);
                 
-                // 【关键修复1】先设置阵营，再配置AI
-                // 1. 设置阵营信息到角色组件（这会同时更新物理分组）
-                if ((characterDemo as any).setFaction) {
-                    (characterDemo as any).setFaction(targetFaction);
-                    console.log(`MonsterSpawner: ✅ 阵营已设置: ${targetFaction}`);
+                // 1. 设置阵营信息到FactionComponent
+                const factionComponent = monster.getComponent('FactionComponent');
+                if (factionComponent && (factionComponent as any).setFaction) {
+                    (factionComponent as any).setFaction(targetFaction);
+                    console.log(`MonsterSpawner: ✅ 阵营已设置: ${targetFaction} (通过FactionComponent)`);
                 } else {
-                    console.warn(`MonsterSpawner: ❌ setFaction方法不存在`);
+                    console.warn(`MonsterSpawner: ❌ FactionComponent或setFaction方法不存在`);
                 }
 
-                // 2. AI配置已在createCharacter时通过options设置，无需重复设置
-
-                // 3. 初始化AI（简化版本，直接使用enemyData）
-                if ((characterDemo as any).initializeAI) {
-                    (characterDemo as any).initializeAI();
-                    console.log(`MonsterSpawner: ✅ AI配置完成 - ${enemyType}, 阵营: ${targetFaction}`);
+                // 2. 设置控制模式为AI
+                if ((controlComponent as any).setControlMode) {
+                    (controlComponent as any).setControlMode(ControlMode.AI);
+                    console.log(`MonsterSpawner: ✅ AI控制模式已设置`);
                 } else {
-                    console.warn(`MonsterSpawner: ❌ initializeAI方法不存在`);
+                    console.warn(`MonsterSpawner: ❌ ControlComponent.setControlMode方法不存在`);
                 }
             } else {
                 console.log(`MonsterSpawner: 跳过AI设置 - 当前不是正常模式，让其他逻辑处理控制模式`);
             }
         } catch (error) {
-            console.error(`MonsterSpawner: 设置BaseCharacterDemo AI失败 - ${enemyType}`, error);
+            console.error(`MonsterSpawner: 设置ECS AI失败 - ${enemyType}`, error);
         }
     }
 
