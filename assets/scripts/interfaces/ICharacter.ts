@@ -43,7 +43,7 @@ export interface ICharacterFactory {
      * @param characterType 角色类型
      * @param options 创建选项
      */
-    createCharacter(characterType: string, options?: any): ICharacter | null;
+    createCharacter(characterType: string, options?: any): Promise<ICharacter | null> | ICharacter | null;
     
     /**
      * 回收角色

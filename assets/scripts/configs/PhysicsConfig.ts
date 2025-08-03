@@ -31,7 +31,7 @@ export const PhysicsGroup = {
     GREEN_PROJECTILE: 1 << 8,
     PURPLE: 1 << 9,
     PURPLE_PROJECTILE: 1 << 10,
-    WORLD_OBSTACLE: 1 << 11,
+    WORLD_OBSTACLE: 1 << 11
 };
 
 /**

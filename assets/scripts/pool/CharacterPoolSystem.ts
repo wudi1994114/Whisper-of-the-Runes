@@ -252,7 +252,7 @@ export class CharacterPoolInitializer {
     private static initializedPools: Set<string> = new Set();
     
     /**
-     * 根据关卡数据初始化所需的角色对象池
+     * 根据关卡数据初始化所需的角色对象池（兼容新的模块化工厂）
      * @param levelData 关卡数据或者敌人类型数组
      */
     public static initializePoolsForLevel(levelData: any): void {
@@ -283,10 +283,13 @@ export class CharacterPoolInitializer {
         
         console.log(`[PoolInitializer] 关卡需要敌人类型:`, enemyTypes);
         
-        // 为每个敌人类型注册对象池
+        // 为每个敌人类型注册对象池（传统系统）
         enemyTypes.forEach(enemyType => {
             CharacterPoolInitializer.initializePoolForEnemyType(enemyType);
         });
+        
+        // 🔥 同时为新的模块化工厂准备敌人类型
+        CharacterPoolInitializer.prepareModularFactoryForEnemyTypes(enemyTypes);
     }
     
     /**
@@ -315,6 +318,30 @@ export class CharacterPoolInitializer {
             console.log(`[PoolInitializer] ✅ 对象池 ${enemyType} 初始化完成 (初始:${config.initialSize}, 最大:${config.maxSize})`);
         } catch (error) {
             console.error(`[PoolInitializer] ❌ 对象池 ${enemyType} 初始化失败:`, error);
+        }
+    }
+    
+    /**
+     * 为模块化工厂准备敌人类型
+     * @param enemyTypes 敌人类型数组
+     */
+    private static prepareModularFactoryForEnemyTypes(enemyTypes: string[]): void {
+        try {
+            // 导入模块化工厂（动态导入避免循环依赖）
+            import('../factories/ModularCharacterFactory').then(({ ModularCharacterFactory }) => {
+                const factory = ModularCharacterFactory.getInstance();
+                console.log(`[PoolInitializer] 为模块化工厂准备 ${enemyTypes.length} 种敌人类型`);
+                
+                // 这里可以预注册敌人类型到模块化工厂
+                // 目前模块化工厂是按需创建，所以不需要预注册
+                enemyTypes.forEach(enemyType => {
+                    console.log(`[PoolInitializer] 模块化工厂已准备敌人类型: ${enemyType}`);
+                });
+            }).catch(error => {
+                console.warn(`[PoolInitializer] 模块化工厂准备失败，将使用传统对象池:`, error);
+            });
+        } catch (error) {
+            console.warn(`[PoolInitializer] 模块化工厂不可用，将使用传统对象池:`, error);
         }
     }
     

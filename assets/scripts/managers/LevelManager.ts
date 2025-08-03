@@ -10,6 +10,7 @@ import { FactionRelationships } from '../configs/FactionConfig';
 import { factionManager } from './FactionManager';
 import { MonsterSpawner } from './MonsterSpawner';
 import { CharacterPoolInitializer } from '../pool/CharacterPoolSystem';
+import { ModularCharacterFactory } from '../factories/ModularCharacterFactory';
 
 const { ccclass } = _decorator;
 
@@ -124,9 +125,9 @@ export class LevelManager {
             // 设置阵营关系
             this.setupFactionRelationships(levelData);
 
-            // 【新增】根据关卡数据初始化角色对象池
-            console.log(`🎮 [正常模式] 为关卡 ${levelId} 初始化角色对象池...`);
-            CharacterPoolInitializer.initializePoolsForLevel(levelData);
+            // 【新增】根据关卡数据初始化角色对象池和模块化工厂
+            console.log(`🎮 [正常模式] 为关卡 ${levelId} 初始化角色系统...`);
+            this.initializeCharacterSystemForLevel(levelData);
 
             // 加载关卡所需的敌人预制体
             await this.loadLevelEnemyPrefabs(levelData);
@@ -222,6 +223,75 @@ export class LevelManager {
                 console.error(`LevelManager: 创建怪物生成器失败 (ID: ${spawnerData.id})`, error);
             }
         });
+    }
+
+    /**
+     * 为关卡初始化角色系统（包括旧的对象池和新的模块化工厂）
+     * @param levelData 关卡数据
+     */
+    private initializeCharacterSystemForLevel(levelData: LevelData): void {
+        try {
+            // 1. 初始化旧的对象池系统（向后兼容）
+            CharacterPoolInitializer.initializePoolsForLevel(levelData);
+            
+            // 2. 初始化新的模块化工厂系统
+            this.initializeModularCharacterFactory(levelData);
+            
+            console.log(`LevelManager: 关卡 ${levelData.id} 角色系统初始化完成`);
+        } catch (error) {
+            console.error(`LevelManager: 关卡 ${levelData.id} 角色系统初始化失败`, error);
+        }
+    }
+
+    /**
+     * 初始化模块化角色工厂
+     * @param levelData 关卡数据
+     */
+    private initializeModularCharacterFactory(levelData: LevelData): void {
+        const factory = ModularCharacterFactory.getInstance();
+        
+        // 从关卡数据提取敌人类型
+        const enemyTypes = this.extractEnemyTypesFromLevel(levelData);
+        
+        console.log(`LevelManager: 为模块化工厂注册敌人类型:`, enemyTypes);
+        
+        // 预注册所有敌人类型到工厂（如果需要预制体的话）
+        enemyTypes.forEach(enemyType => {
+            // 这里可以添加预制体注册逻辑
+            // factory.registerCharacterPrefab(enemyType, prefab);
+            console.log(`LevelManager: 模块化工厂已准备敌人类型: ${enemyType}`);
+        });
+    }
+
+    /**
+     * 从关卡数据中提取敌人类型
+     * @param levelData 关卡数据
+     * @returns 敌人类型数组
+     */
+    private extractEnemyTypesFromLevel(levelData: LevelData): string[] {
+        const enemyTypes = new Set<string>();
+
+        // 从 monsterSpawners 中提取敌人类型（新格式）
+        if (levelData.monsterSpawners) {
+            levelData.monsterSpawners.forEach(spawner => {
+                spawner.enemies?.forEach(enemy => {
+                    if (enemy.type) {
+                        enemyTypes.add(enemy.type);
+                    }
+                });
+            });
+        }
+
+        // 从 enemies 中提取敌人类型（旧格式，兼容性）
+        if (levelData.enemies) {
+            levelData.enemies.forEach(enemy => {
+                if (enemy.type) {
+                    enemyTypes.add(enemy.type);
+                }
+            });
+        }
+
+        return Array.from(enemyTypes);
     }
 
     /**
@@ -321,32 +391,7 @@ export class LevelManager {
         }
     }
 
-    /**
-     * 从关卡数据中提取敌人类型
-     * @param levelData 关卡数据
-     * @returns 敌人类型数组
-     */
-    private extractEnemyTypesFromLevel(levelData: LevelData): string[] {
-        const enemyTypes = new Set<string>();
 
-        // 从 monsterSpawners 中提取敌人类型（新格式）
-        if (levelData.monsterSpawners) {
-            levelData.monsterSpawners.forEach(spawner => {
-                spawner.enemies.forEach(enemy => {
-                    enemyTypes.add(enemy.type);
-                });
-            });
-        }
-
-        // 从 enemies 中提取敌人类型（旧格式，兼容性）
-        if (levelData.enemies) {
-            levelData.enemies.forEach(enemy => {
-                enemyTypes.add(enemy.type);
-            });
-        }
-
-        return Array.from(enemyTypes);
-    }
 
     /**
      * 清理关卡动画缓存

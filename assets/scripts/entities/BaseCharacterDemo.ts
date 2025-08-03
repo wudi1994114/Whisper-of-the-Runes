@@ -18,7 +18,10 @@ import { damageDisplayController } from '../controllers/DamageDisplayController'
 import { TempVarPool } from '../utils/TempVarPool';
 import { ControlMode, CharacterState } from '../state-machine/CharacterEnums';
 import { StateMachine, ICharacterController } from '../state-machine/CharacterStateMachine';
+import { basicEnemyFinder } from '../components/BasicEnemyFinder';
 import { CharacterPoolFactory } from '../pool/CharacterPoolSystem';
+import { ICharacter } from '../interfaces/ICharacter';
+import { UnifiedECSCharacterFactory } from '../factories/UnifiedECSCharacterFactory';
 
 
 const { ccclass, property } = _decorator;
@@ -460,18 +463,12 @@ export class BaseCharacterDemo extends Component implements ICharacterController
         if (!this.enemyData) return null;
 
         const attackRange = this.enemyData.attackRange || 60;
-        const selector = TargetSelectorFactory.getInstance();
-        if (!selector) {
-            console.warn(`[${this.getCharacterDisplayName()}] 目标选择器工厂未初始化，无法查找敌人`);
-            return null;
-        }
-
+        
         // 获取当前角色的阵营
         let myFaction = this.getFaction();
         
-        // 查找最近的敌人
-        const targetInfo = selector.findBestTarget(this.node.position, myFaction, attackRange);
-        return targetInfo ? targetInfo.node : null;
+        // 使用基础索敌器查找最近的敌人
+        return basicEnemyFinder.findNearestEnemy(this.node, myFaction, attackRange);
     }
 
     /**
@@ -884,8 +881,21 @@ export class BaseCharacterDemo extends Component implements ICharacterController
     }
 
     async onLoad() {
-        // 【修复1】注册BaseCharacterDemo类到对象池工厂（防重复注册已在工厂内部处理）
+        // 【重构】BaseCharacterDemo 现在只能通过 UnifiedECSCharacterFactory 创建
+        // 这里只保留最基本的组件注册，不进行任何初始化
+        
+        // 注册BaseCharacterDemo类到对象池工厂（保持兼容性）
         CharacterPoolFactory.registerBaseCharacterClass(BaseCharacterDemo);
+        
+        console.log(`[BaseCharacterDemo] ${this.node.name} 基础加载完成，等待工厂初始化...`);
+    }
+
+    /**
+     * 工厂初始化方法 - 由 UnifiedECSCharacterFactory 调用
+     * 替代原来的 onLoad 初始化逻辑
+     */
+    async initializeFromFactory(): Promise<void> {
+        console.log(`[BaseCharacterDemo] 🏭 开始工厂初始化: ${this.node.name}`);
         
         await this.ensureManagers();
         // 等待数据管理器加载完成
@@ -904,32 +914,11 @@ export class BaseCharacterDemo extends Component implements ICharacterController
             this.setupFireballLauncher();
         }
         
-        // 控制模式完全从GameManager获取
-        if (GameManager.instance) {
-            if (GameManager.instance.manualTestMode) {
-                // 手动测试模式：设置为手动控制
-                this.controlMode = ControlMode.MANUAL;
-                console.log('[BaseCharacterDemo] 手动测试模式：设置为手动控制（键盘操作）');
-                    } else if (GameManager.instance.normalMode) {
-            // AI测试模式 + 正常模式：都设置为AI控制
-            this.controlMode = ControlMode.AI;
-            const mode = GameManager.instance.testMode ? 'AI测试模式' : '正常模式';
-            console.log(`[BaseCharacterDemo] ${mode}：设置为AI控制`);
-            } else {
-                console.warn('[BaseCharacterDemo] 未知模式，使用默认控制模式');
-            }
-        } else {
-            console.warn('[BaseCharacterDemo] GameManager不存在，使用默认控制模式');
-        }
-        
         // 设置组件
         this.setupComponents();
         
         // 显示尺寸范围（如果开关开启）
         this.setupSizeRangeDisplay();
-        
-        // 设置默认阵营（如果还未设置）
-        this.setupDefaultFaction();
         
         // 设置输入系统
         this.setupInput();
@@ -949,7 +938,6 @@ export class BaseCharacterDemo extends Component implements ICharacterController
         this.stateMachine = new StateMachine(this);
         this.stateMachine.start();
         
-
 
         if (GameManager.instance) {
             console.log(`[BaseCharacterDemo] GameManager 可用敌人类型: ${GameManager.instance.getAvailableEnemyTypes().join(', ')}`);
@@ -976,7 +964,7 @@ export class BaseCharacterDemo extends Component implements ICharacterController
             }, 0.1);
         }
         
-        console.log(`[${this.getCharacterDisplayName()}] 初始化完成！`);
+        console.log(`[${this.getCharacterDisplayName()}] 🏭 工厂初始化完成！`);
     }
 
     /**
@@ -1604,8 +1592,8 @@ export class BaseCharacterDemo extends Component implements ICharacterController
         
         // 根据控制模式调用不同的协调逻辑
         if (this.controlMode === ControlMode.AI && this.characterStats?.isAlive) {
-            // 【性能优化】分时更新AI协调逻辑
-            this.updateAICoordinationWithTiming(deltaTime);
+            // 基础AI逻辑
+            this.updateBasicAILogic(deltaTime);
         } else if (this.controlMode === ControlMode.MANUAL) {
             this.updateManualCoordination(deltaTime);
         }
@@ -1678,19 +1666,22 @@ export class BaseCharacterDemo extends Component implements ICharacterController
     }
 
     /**
-     * 统一创建接口 - 强制使用对象池
+     * 统一创建接口 - 使用统一ECS工厂（兼容模式）
      * @param characterType 角色类型
      * @param options 创建选项
-     * @returns BaseCharacterDemo实例
+     * @returns ICharacter实例（BaseCharacterDemo适配器包装）
      */
-    public static create(characterType: string, options?: {
+    public static async create(characterType: string, options?: {
         characterId?: string;
         position?: Vec3;
         controlMode?: ControlMode;
         aiFaction?: string;
         aiBehaviorType?: string;
-    }): BaseCharacterDemo | null {
-        return CharacterPoolFactory.getInstance().createCharacter(characterType, options) as BaseCharacterDemo | null;
+    }): Promise<ICharacter | null> {
+        return await UnifiedECSCharacterFactory.getInstance().createCharacter(characterType, {
+            ...options,
+            useBaseCharacterDemo: true // 强制使用 BaseCharacterDemo 兼容模式
+        });
     }
 
     /**
@@ -1742,10 +1733,7 @@ export class BaseCharacterDemo extends Component implements ICharacterController
             this.stateMachine.start();
             
             // 【自动被动模式】重用时根据起始状态设置ORCA被动模式
-            const initialState = this.getCurrentState();
-            if (initialState) {
-                this.updateOrcaPassiveState(initialState);
-            }
+            // ORCA状态更新已简化
         }
         
         // 【修复5】延迟重新注册到拥挤系统，确保状态完全重置
@@ -1849,11 +1837,8 @@ export class BaseCharacterDemo extends Component implements ICharacterController
      * 释放目标锁定（销毁时调用）
      */
     private releaseTargetLockOnDestroy(): void {
-        const selector = TargetSelectorFactory.getInstance();
-        if (selector && selector.releaseAttackerLock) {
-            selector.releaseAttackerLock(this.node);
-            console.log(`%c[${this.getCharacterDisplayName()}] 🔓 销毁时释放目标锁定`, 'color: gray');
-        }
+        // 目标锁定清理已简化
+        console.log(`%c[${this.getCharacterDisplayName()}] 🔓 销毁时释放目标锁定`, 'color: gray');
     }
     
     /**
@@ -1985,13 +1970,9 @@ export class BaseCharacterDemo extends Component implements ICharacterController
     private registerToTargetSelector(): void {
         const faction = this.getFaction();
         
-        // 使用工厂获取统一配置的选择器进行注册
-        const selector = TargetSelectorFactory.getInstance();
-        if (selector) {
-            selector.registerTarget(this.node, faction);
-        } else {
-            console.error(`目标选择器工厂未初始化，无法注册: ${this.node.name}`);
-        }
+        // 使用基础索敌器进行注册
+        basicEnemyFinder.registerCharacter(this.node, faction);
+        console.log(`[${this.getCharacterDisplayName()}] 已注册到基础索敌器: ${faction}`);
     }
     
     /**
@@ -2000,13 +1981,188 @@ export class BaseCharacterDemo extends Component implements ICharacterController
     private deregisterFromTargetSelector(): void {
         const faction = this.getFaction();
         
-        // 使用工厂获取统一配置的选择器进行反注册
-        const selector = TargetSelectorFactory.getInstance();
-        if (selector) {
-            selector.deregisterTarget(this.node, faction);
-        } else {
-            console.warn(`目标选择器工厂未初始化，跳过反注册: ${this.node.name}`);
+        // 从基础索敌器反注册
+        basicEnemyFinder.unregisterCharacter(this.node, faction);
+        console.log(`[${this.getCharacterDisplayName()}] 已从基础索敌器移除: ${faction}`);
+    }
+
+    /**
+     * 基础AI逻辑 - 索敌并直接走向敌人
+     * @param deltaTime 时间间隔
+     */
+    private updateBasicAILogic(deltaTime: number): void {
+        if (!this.characterStats?.isAlive) return;
+
+        // 获取当前目标
+        let currentTarget = this.getCurrentAITarget();
+        
+        // 如果没有目标或目标无效，寻找新目标
+        if (!currentTarget || !currentTarget.isValid || !this.isTargetAlive(currentTarget)) {
+            currentTarget = this.findNewAITarget();
+            this.setCurrentAITarget(currentTarget);
         }
+        
+        // 如果找到目标，执行AI行为
+        if (currentTarget) {
+            this.executeBasicAIBehavior(currentTarget, deltaTime);
+        } else {
+            // 没有目标时，执行默认行为（巡逻、待机等）
+            this.executeIdleBehavior(deltaTime);
+        }
+    }
+
+    /**
+     * 寻找新的AI目标
+     */
+    private findNewAITarget(): Node | null {
+        if (!this.enemyData) return null;
+
+        const searchRange = this.enemyData.detectionRange || 150;
+        const myFaction = this.getFaction();
+        
+        // 使用基础索敌器查找最近的敌人
+        const target = basicEnemyFinder.findNearestEnemy(this.node, myFaction, searchRange);
+        
+        if (target) {
+            console.log(`[${this.getCharacterDisplayName()}] 🎯 发现新目标: ${target.name}`);
+        }
+        
+        return target;
+    }
+
+    /**
+     * 执行基础AI行为：移动到目标并攻击
+     */
+    private executeBasicAIBehavior(target: Node, deltaTime: number): void {
+        const targetPos = target.getWorldPosition();
+        const myPos = this.node.getWorldPosition();
+        const distance = Vec3.distance(myPos, targetPos);
+        
+        const attackRange = this.enemyData?.attackRange || 60;
+        
+        if (distance > attackRange) {
+            // 距离太远，移动向目标
+            this.moveTowardsTarget(target);
+        } else {
+            // 在攻击范围内，执行攻击
+            this.tryAttackTarget(target);
+        }
+    }
+
+    /**
+     * 向目标移动
+     */
+    private moveTowardsTarget(target: Node): void {
+        const targetPos = target.getWorldPosition();
+        const myPos = this.node.getWorldPosition();
+        
+        // 计算移动方向
+        const direction = new Vec3();
+        Vec3.subtract(direction, targetPos, myPos);
+        direction.normalize();
+        
+        // 设置移动输入（简化版）
+        this.setMoveDirection(direction.x, direction.y);
+        
+        // 同时更新AI状态为移动
+        if (this.stateMachine && this.getCurrentState() !== CharacterState.WALKING) {
+            this.stateMachine.transitionTo(CharacterState.WALKING);
+        }
+    }
+
+    /**
+     * 尝试攻击目标
+     */
+    private tryAttackTarget(target: Node): void {
+        // 停止移动
+        this.setMoveDirection(0, 0);
+        
+        // 面向目标
+        const targetPos = target.getWorldPosition();
+        const myPos = this.node.getWorldPosition();
+        const direction = new Vec3();
+        Vec3.subtract(direction, targetPos, myPos);
+        direction.normalize();
+        
+        // 设置面向方向和攻击
+        this.setFacingDirection(direction.x, direction.y);
+        this.triggerAttack();
+        
+        // 转换到攻击状态
+        if (this.stateMachine && this.getCurrentState() !== CharacterState.ATTACKING) {
+            this.stateMachine.transitionTo(CharacterState.ATTACKING);
+        }
+    }
+
+    /**
+     * 执行空闲行为
+     */
+    private executeIdleBehavior(deltaTime: number): void {
+        // 停止移动和攻击
+        this.setMoveDirection(0, 0);
+        this.stopAttack();
+        
+        // 转换到空闲状态
+        if (this.stateMachine && this.getCurrentState() !== CharacterState.IDLE) {
+            this.stateMachine.transitionTo(CharacterState.IDLE);
+        }
+    }
+
+    /**
+     * 检查目标是否存活
+     */
+    private isTargetAlive(target: Node): boolean {
+        const targetStats = target.getComponent('CharacterStats');
+        return targetStats ? (targetStats as any).isAlive : true;
+    }
+
+    /**
+     * 获取当前AI目标
+     */
+    private currentAITarget: Node | null = null;
+    
+    private getCurrentAITarget(): Node | null {
+        return this.currentAITarget;
+    }
+
+    /**
+     * 设置当前AI目标
+     */
+    private setCurrentAITarget(target: Node | null): void {
+        this.currentAITarget = target;
+    }
+
+    /**
+     * 设置移动方向（AI使用）
+     */
+    private setMoveDirection(x: number, y: number): void {
+        // 直接设置移动方向，AI模式下会被状态机读取
+        this.moveDirection.set(x, y);
+    }
+
+    /**
+     * 设置面向方向（AI使用）
+     */
+    private setFacingDirection(x: number, y: number): void {
+        // 更新角色的面向方向
+        const direction = calculateDirectionFromVec2(new Vec2(x, y), this.node.name);
+        this.currentDirection = direction;
+    }
+
+    /**
+     * 触发攻击（AI使用）
+     */
+    private triggerAttack(): void {
+        // 使用现有的攻击触发机制
+        this.wantsToAttack = true;
+    }
+
+    /**
+     * 停止攻击（AI使用）
+     */
+    private stopAttack(): void {
+        // 重置攻击状态
+        this.wantsToAttack = false;
     }
 
 
@@ -2045,8 +2201,8 @@ export class BaseCharacterDemo extends Component implements ICharacterController
     /**
      * 创建玩家角色（手动控制）
      */
-    public static createPlayer(characterType: string, position?: Vec3): BaseCharacterDemo | null {
-        return BaseCharacterDemo.create(characterType, {
+    public static async createPlayer(characterType: string, position?: Vec3): Promise<ICharacter | null> {
+        return await BaseCharacterDemo.create(characterType, {
             controlMode: ControlMode.MANUAL,
             position: position
         });
@@ -2055,12 +2211,12 @@ export class BaseCharacterDemo extends Component implements ICharacterController
     /**
      * 创建AI敌人
      */
-    public static createAIEnemy(characterType: string, options: {
+    public static async createAIEnemy(characterType: string, options: {
         position?: Vec3;
         faction: string;
         behaviorType?: string;
-    }): BaseCharacterDemo | null {
-        return BaseCharacterDemo.create(characterType, {
+    }): Promise<ICharacter | null> {
+        return await BaseCharacterDemo.create(characterType, {
             controlMode: ControlMode.AI,
             position: options.position,
             aiFaction: options.faction,
@@ -2095,17 +2251,9 @@ export class BaseCharacterDemo extends Component implements ICharacterController
         // 【网格优化】从拥挤系统反注册
 
         
-        // 停止AI定时器
-        this.unschedule(this.updateAITargetSearch);
+        // AI定时器清理已简化
         
-        // 【性能优化】从AI性能管理器反注册
-        if (this.controlMode === ControlMode.AI) {
-            const performanceManager = AIPerformanceManager.getInstance();
-            if (performanceManager) {
-                performanceManager.unregisterAI(this.node);
-                console.log(`%c[AI] ${this.getCharacterDisplayName()} 已从性能管理器反注册`, 'color: gray');
-            }
-        }
+        // AI清理已简化
         
         // 从目标选择器反注册
         this.deregisterFromTargetSelector();

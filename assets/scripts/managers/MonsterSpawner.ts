@@ -10,6 +10,7 @@ import { GameEvents } from '../components/GameEvents';
 import { GameManager } from './GameManager';
 import { BaseCharacterDemo } from '../entities/BaseCharacterDemo';
 import { ControlMode } from '../state-machine/CharacterEnums';
+import { UnifiedECSCharacterFactory, ensureFactoryInitialized } from '../factories/UnifiedECSCharacterFactory';
 
 const { ccclass, property } = _decorator;
 
@@ -127,7 +128,9 @@ export class MonsterSpawner extends Component {
         this.spawnerConfig.enemies.forEach((enemyConfig: EnemySpawnConfig) => {
             // 初始生成
             this.scheduleOnce(() => {
-                this.spawnEnemyGroup(enemyConfig);
+                this.spawnEnemyGroup(enemyConfig).catch(error => {
+                    console.error(`MonsterSpawner: 生成敌人组失败:`, error);
+                });
             }, enemyConfig.spawnDelay);
         });
     }
@@ -161,14 +164,16 @@ export class MonsterSpawner extends Component {
         const aliveCount = this.getAliveCount(enemyConfig.type);
         
         if (aliveCount < enemyConfig.maxAlive) {
-            this.spawnEnemyGroup(enemyConfig);
+            this.spawnEnemyGroup(enemyConfig).catch(error => {
+                console.error(`MonsterSpawner: 重新生成敌人失败:`, error);
+            });
         }
     }
     
     /**
      * 生成一组怪物
      */
-    private spawnEnemyGroup(enemyConfig: EnemySpawnConfig): void {
+    private async spawnEnemyGroup(enemyConfig: EnemySpawnConfig): Promise<void> {
         const aliveCount = this.getAliveCount(enemyConfig.type);
         const needSpawn = Math.min(
             enemyConfig.count, 
@@ -177,7 +182,7 @@ export class MonsterSpawner extends Component {
         
         for (let i = 0; i < needSpawn; i++) {
             const spawnPos = this.getSpawnPosition();
-            const monster = this.createMonster(enemyConfig.type, spawnPos, enemyConfig);
+            const monster = await this.createMonster(enemyConfig.type, spawnPos, enemyConfig);
             if (monster) {
                 this.registerMonster(enemyConfig.type, monster);
             }
@@ -245,11 +250,12 @@ export class MonsterSpawner extends Component {
     }
     
     /**
-     * 创建怪物 - 使用新的角色对象池系统
+     * 创建怪物 - 使用新的模块化角色工厂系统
      */
-    private createMonster(enemyType: string, position: Vec3, enemyConfig?: EnemySpawnConfig): Node | null {
+    private async createMonster(enemyType: string, position: Vec3, enemyConfig?: EnemySpawnConfig): Promise<Node | null> {
         try {
             console.log(`MonsterSpawner: 创建怪物 ${enemyType} 位置: ${position.x}, ${position.y}`);
+            
             // 1. 获取敌人配置数据
             const enemyData = dataManager.getEnemyData(enemyType);
             if (!enemyData) {
@@ -258,37 +264,55 @@ export class MonsterSpawner extends Component {
             }
 
             const behaviorType = this.determineAIBehaviorType(enemyType);
-            // 2. 使用新的对象池工厂创建AI敌人
-            const monster = BaseCharacterDemo.createAIEnemy(enemyType, {
-                position: position,
-                faction: enemyConfig?.faction || 'red',
-                behaviorType: behaviorType // 可以根据敌人类型或配置动态设置
-            });
-
-            if (!monster) {
-                console.error(`MonsterSpawner: 无法从对象池创建怪物 ${enemyType}`);
-                // 回退到传统方式
-                return this.createMonsterTraditional(enemyType, position, enemyConfig);
+            
+            // 2. 🔥 使用统一ECS工厂创建AI敌人（先确保工厂可用）
+            let character = null;
+            try {
+                character = await UnifiedECSCharacterFactory.createAIEnemy(enemyType, {
+                    position: position,
+                    faction: enemyConfig?.faction || 'red',
+                    behaviorType: behaviorType,
+                    useBaseCharacterDemo: false // 默认使用 ModularCharacter
+                });
+            } catch (factoryError) {
+                console.error(`[MonsterSpawner] 工厂初始化失败:`, factoryError);
+                // 回退到旧系统
+                return this.createMonsterWithOldSystem(enemyType, position, enemyConfig);
             }
 
-            // 3. 【强化】确保敌人类型已设置（新对象池创建后的双重保险）
-            this.ensureEnemyTypeSet(monster.node, enemyType);
+            if (!character) {
+                console.error(`MonsterSpawner: 统一ECS工厂创建怪物失败 ${enemyType}`);
+                // 回退到旧系统
+                return this.createMonsterWithOldSystem(enemyType, position, enemyConfig);
+            }
+
+            // 3. 获取角色节点
+            const characterNode = (character as any).node as Node;
             
             // 4. 添加到Canvas下
-            this.addMonsterToCanvas(monster.node);
+            this.addMonsterToCanvas(characterNode);
             
-            console.log(`MonsterSpawner: ✅ 使用新对象池创建怪物 ${enemyType} 成功`);
-            return monster.node;
+            const characterName = (character as any).node.name;
+            console.log(`MonsterSpawner: ✅ 使用统一ECS工厂创建怪物成功: ${characterName} [${enemyType}]`);
+            return characterNode;
             
         } catch (error) {
-            console.error('MonsterSpawner: Failed to create monster with new pool system', error);
-            // 回退到传统方式
-            return this.createMonsterTraditional(enemyType, position, enemyConfig);
+            console.error('MonsterSpawner: 统一ECS工厂创建失败', error);
+            // 回退到旧系统
+            return this.createMonsterWithOldSystem(enemyType, position, enemyConfig);
         }
     }
 
     /**
-     * 传统方式创建怪物（回退方案）
+     * 使用旧系统创建怪物（回退方案）
+     */
+    private createMonsterWithOldSystem(enemyType: string, position: Vec3, enemyConfig?: EnemySpawnConfig): Node | null {
+        console.warn(`MonsterSpawner: 回退到旧系统创建怪物 ${enemyType}`);
+        return this.createMonsterTraditional(enemyType, position, enemyConfig);
+    }
+
+    /**
+     * 传统方式创建怪物（最终回退方案）
      */
     private createMonsterTraditional(enemyType: string, position: Vec3, enemyConfig?: EnemySpawnConfig): Node | null {
         try {

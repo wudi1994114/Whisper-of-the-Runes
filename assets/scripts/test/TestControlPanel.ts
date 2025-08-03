@@ -233,10 +233,10 @@ export class TestControlPanel extends Component {
     /**
      * 生成敌人按钮点击
      */
-    private onSpawnEnemyClick(): void {
+    private async onSpawnEnemyClick(): Promise<void> {
         if (this.gameManager && this.gameManager.testMode) {
             const enemyType = this.gameManager.getCurrentTestEnemyType();
-            this.gameManager.spawnTestEnemy(enemyType);
+            await this.gameManager.spawnTestEnemy(enemyType);
             console.log(`🎭 通过面板生成测试敌人: ${enemyType}`);
         } else {
             console.warn('⚠️ 只能在手动测试模式下生成敌人');

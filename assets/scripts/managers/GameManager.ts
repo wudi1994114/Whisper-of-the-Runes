@@ -17,6 +17,7 @@ import { BaseCharacterDemo } from '../entities/BaseCharacterDemo';
 import { ControlMode } from '../state-machine/CharacterEnums';
 import { CharacterPoolInitializer, CharacterPoolFactory } from '../pool/CharacterPoolSystem';
 import { damageDisplayController } from '../controllers/DamageDisplayController';
+import { ensureFactoryInitialized } from '../factories/UnifiedECSCharacterFactory';
 
 const { ccclass, property } = _decorator;
 
@@ -713,6 +714,14 @@ export class GameManager extends Component {
         // 这样确保在对象池初始化时类已经可用，避免"类未注册"错误
         CharacterPoolFactory.registerBaseCharacterClass(BaseCharacterDemo);
         console.log('[GameManager] ✅ 预先注册 BaseCharacterDemo 类到对象池工厂');
+
+        // 【新增】确保统一ECS工厂在早期初始化
+        try {
+            const ecsFactory = ensureFactoryInitialized();
+            console.log('[GameManager] ✅ 统一ECS工厂初始化完成');
+        } catch (error) {
+            console.error('[GameManager] ❌ 统一ECS工厂初始化失败:', error);
+        }
 
         // 注册挂载的预制体到对象池
         this.registerMountedPrefabs();
@@ -1534,7 +1543,7 @@ export class GameManager extends Component {
     /**
      * 初始化测试模式
      */
-    private initTestMode(): void {
+    private async initTestMode(): Promise<void> {
         console.log('🧪 [测试模式] 初始化角色对象池系统...');
         
         // 初始化所有角色对象池（测试模式）
@@ -1544,14 +1553,14 @@ export class GameManager extends Component {
         this.printPoolStatus();
         
         // 自动生成默认测试怪物
-        this.spawnTestEnemy(this.getEnemyTypeFromIndex(this.testEnemyType));
+        await this.spawnTestEnemy(this.getEnemyTypeFromIndex(this.testEnemyType));
     }
 
     /**
      * 生成测试怪物
      * @param enemyType 怪物类型
      */
-    public spawnTestEnemy(enemyType: string): void {
+    public async spawnTestEnemy(enemyType: string): Promise<void> {
         // 【修复】此方法仅用于手动测试模式
         if (!this.manualTestMode) {
             console.warn(`GameManager: spawnTestEnemy只应在手动测试模式下使用。当前模式为正常模式，敌人生成由MonsterSpawner负责。`);
@@ -1572,7 +1581,7 @@ export class GameManager extends Component {
 
         // 使用新的对象池系统创建手动控制的角色
         const testPosition = new Vec3(0, 0, 0); // 屏幕中心
-        const character = BaseCharacterDemo.createPlayer(enemyType, testPosition);
+        const character = await BaseCharacterDemo.createPlayer(enemyType, testPosition);
         
         if (!character) {
             console.error(`❌ 无法从新对象池系统创建怪物: ${enemyType}`);
@@ -1581,7 +1590,7 @@ export class GameManager extends Component {
 
         console.log(`🎮 手动测试模式：创建手动控制角色: ${enemyType}`);
 
-        const enemyInstance = character.node;
+        const enemyInstance = (character as any).node;
         
         // 角色已经在创建时设置了位置，确保激活状态
         enemyInstance.active = true;
@@ -1666,14 +1675,14 @@ export class GameManager extends Component {
      * 切换测试怪物类型
      * @param enemyType 新的怪物类型
      */
-    public switchTestEnemy(enemyType: string): void {
+    public async switchTestEnemy(enemyType: string): Promise<void> {
         if (this.availableEnemyTypes.indexOf(enemyType) === -1) {
             console.error(`无效的怪物类型: ${enemyType}`);
             console.log('可用类型:', this.availableEnemyTypes.join(', '));
             return;
         }
         
-        this.spawnTestEnemy(enemyType);
+        await this.spawnTestEnemy(enemyType);
     }
 
     /**
