@@ -25,17 +25,25 @@
  */
 
 // 核心功能接口
-export { IMovable } from './IMovable';
-export { ICombat, IAttackResult } from './ICombat';
-export { IAnimatable } from './IAnimatable';
-export { ILifecycle } from './ILifecycle';
-export { IControllable, IInputSignals } from './IControllable';
-export { IFactional } from './IFactional';
-export { IConfigurable } from './IConfigurable';
-export { IRenderable } from './IRenderable';
+export type { IMovable } from './IMovable';
+export type { ICombat, IAttackResult } from './ICombat';
+export type { IAnimatable } from './IAnimatable';
+export type { ILifecycle } from './ILifecycle';
+export type { IControllable, IInputSignals } from './IControllable';
+export type { IFactional } from './IFactional';
+export type { IConfigurable } from './IConfigurable';
+export type { IRenderable } from './IRenderable';
+export type { 
+    IGrid, 
+    GridCoordinate, 
+    GridEntity, 
+    QueryOptions, 
+    QueryResult 
+} from './IGrid';
+export { EntityType } from './IGrid';
 
 // 复合接口
-export { ICharacter, ICharacterFactory, ICharacterManager } from './ICharacter';
+export type { ICharacter, ICharacterFactory, ICharacterManager } from './ICharacter';
 
 /**
  * 使用示例：

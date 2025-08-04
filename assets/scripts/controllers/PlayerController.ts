@@ -132,6 +132,9 @@ export class PlayerController extends Component {
 
         // 发送移动事件
         eventManager.emit(GameEvents.PLAYER_MOVED, this.node.position);
+        
+        // 通知网格系统位置变化
+        basicEnemyFinder.updateEntityPosition(this.node);
     }
 
     /**

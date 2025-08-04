@@ -1,8 +1,7 @@
-// assets/scripts/components/MovementComponent.ts
-
 import { Component, Vec2, Vec3, RigidBody2D } from 'cc';
 import { IMovable } from '../interfaces/IMovable';
 import { TempVarPool } from '../utils/TempVarPool';
+import { basicEnemyFinder } from './BasicEnemyFinder';
 
 /**
  * 移动组件 - 负责角色的移动、位置、物理相关功能
@@ -59,6 +58,9 @@ export class MovementComponent extends Component implements IMovable {
 
         // 应用速度到刚体
         this._rigidBody.linearVelocity = velocity;
+        
+        // 通知网格系统位置可能发生变化
+        basicEnemyFinder.updateEntityPosition(this.node);
     }
 
     /**
@@ -92,6 +94,9 @@ export class MovementComponent extends Component implements IMovable {
             const newZDepth = -y * 0.1;
             this.node.setPosition(x, y, newZDepth);
         }
+        
+        // 通知网格系统位置变化
+        basicEnemyFinder.updateEntityPosition(this.node);
     }
 
     /**

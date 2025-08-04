@@ -3,27 +3,33 @@
 import { _decorator, Component, Node, Vec3, director } from 'cc';
 import { Faction } from '../configs/FactionConfig';
 import { factionManager } from '../managers/FactionManager';
+import { gridSystem } from '../systems/GridSystem';
+import { EntityType, QueryOptions } from '../interfaces/IGrid';
 
 const { ccclass } = _decorator;
 
 /**
- * 基础敌人查找器
- * 替代复杂的TargetSelectorFactory，提供简单直接的索敌功能
+ * 基础敌人查找器 - 基于网格系统的高性能索敌
+ * 使用网格空间索引提供快速的敌人查找功能
  */
 @ccclass('BasicEnemyFinder')
 export class BasicEnemyFinder {
     private static instance: BasicEnemyFinder | null = null;
     
-    // 缓存所有活跃的角色节点，按阵营分组
-    private charactersByFaction: Map<Faction, Set<Node>> = new Map();
-    
     // 性能优化：限制搜索频率
     private lastSearchTime: number = 0;
-    private readonly SEARCH_COOLDOWN = 0.1; // 100ms搜索间隔
+    private readonly SEARCH_COOLDOWN = 0.05; // 50ms搜索间隔（比原来更频繁，因为网格系统更高效）
+    
+    // 清理计时器
+    private cleanupTimer = 0;
+    private readonly CLEANUP_INTERVAL = 5.0; // 5秒清理一次
+    
+    // 统计信息
+    private queryCount = 0;
+    private cacheHits = 0;
     
     private constructor() {
-        // 初始化阵营映射
-        this.initializeFactionMaps();
+        console.log('[BasicEnemyFinder] 初始化基于网格系统的索敌器');
     }
     
     public static getInstance(): BasicEnemyFinder {
@@ -34,43 +40,35 @@ export class BasicEnemyFinder {
     }
     
     /**
-     * 初始化阵营映射
+     * 获取网格系统的敌对阵营列表
      */
-    private initializeFactionMaps(): void {
+    private getEnemyFactions(searcherFaction: Faction): Faction[] {
         const allFactions = [Faction.PLAYER, Faction.RED, Faction.BLUE, Faction.GREEN, Faction.PURPLE];
-        allFactions.forEach(faction => {
-            this.charactersByFaction.set(faction, new Set());
-        });
+        return allFactions.filter(faction => factionManager.doesAttack(searcherFaction, faction));
     }
     
     /**
-     * 注册角色到索敌系统
+     * 注册角色到索敌系统（现在使用网格系统）
      * @param characterNode 角色节点
      * @param faction 角色阵营
      */
     public registerCharacter(characterNode: Node, faction: Faction): void {
-        const factionSet = this.charactersByFaction.get(faction);
-        if (factionSet) {
-            factionSet.add(characterNode);
-            console.log(`[BasicEnemyFinder] 注册角色: ${characterNode.name} -> ${faction}`);
-        }
+        gridSystem.registerEntity(characterNode, faction, EntityType.CHARACTER);
+        console.log(`[BasicEnemyFinder] 注册角色到网格系统: ${characterNode.name} -> ${faction}`);
     }
     
     /**
-     * 从索敌系统移除角色
+     * 从索敌系统移除角色（现在使用网格系统）
      * @param characterNode 角色节点
-     * @param faction 角色阵营
+     * @param faction 角色阵营  
      */
     public unregisterCharacter(characterNode: Node, faction: Faction): void {
-        const factionSet = this.charactersByFaction.get(faction);
-        if (factionSet) {
-            factionSet.delete(characterNode);
-            console.log(`[BasicEnemyFinder] 移除角色: ${characterNode.name} -> ${faction}`);
-        }
+        gridSystem.unregisterEntity(characterNode);
+        console.log(`[BasicEnemyFinder] 从网格系统移除角色: ${characterNode.name} -> ${faction}`);
     }
     
     /**
-     * 查找最近的敌人
+     * 查找最近的敌人 - 使用网格系统优化
      * @param searcherNode 搜索者节点
      * @param searcherFaction 搜索者阵营
      * @param maxRange 最大搜索范围
@@ -80,111 +78,121 @@ export class BasicEnemyFinder {
         // 性能优化：限制搜索频率
         const now = Date.now();
         if (now - this.lastSearchTime < this.SEARCH_COOLDOWN * 1000) {
+            this.cacheHits++;
             return null; // 搜索冷却中
         }
         this.lastSearchTime = now;
-        
-        let nearestEnemy: Node | null = null;
-        let nearestDistance = maxRange;
+        this.queryCount++;
         
         const searcherPos = searcherNode.getWorldPosition();
+        const enemyFactions = this.getEnemyFactions(searcherFaction);
         
-        // 遍历所有阵营，找出敌对阵营
-        this.charactersByFaction.forEach((characters, faction) => {
-            // 检查是否为敌对阵营
-            if (factionManager.doesAttack(searcherFaction, faction)) {
-                characters.forEach(character => {
-                    // 检查角色是否有效且存活
-                    if (!character || !character.isValid) {
-                        characters.delete(character); // 清理无效节点
-                        return;
-                    }
-                    
-                    // 检查角色是否存活
-                    const characterStats = character.getComponent('CharacterStats');
-                    if (characterStats && !(characterStats as any).isAlive) {
-                        return;
-                    }
-                    
-                    // 计算距离
-                    const enemyPos = character.getWorldPosition();
-                    const distance = Vec3.distance(searcherPos, enemyPos);
-                    
-                    if (distance < nearestDistance) {
-                        nearestDistance = distance;
-                        nearestEnemy = character;
-                    }
-                });
-            }
-        });
+        // 使用网格系统查找最近的敌人
+        const queryOptions: QueryOptions = {
+            factions: enemyFactions,
+            entityTypes: [EntityType.CHARACTER],
+            maxDistance: maxRange,
+            ignoreEntity: searcherNode,
+            onlyAlive: true
+        };
         
-        if (nearestEnemy) {
-            console.log(`[BasicEnemyFinder] ${searcherNode.name} 找到敌人: ${nearestEnemy.name}, 距离: ${nearestDistance.toFixed(1)}`);
+        const result = gridSystem.findNearestEntity(searcherPos, queryOptions);
+        
+        if (result) {
+            console.log(`[BasicEnemyFinder] ${searcherNode.name} 找到敌人: ${result.entity.node.name}, 距离: ${result.distance.toFixed(1)} (网格查询)`);
+            return result.entity.node;
         }
         
-        return nearestEnemy;
+        return null;
     }
     
     /**
-     * 获取指定阵营的所有敌人
+     * 获取指定阵营的所有敌人 - 使用网格系统优化
      * @param searcherFaction 搜索者阵营
      * @param maxRange 最大搜索范围
      * @param searcherPos 搜索者位置
      * @returns 敌人节点数组
      */
     public getAllEnemies(searcherFaction: Faction, maxRange: number = 300, searcherPos?: Vec3): Node[] {
-        const enemies: Node[] = [];
+        if (!searcherPos) {
+            console.warn('[BasicEnemyFinder] getAllEnemies需要搜索位置参数');
+            return [];
+        }
         
-        this.charactersByFaction.forEach((characters, faction) => {
-            if (factionManager.doesAttack(searcherFaction, faction)) {
-                characters.forEach(character => {
-                    if (!character || !character.isValid) {
-                        characters.delete(character);
-                        return;
-                    }
-                    
-                    // 检查存活状态
-                    const characterStats = character.getComponent('CharacterStats');
-                    if (characterStats && !(characterStats as any).isAlive) {
-                        return;
-                    }
-                    
-                    // 检查距离
-                    if (searcherPos) {
-                        const enemyPos = character.getWorldPosition();
-                        const distance = Vec3.distance(searcherPos, enemyPos);
-                        if (distance <= maxRange) {
-                            enemies.push(character);
-                        }
-                    } else {
-                        enemies.push(character);
-                    }
-                });
-            }
-        });
+        this.queryCount++;
+        const enemyFactions = this.getEnemyFactions(searcherFaction);
         
+        // 使用网格系统查找范围内的所有敌人
+        const queryOptions: QueryOptions = {
+            factions: enemyFactions,
+            entityTypes: [EntityType.CHARACTER],
+            onlyAlive: true
+        };
+        
+        const results = gridSystem.findEntitiesInRange(searcherPos, maxRange, queryOptions);
+        const enemies = results.map(result => result.entity.node);
+        
+        console.log(`[BasicEnemyFinder] 在范围${maxRange}内找到${enemies.length}个敌人 (网格查询)`);
         return enemies;
     }
     
     /**
-     * 清理所有缓存
+     * 清理所有缓存（现在使用网格系统清理）
      */
     public clearAll(): void {
-        this.charactersByFaction.forEach(factionSet => {
-            factionSet.clear();
-        });
-        console.log('[BasicEnemyFinder] 已清理所有角色缓存');
+        gridSystem.cleanup();
+        this.queryCount = 0;
+        this.cacheHits = 0;
+        console.log('[BasicEnemyFinder] 已清理所有角色缓存（网格系统）');
+    }
+    
+    /**
+     * 手动触发清理
+     */
+    public triggerCleanup(): void {
+        gridSystem.cleanup();
+        console.log('[BasicEnemyFinder] 手动触发网格系统清理');
     }
     
     /**
      * 获取调试信息
      */
     public getDebugInfo(): string {
-        let info = '[BasicEnemyFinder] 当前注册角色:\n';
-        this.charactersByFaction.forEach((characters, faction) => {
-            info += `  ${faction}: ${characters.size} 个角色\n`;
-        });
-        return info;
+        return `[BasicEnemyFinder] 基于网格系统的索敌统计:
+- 查询次数: ${this.queryCount}
+- 缓存命中: ${this.cacheHits}
+- 命中率: ${this.queryCount > 0 ? (this.cacheHits / this.queryCount * 100).toFixed(1) : 0}%
+- 搜索冷却: ${this.SEARCH_COOLDOWN * 1000}ms
+
+${gridSystem.getDebugInfo()}`;
+    }
+    
+    /**
+     * 更新实体位置通知网格系统
+     * 应该在角色移动时调用
+     */
+    public updateEntityPosition(node: Node): void {
+        gridSystem.updateEntityPosition(node);
+    }
+    
+    /**
+     * 基于网格的范围攻击目标查找
+     * @param centerPos 攻击中心位置
+     * @param radius 攻击半径
+     * @param attackerFaction 攻击者阵营
+     * @returns 范围内的敌人节点数组
+     */
+    public findTargetsInAOE(centerPos: Vec3, radius: number, attackerFaction: Faction): Node[] {
+        const enemyFactions = this.getEnemyFactions(attackerFaction);
+        
+        const queryOptions: QueryOptions = {
+            factions: enemyFactions,
+            entityTypes: [EntityType.CHARACTER],
+            onlyAlive: true
+        };
+        
+        const results = gridSystem.findEntitiesInRange(centerPos, radius, queryOptions);
+        return results.map(result => result.entity.node);
     }
 }
 

@@ -122,11 +122,7 @@ export class FactionManager extends Component {
             return false;
         }
 
-        const willAttack = relation.attacks.indexOf(targetFaction) !== -1;
-        
-        // 移除频繁的调试日志
-        
-        return willAttack;
+        return relation.attacks.indexOf(targetFaction) !== -1;
     }
 
     /**
@@ -180,9 +176,6 @@ export class FactionManager extends Component {
                 }
             }
         }
-
-
-        
         return enemies;
     }
 

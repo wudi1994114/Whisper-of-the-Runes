@@ -297,75 +297,9 @@ export class MonsterSpawner extends Component {
             
         } catch (error) {
             console.error('MonsterSpawner: 统一ECS工厂创建失败', error);
-            // 回退到旧系统
-            return this.createMonsterWithOldSystem(enemyType, position, enemyConfig);
-        }
-    }
-
-    /**
-     * 使用旧系统创建怪物（回退方案）
-     */
-    private createMonsterWithOldSystem(enemyType: string, position: Vec3, enemyConfig?: EnemySpawnConfig): Node | null {
-        console.warn(`MonsterSpawner: 回退到旧系统创建怪物 ${enemyType}`);
-        return this.createMonsterTraditional(enemyType, position, enemyConfig);
-    }
-
-    /**
-     * 传统方式创建怪物（最终回退方案）
-     */
-    private createMonsterTraditional(enemyType: string, position: Vec3, enemyConfig?: EnemySpawnConfig): Node | null {
-        try {
-            console.warn(`MonsterSpawner: 使用传统方式创建怪物 ${enemyType}`);
-            
-            const enemyData = dataManager.getEnemyData(enemyType);
-            if (!enemyData) {
-                console.error(`MonsterSpawner: 未找到敌人类型 ${enemyType} 的配置数据`);
-                return null;
-            }
-
-            // 尝试从旧的对象池获取
-            let monster = poolManager.getEnemyInstance(enemyType, enemyData);
-            if (monster) {
-                monster.setPosition(position);
-                monster.active = true;
-                
-                // 【强化】确保敌人类型已设置（getEnemyInstance已经设置了，但双重保险）
-                this.ensureEnemyTypeSet(monster, enemyType);
-                
-                this.addAIController(monster, enemyType, enemyData, enemyConfig);
-                this.addMonsterToCanvas(monster);
-                
-                console.log(`MonsterSpawner: 传统对象池创建 ${enemyType} 成功`);
-                return monster;
-            }
-
-            // 最后的回退：实例化预制体
-            if (!this.monsterPrefab) {
-                console.error('MonsterSpawner: Monster prefab not set');
-                return null;
-            }
-            
-            monster = instantiate(this.monsterPrefab);
-            monster.setPosition(position);
-            
-            // 【强化】在初始化组件之前先设置敌人类型
-            this.ensureEnemyTypeSet(monster, enemyType);
-            
-            // 然后进行组件初始化
-            this.initializeMonsterComponents(monster, enemyType, enemyData);
-            
-            this.addAIController(monster, enemyType, enemyData, enemyConfig);
-            this.addMonsterToCanvas(monster);
-            
-            console.log(`MonsterSpawner: 预制体实例化创建 ${enemyType} 成功`);
-            return monster;
-            
-        } catch (error) {
-            console.error('MonsterSpawner: Traditional creation failed', error);
             return null;
         }
     }
-
     /**
      * 【新增】确保敌人类型已正确设置的统一方法
      * @param monsterNode 怪物节点

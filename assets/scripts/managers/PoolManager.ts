@@ -204,23 +204,15 @@ class PoolManager {
             return null;
         }
 
-        // 【关键修复】强制激活节点
+        // 强制激活节点
         node.active = true;
 
-        // 【关键修复】如果有敌人数据，先设置敌人类型，再进行其他初始化
+        // 如果有敌人数据，进行基础初始化（不涉及组件配置）
         if (enemyData) {
-            // 1. 先设置敌人类型到ConfigComponent
-            const configComponent = node.getComponent('ConfigComponent');
-            if (configComponent && (configComponent as any).setEnemyType && enemyData.id) {
-                (configComponent as any).setEnemyType(enemyData.id);
-                console.log(`PoolManager: ✅ 已设置敌人类型: ${enemyData.id} (通过ConfigComponent)`);
-            }
-            
-            // 2. 然后进行统一初始化
             this.initializeEnemyInstance(node, enemyData);
         }
 
-        console.log(`PoolManager: 获取敌人实例完成 - ${poolName}, 节点已激活: ${node.active}`);
+        console.log(`PoolManager: 获取敌人实例完成 - ${poolName} (${node.name}), 节点已激活: ${node.active}`);
         return node;
     }
 
@@ -234,9 +226,6 @@ class PoolManager {
         }
 
         try {
-            // 注意：ConfigComponent的敌人类型设置交给调用方（GameManager或MonsterSpawner）处理
-            // 避免重复调用 setEnemyType() 导致的冲突
-
             // 初始化CharacterStats组件
             const characterStats = node.getComponent('CharacterStats');
             if (characterStats && (characterStats as any).initWithEnemyData) {
