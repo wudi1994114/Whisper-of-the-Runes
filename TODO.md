@@ -1,9 +1,124 @@
-cursor-memory
-```
-The user prefers that the assistant does not make any changes until the full context has been comprehensively reviewed. Immediate or direct modifications without considering the surrounding content are discouraged.
-The user prefers that code modifications strictly follow the project’s existing framework, especially the animation framework, and not introduce fallback or backup solutions; they want the root issue identified before making any changes.
-The user prefers that the assistant not include documentation and provide direct outputs.
-```
+第 1 步：动态“方向场”的构建与更新 (系统的核心大脑)
+这是整个方案的精髓所在，它根据战场态势，实时为每一“列”的单位提供最佳的横向移动建议。
+
+数据结构:
+一个一维数组 Direction[] directionField = new Direction[n];，其中 Direction 是一个包含 { LEFT, RIGHT, NEUTRAL } 的枚举。
+
+更新逻辑 (The Key Algorithm):
+此逻辑取代了之前所有的重心计算和独立的渗透者检测，成为唯一的大局观判断来源。
+
+更新频率: 每 0.5 秒或 1 秒执行一次即可，性能开销极低。
+
+算法伪代码:
+
+C#
+
+// C# 风格伪代码
+void UpdateDirectionField(List<Unit> allEnemies)
+{
+    // 遍历战场中的每一“列”
+    for (int x = 0; x < n; x++)
+    {
+        int enemiesOnLeft = 0;
+        int enemiesOnRight = 0;
+
+        // 对每一个敌人，判断其相对当前列的位置
+        foreach (Unit enemy in allEnemies)
+        {
+            if (enemy.x < x)
+            {
+                enemiesOnLeft++;
+            }
+            else if (enemy.x > x)
+            {
+                enemiesOnRight++;
+            }
+        }
+
+        // 根据左右敌人数量，决定这一列的移动方向
+        if (enemiesOnRight > enemiesOnLeft)
+        {
+            directionField[x] = Direction.RIGHT; // 右边敌人多，向右压制
+        }
+        else if (enemiesOnLeft > enemiesOnRight)
+        {
+            directionField[x] = Direction.LEFT;  // 左边敌人多，向左压制
+        }
+        else
+        {
+            directionField[x] = Direction.NEUTRAL; // 势均力敌，保持中立或前进
+        }
+    }
+}
+应对渗透的内在逻辑:
+这个算法的巧妙之处在于，当一个敌方单位渗透到后方（例如 enemy.x 很小），对于我方后排的单位（它们的 x 坐标也较小），在它们计算时，这个渗透者会被计入 enemiesOnLeft。如果后方没有其他敌人，enemiesOnRight 将为0，directionField 在这些后排的列上会自然地指向 LEFT，引导后排部队自动转身迎敌。这就形成了一个动态的、自适应的“后卫线”。
+
+第 2 步：单位行为控制 (FSM - 保持不变)
+单位的个体AI逻辑非常简单，它只关心两件事：前进索敌，或者根据战场情况战斗。
+
+状态一：行军 (Marching)
+
+移动: 笔直向前。velocity = (forward_speed, 0);。完全不参考方向场，保证了阵型的整体推进。
+
+索敌: 检测九宫格（3x3）范围内的敌人。
+
+状态切换: 发现敌人后，切换到 战斗 状态。
+
+状态二：战斗 (Combat)
+
+情况A：攻击范围内有敌人
+
+最高优先级: 忽略一切移动指令。
+
+执行攻击动作。
+
+情况B：攻击范围内无敌人 (但在战斗状态下)
+
+开始参考方向场进行“智能移动”。
+
+获取方向: Direction moveDirection = directionField[unit.x];
+
+水平移动: 根据 moveDirection 移动。
+
+垂直移动: 为了攻击不同线路的敌人，需要朝向最近的敌人的y坐标移动。
+
+组合速度: 将水平和垂直的移动意图结合起来，形成最终的移动向量。
+
+状态切换: 若索敌范围在一段时间内（如3秒）无任何敌人，则切换回 行军 状态，继续向前推进。
+
+明确分工：两套系统，各司其职
+1. n*3 游戏世界网格 (物理世界)
+它的职责: 描述“此时此地”的客观事实。
+
+哪个格子 (x, y) 上有哪个单位？
+
+哪个格子是障碍物？
+
+
+它的使用者: 单位AI的“传感器”。
+
+“九宫格检索”只发生在这里: 当一个单位需要检测周围情况时，它是在 n*3 的物理世界里进行检索的。
+
+例如: 一个位于 (ux, uy) 的单位，要进行九宫格检索，它的逻辑是：
+
+遍历 x 从 ux-1 到 ux+1
+
+遍历 y 从 uy-1 到 uy+1
+
+查询 n*3 网格的 (x, y) 位置上是否有敌人。
+
+这个过程完全不需要，也完全不关心 n*1 的方向场。它只关心“我身边一米内有没有敌人？”这个最基本的事实。
+
+2. n*1 方向场 (战略地图)
+它的职责: 提供“宏观的、非局部的”战略建议。
+
+它不关心某个格子上有没有单位。
+
+它只回答一个问题：“在 x 这条战线上，大部队应该向左还是向右施压？”
+
+它的使用者: 单位AI的“决策参考”。
+
+它与九宫格检索无关: 它的存在是为了让单位在“眼前没有敌人可打，需要移动时”做出一个更明智的、符合大局的移动选择，而不是像无头苍蝇一样乱撞。
 
 
 # 游戏功能开发记录
@@ -15,15 +130,6 @@ The user prefers that the assistant not include documentation and provide direct
 - 增加物理碰撞日志检测 查询碰撞触发不了的原因
 - 修改架构ecs 现在配置文件过于巨大 修改后把这些都拆开
 
-寻路算法文档
-https://blog.csdn.net/a1047120490/article/details/107333561
-http://www.meltycriss.com/2017/01/13/paper-rvo/
-https://blog.csdn.net/u012740992/article/details/89397714
-https://zhuanlan.zhihu.com/p/74888471
-
-1.首先索敌 确定敌人所在
-2.通过A*寻路算法 计算出最短路径
-3.通过Orca算法 控制碰撞
 
 
 
