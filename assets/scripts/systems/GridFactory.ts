@@ -3,13 +3,15 @@
 import { IGrid } from '../interfaces/IGrid';
 import { GridSystem } from './GridSystem';
 import { NbyThreeGrid } from './NbyThreeGrid';
+import { OneDimensionalGrid } from './OneDimensionalGrid';
 
 /**
  * 网格类型枚举
  */
 export enum GridType {
     STANDARD = 'standard',      // 标准固定网格
-    N_BY_THREE = 'nByThree'     // n*3形式网格
+    N_BY_THREE = 'nByThree',    // n*3形式网格
+    ONE_DIMENSIONAL = 'oneDimensional'  // 一维网格（流场寻路专用）
 }
 
 /**
@@ -63,6 +65,17 @@ export class GridFactory {
                     config.worldHeight || 1080
                 );
                 console.log(`[GridFactory] 创建${config.cols || 30}x3网格系统`);
+                break;
+
+            case GridType.ONE_DIMENSIONAL:
+                // 重置一维网格实例以创建新配置
+                OneDimensionalGrid.resetInstance();
+                grid = OneDimensionalGrid.getInstance(
+                    config.cols || 30,
+                    config.worldWidth || 1920,
+                    config.worldHeight || 1080
+                );
+                console.log(`[GridFactory] 创建${config.cols || 30}列一维网格系统`);
                 break;
 
             default:
@@ -133,6 +146,28 @@ export class GridFactory {
                 type: GridType.N_BY_THREE,
                 cols: 100,
                 worldWidth: 3840,
+                worldHeight: 1080
+            }),
+
+            // 一维流场网格配置
+            oneDimensionalSmall: (): GridConfig => ({
+                type: GridType.ONE_DIMENSIONAL,
+                cols: 20,
+                worldWidth: 1920,
+                worldHeight: 1080
+            }),
+
+            oneDimensionalMedium: (): GridConfig => ({
+                type: GridType.ONE_DIMENSIONAL,
+                cols: 30,
+                worldWidth: 1920,
+                worldHeight: 1080
+            }),
+
+            oneDimensionalLarge: (): GridConfig => ({
+                type: GridType.ONE_DIMENSIONAL,
+                cols: 50,
+                worldWidth: 1920,
                 worldHeight: 1080
             })
         };

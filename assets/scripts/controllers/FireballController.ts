@@ -7,7 +7,8 @@ import { eventManager } from '../managers/EventManager';
 import { poolManager } from '../managers/PoolManager';
 import { PhysicsGroup } from '../configs/PhysicsConfig';
 import { factionManager } from '../managers/FactionManager';
-import { resourceManager } from '../managers/ResourceManager';
+import { CombatComponent } from '../components/CombatComponent';
+import { FactionComponent } from '../components/FactionComponent';
 import { animationManager } from '../managers/AnimationManager';
 import { ProjectileAnimationState } from '../configs/AnimationConfig';
 

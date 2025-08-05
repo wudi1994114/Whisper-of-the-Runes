@@ -40,7 +40,7 @@ export class ModularCharacter extends Component implements ICharacter {
 
     // ICharacter 基础属性
     public readonly id: string = '';
-    public readonly name: string = '';
+    // 注意：name 属性继承自 Component 类，无需重新定义
 
     protected onLoad(): void {
         // 获取所有组件引用
@@ -226,6 +226,14 @@ export class ModularCharacter extends Component implements ICharacter {
     
     updateDirectionTowards(targetPosition: any): void {
         this._animationComponent?.updateDirectionTowards(targetPosition);
+    }
+
+    /**
+     * 根据移动向量更新朝向
+     * @param direction 移动方向向量 {x, y}
+     */
+    updateDirectionFromMovement(direction: {x: number, y: number}): void {
+        this._animationComponent?.updateDirectionFromMovement(direction);
     }
 
     // ==================== ILifecycle 接口实现 ====================
@@ -482,30 +490,21 @@ export class ModularCharacter extends Component implements ICharacter {
     /**
      * 移动方向更新事件处理
      */
-    private onUpdateMovementDirection(keyStates: { [key: number]: boolean }): void {
+    private onUpdateMovementDirection(direction: {x: number, y: number}): void {
         if (!this._movementComponent || this.controlMode !== ControlMode.MANUAL) {
             return;
         }
 
-        // 更新移动方向
-        const direction = new Vec2(0, 0);
+        console.log(`[ModularCharacter] 接收到移动方向: (${direction.x}, ${direction.y}) (节点: ${this.node.name})`);
         
-        // WASD键映射（这里需要具体的KeyCode值）
-        // 简化处理，实际需要导入KeyCode
-        if (keyStates[87]) direction.y += 1; // W
-        if (keyStates[83]) direction.y -= 1; // S
-        if (keyStates[65]) direction.x -= 1; // A
-        if (keyStates[68]) direction.x += 1; // D
+        // 转换为Vec2并设置移动方向
+        const moveDir = new Vec2(direction.x, direction.y);
+        this.moveDirection = moveDir;
         
-        if (direction.length() > 0) {
-            direction.normalize();
-        }
-        
-        this.moveDirection = direction;
-        
-        // 更新朝向
-        if (direction.length() > 0) {
-            this.updateDirectionTowards({ x: direction.x, y: direction.y });
+        // 更新动画朝向
+        if (moveDir.length() > 0) {
+            this.updateDirectionFromMovement(direction);
+            console.log(`[ModularCharacter] 更新动画朝向基于移动: (${direction.x}, ${direction.y})`);
         }
     }
 

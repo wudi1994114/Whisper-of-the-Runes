@@ -16,27 +16,27 @@
       "monsterSpawners": [
         {
           "id": "red_left_spawner",
-          "position": { "x": -200, "y": 0 },
-          "spawnRadius": 80,
+          "position": { "x": -600, "y": 0 },
+          "spawnRadius": 120,
           "spawnType": "circle",
           "faction": "red",
-          "randomOffset": { "x": 50, "y": 50 },
+          "randomOffset": { "x": 80, "y": 100 },
           "enemies": [
             {
               "type": "ent_normal",
-              "count": 10,
-              "spawnInterval": 2.0,
-              "maxAlive": 1,
+              "count": 15,
+              "spawnInterval": 1.5,
+              "maxAlive": 3,
               "spawnDelay": 1.0,
               "respawnOnDeath": true,
               "faction": "red"
             },
             {
               "type": "lich_normal",
-              "count": 10,
-              "spawnInterval": 10.0,
-              "maxAlive": 0,
-              "spawnDelay": 5.0,
+              "count": 8,
+              "spawnInterval": 8.0,
+              "maxAlive": 2,
+              "spawnDelay": 3.0,
               "respawnOnDeath": true,
               "faction": "red"
             }
@@ -44,27 +44,27 @@
         },
         {
           "id": "blue_right_spawner",
-          "position": { "x": 200, "y": 0 },
-          "spawnRadius": 80,
+          "position": { "x": 600, "y": 0 },
+          "spawnRadius": 120,
           "spawnType": "circle",
           "faction": "blue",
-          "randomOffset": { "x": 50, "y": 50 },
+          "randomOffset": { "x": 80, "y": 100 },
           "enemies": [
             {
               "type": "ent_normal",
-              "count": 10,
-              "spawnInterval": 2.0,
-              "maxAlive": 1,
+              "count": 15,
+              "spawnInterval": 1.5,
+              "maxAlive": 3,
               "spawnDelay": 1.0,
               "respawnOnDeath": true,
               "faction": "blue"
             },
             {
               "type": "lich_normal",
-              "count": 10,
-              "spawnInterval": 10.0,
-              "maxAlive": 0,
-              "spawnDelay": 5.0,
+              "count": 8,
+              "spawnInterval": 8.0,
+              "maxAlive": 2,
+              "spawnDelay": 3.0,
               "respawnOnDeath": true,
               "faction": "blue"
             }
@@ -99,34 +99,64 @@
       
       "monsterSpawners": [
         {
-          "id": "unified_spawner",
-          "position": { "x": 0, "y": 0 },
-          "spawnRadius": 350,
+          "id": "red_left_forest_spawner",
+          "position": { "x": -700, "y": 0 },
+          "spawnRadius": 150,
           "spawnType": "circle",
           "faction": "red",
+          "randomOffset": { "x": 100, "y": 120 },
           "enemies": [
             {
               "type": "ent_normal",
-              "count": 2,
-              "spawnInterval": 3.0,
-              "maxAlive": 3,
+              "count": 8,
+              "spawnInterval": 2.5,
+              "maxAlive": 4,
               "spawnDelay": 2.0,
               "respawnOnDeath": true,
               "faction": "red"
             },
             {
-              "type": "ent_normal",
-              "count": 1,
-              "spawnInterval": 4.0,
+              "type": "lich_normal",
+              "count": 3,
+              "spawnInterval": 12.0,
               "maxAlive": 2,
-              "spawnDelay": 5.0,
+              "spawnDelay": 8.0,
+              "respawnOnDeath": true,
+              "faction": "red"
+            }
+          ]
+        },
+        {
+          "id": "blue_right_forest_spawner",
+          "position": { "x": 700, "y": 0 },
+          "spawnRadius": 150,
+          "spawnType": "circle",
+          "faction": "blue",
+          "randomOffset": { "x": 100, "y": 120 },
+          "enemies": [
+            {
+              "type": "ent_normal",
+              "count": 6,
+              "spawnInterval": 3.0,
+              "maxAlive": 3,
+              "spawnDelay": 3.0,
               "respawnOnDeath": true,
               "faction": "blue"
-            },
+            }
+          ]
+        },
+        {
+          "id": "center_purple_spawner",
+          "position": { "x": 0, "y": 200 },
+          "spawnRadius": 80,
+          "spawnType": "circle",
+          "faction": "purple",
+          "randomOffset": { "x": 60, "y": 60 },
+          "enemies": [
             {
               "type": "lich_normal",
-              "count": 1,
-              "spawnInterval": 8.0,
+              "count": 2,
+              "spawnInterval": 15.0,
               "maxAlive": 1,
               "spawnDelay": 10.0,
               "respawnOnDeath": true,

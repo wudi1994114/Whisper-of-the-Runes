@@ -265,14 +265,22 @@ export class AnimationManager {
         
         if (!animationComponent) {
             animationComponent = node.addComponent(Animation);
+            console.log(`[AnimationManager] 创建新的Animation组件`);
+        } else {
+            console.log(`[AnimationManager] 找到现有的Animation组件，当前clips数量: ${animationComponent.clips.length}`);
+            // 清空现有的clips，避免重复
+            animationComponent.clips = [];
+            console.log(`[AnimationManager] 清空现有clips，准备添加新的clips`);
         }
         
         // 添加新剪辑
-        clips.forEach((clip) => {
+        clips.forEach((clip, name) => {
             animationComponent.addClip(clip);
+            console.log(`[AnimationManager] 添加clip: ${name}`);
         });
 
-        console.log(`Animation component setup complete with ${clips.size} clips`);
+        console.log(`[AnimationManager] Animation component setup complete with ${clips.size} clips`);
+        console.log(`[AnimationManager] 最终Animation组件中的clips数量: ${animationComponent.clips.length}`);
         return animationComponent;
     }
 

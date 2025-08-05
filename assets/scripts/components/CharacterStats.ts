@@ -1,7 +1,7 @@
 // assets/scripts/components/CharacterStats.ts
 
 import { _decorator, Component, Sprite } from 'cc';
-import { MonsterAnimationController } from '../controllers/MonsterAnimationController';
+// import { MonsterAnimationController } from '../controllers/MonsterAnimationController'; // 不再使用
 import { EnemyData } from '../configs/EnemyConfig';
 import { eventManager } from '../managers/EventManager';
 import { GameEvents } from './GameEvents';
@@ -30,7 +30,7 @@ export class CharacterStats extends Component {
     
     // 组件引用
     private _spriteComponent: Sprite | null = null;
-    private _animationController: MonsterAnimationController | null = null;
+    // private _animationController: MonsterAnimationController | null = null; // 不再使用
     
     // 敌人数据
     private _enemyData: EnemyData | null = null;
@@ -52,10 +52,13 @@ export class CharacterStats extends Component {
             this._spriteComponent = this.addComponent(Sprite);
         }
         
-        this._animationController = this.getComponent(MonsterAnimationController);
-        if (!this._animationController) {
-            this._animationController = this.addComponent(MonsterAnimationController);
-        }
+        // 注释：不再使用MonsterAnimationController，现在使用AnimationComponent
+        // this._animationController = this.getComponent(MonsterAnimationController);
+        // if (!this._animationController) {
+        //     this._animationController = this.addComponent(MonsterAnimationController);
+        // }
+        console.log(`[CharacterStats] 跳过MonsterAnimationController，使用新的AnimationComponent架构`);
+        // this._animationController = null; // 属性已被注释掉
     }
     
             // 注册/反注册逻辑已移至FactionComponent组件
@@ -133,10 +136,8 @@ export class CharacterStats extends Component {
         this._maxPoise = enemyData.poise || 50; // 如果配置中没有，给一个默认值
         this._currentPoise = this._maxPoise;
         
-        // 初始化动画控制器
-        if (this._animationController) {
-            await this._animationController.initializeWithEnemyData(enemyData);
-        }
+        // 不再初始化MonsterAnimationController，现在使用AnimationComponent
+        console.log(`[CharacterStats] 跳过MonsterAnimationController初始化，使用AnimationComponent`);
         
         eventManager.emit(GameEvents.CHARACTER_STATS_INITIALIZED, this);
     }
@@ -231,10 +232,8 @@ export class CharacterStats extends Component {
         // 重置时也要恢复霸体值
         this._currentPoise = this._maxPoise;
         
-        // 重置动画到待机状态
-        if (this._animationController && this._animationController.isReady()) {
-            this._animationController.playIdleAnimation();
-        }
+        // 不再使用MonsterAnimationController，动画现在由AnimationComponent和状态机管理
+        console.log(`[CharacterStats] reset方法调用，跳过MonsterAnimationController`);
         
         eventManager.emit(GameEvents.CHARACTER_RESET, this);
     }
@@ -243,67 +242,56 @@ export class CharacterStats extends Component {
      * 播放攻击动画
      */
     public playAttackAnimation() {
-        if (this._animationController && this._animationController.isReady()) {
-            this._animationController.playAttackAnimation();
-        }
+        console.log(`[CharacterStats] playAttackAnimation调用，不再使用MonsterAnimationController`);
+        // 不再使用MonsterAnimationController，动画播放现在由AnimationComponent和状态机管理
     }
     
     /**
      * 播放受伤动画
      */
     public playHurtAnimation() {
-        if (this._animationController && this._animationController.isReady()) {
-            this._animationController.playHurtAnimation();
-        }
+        console.log(`[CharacterStats] playHurtAnimation调用，不再使用MonsterAnimationController`);
+        // 不再使用MonsterAnimationController，动画播放现在由AnimationComponent和状态机管理
     }
     
     /**
      * 播放死亡动画
      */
     public playDeathAnimation() {
-        if (this._animationController && this._animationController.isReady()) {
-            this._animationController.playDieAnimation();
-        }
+        console.log(`[CharacterStats] playDeathAnimation调用，不再使用MonsterAnimationController`);
+        // 不再使用MonsterAnimationController，动画播放现在由AnimationComponent和状态机管理
     }
     
     /**
      * 播放施法动画
      */
     public playCastAnimation() {
-        if (this._animationController && this._animationController.isReady()) {
-            this._animationController.playCastAnimation();
-        }
+        console.log(`[CharacterStats] playCastAnimation调用，不再使用MonsterAnimationController`);
+        // 不再使用MonsterAnimationController，动画播放现在由AnimationComponent和状态机管理
     }
     
     /**
      * 播放移动动画
      */
     public playMoveAnimation() {
-        if (this._animationController && this._animationController.isReady()) {
-            this._animationController.playMoveAnimation();
-        }
+        console.log(`[CharacterStats] playMoveAnimation调用，不再使用MonsterAnimationController`);
+        // 不再使用MonsterAnimationController，动画播放现在由AnimationComponent和状态机管理
     }
     
     /**
      * 播放待机动画
      */
     public playIdleAnimation() {
-        if (this._animationController && this._animationController.isReady()) {
-            this._animationController.playIdleAnimation();
-        }
+        console.log(`[CharacterStats] playIdleAnimation调用，不再使用MonsterAnimationController`);
+        // 不再使用MonsterAnimationController，动画播放现在由AnimationComponent和状态机管理
     }
     
     /**
      * 获取当前动画信息
      */
     public getCurrentAnimationInfo(): { state: string, direction: string } {
-        if (this._animationController && this._animationController.isReady()) {
-            return {
-                state: this._animationController.getCurrentState(),
-                direction: this._animationController.getCurrentDirection()
-            };
-        }
-        return { state: 'Unknown', direction: 'Unknown' };
+        // 不再使用MonsterAnimationController
+        return { state: 'Idle', direction: 'front' };
     }
     
     /**
@@ -327,7 +315,8 @@ export class CharacterStats extends Component {
      * 检查是否可以执行动作
      */
     public canPerformAction(): boolean {
-        return this.isAlive && !!this._animationController && !!this._animationController.isReady();
+        // 不再依赖MonsterAnimationController，现在只需要角色存活即可
+        return this.isAlive;
     }
     
     /**

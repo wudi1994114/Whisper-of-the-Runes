@@ -3,7 +3,6 @@
 import { Component, Node } from 'cc';
 import { ICombat, IAttackResult } from '../interfaces/ICombat';
 import { CharacterStats } from './CharacterStats';
-import { Faction } from '../configs/FactionConfig';
 
 /**
  * 战斗组件 - 负责攻击、伤害、战斗相关功能

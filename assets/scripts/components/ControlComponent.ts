@@ -9,6 +9,8 @@ import { AnimationComponent } from './AnimationComponent';
 import { MovementComponent } from './MovementComponent';
 import { CombatComponent } from './CombatComponent';
 import { LifecycleComponent } from './LifecycleComponent';
+import { eventManager } from '../managers/EventManager';
+import { GameEvents } from './GameEvents';
 
 /**
  * 控制组件 - 负责输入处理、状态机、控制模式
@@ -22,7 +24,6 @@ export class ControlComponent extends Component implements IControllable {
         wantsToAttack: false
     };
     private _stateMachine: StateMachine | null = null;
-    private _keyStates: { [key: number]: boolean } = {};
     private _aiIntentionComponent: AIIntentionComponent | null = null;
 
     // IControllable 接口属性
@@ -39,31 +40,76 @@ export class ControlComponent extends Component implements IControllable {
     get stateMachine(): StateMachine | null { return this._stateMachine; }
 
     protected onLoad(): void {
+        console.log(`[ControlComponent] onLoad执行，获取组件引用...`);
+        
         // 获取AI意向组件
         this._aiIntentionComponent = this.getComponent(AIIntentionComponent);
-        
-        // 初始化状态机（需要等待其他组件准备好）
-        this.scheduleOnce(() => {
-            this.initializeStateMachine();
-        }, 0.1);
         
         // 监听生命周期事件
         this.node.on('reuse-from-pool', this.onReuse, this);
         this.node.on('on-recycle-to-pool', this.onRecycle, this);
         this.node.on('reset-character-state', this.onResetState, this);
+        
+        console.log(`[ControlComponent] onLoad完成，等待start阶段初始化状态机...`);
     }
 
-    protected onDestroy(): void {
-        this.cleanupInput();
+    protected start(): void {
+        console.log(`[ControlComponent] start执行，等待动画组件准备就绪...`);
         
-        // 清理事件监听
-        this.node.off('reuse-from-pool', this.onReuse, this);
-        this.node.off('on-recycle-to-pool', this.onRecycle, this);
-        this.node.off('reset-character-state', this.onResetState, this);
+        // 【修复】确保输入系统被正确设置
+        this.setupInput();
+        
+        // 监听动画准备就绪事件
+        this.node.on('animation-ready', this.onAnimationReady, this);
+        
+        // 尝试直接初始化状态机（如果动画已经准备好）
+        this.tryInitializeStateMachine();
     }
 
     /**
-     * 设置输入系统
+     * 尝试初始化状态机
+     */
+    private tryInitializeStateMachine(): void {
+        const animationComponent = this.getComponent(AnimationComponent);
+        
+        // 检查动画组件和clips是否都已准备好
+        if (animationComponent && 
+            animationComponent.animationComponent && 
+            animationComponent.animationComponent.clips && 
+            animationComponent.animationComponent.clips.length > 0) {
+            
+            console.log(`[ControlComponent] 动画组件和clips都已准备好，初始化状态机...`);
+            this.initializeStateMachine();
+            console.log(`[ControlComponent] ✅ 状态机初始化完成`);
+        } else {
+            const clipsCount = animationComponent?.animationComponent?.clips?.length || 0;
+            console.log(`[ControlComponent] 动画组件未完全准备好 (clips数量: ${clipsCount})，等待animation-ready事件...`);
+        }
+    }
+
+    /**
+     * 响应动画准备就绪事件
+     */
+    private onAnimationReady(): void {
+        console.log(`[ControlComponent] 收到animation-ready事件，初始化状态机...`);
+        this.node.off('animation-ready', this.onAnimationReady, this);
+        this.initializeStateMachine();
+        console.log(`[ControlComponent] ✅ 状态机初始化完成`);
+    }
+
+    protected onDestroy(): void {
+        // 清理输入监听器
+        this.cleanupInput();
+        
+        // 清理节点事件监听
+        this.node.off('reuse-from-pool', this.onReuse, this);
+        this.node.off('on-recycle-to-pool', this.onRecycle, this);
+        this.node.off('reset-character-state', this.onResetState, this);
+        this.node.off('animation-ready', this.onAnimationReady, this);
+    }
+
+    /**
+     * 设置输入系统 - 通过EventManager接收InputManager的事件
      */
     setupInput(): void {
         // 清理之前的输入监听
@@ -71,20 +117,24 @@ export class ControlComponent extends Component implements IControllable {
         
         // 只有手动模式才监听键盘输入
         if (this._controlMode === ControlMode.MANUAL) {
-            input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
-            input.on(Input.EventType.KEY_UP, this.onKeyUp, this);
-            console.log(`[ControlComponent] 手动控制输入系统已设置`);
+            // 监听InputManager发送的按键事件
+            eventManager.on(GameEvents.KEY_PRESSED, this.onKeyPressed, this);
+            eventManager.on(GameEvents.KEY_RELEASED, this.onKeyReleased, this);
+            // 监听移动方向变化事件
+            eventManager.on(GameEvents.MOVE_DIRECTION_CHANGED, this.onMoveDirectionChanged, this);
+            console.log(`[ControlComponent] 手动控制输入系统已设置 (通过EventManager)`);
         } else {
             console.log(`[ControlComponent] AI模式，跳过输入系统设置`);
         }
     }
 
     /**
-     * 清理输入监听
+     * 清理输入监听 - 清理EventManager的事件监听
      */
     cleanupInput(): void {
-        input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
-        input.off(Input.EventType.KEY_UP, this.onKeyUp, this);
+        eventManager.off(GameEvents.KEY_PRESSED, this.onKeyPressed, this);
+        eventManager.off(GameEvents.KEY_RELEASED, this.onKeyReleased, this);
+        eventManager.off(GameEvents.MOVE_DIRECTION_CHANGED, this.onMoveDirectionChanged, this);
     }
 
     /**
@@ -278,7 +328,6 @@ export class ControlComponent extends Component implements IControllable {
         this.setupInput();
         
         // 重置输入状态
-        this._keyStates = {};
         this._currentInputSignals = {
             hasMovementInput: false,
             wantsToAttack: false
@@ -286,42 +335,39 @@ export class ControlComponent extends Component implements IControllable {
     }
 
     /**
-     * 按键按下处理
+     * 按键按下处理 - 处理来自InputManager的事件
      */
-    private onKeyDown = (event: EventKeyboard): void => {
+    private onKeyPressed = (keyCode: KeyCode): void => {
         if (this._controlMode !== ControlMode.MANUAL) return;
         
-        this._keyStates[event.keyCode] = true;
+        console.log(`[ControlComponent] 接收到按键事件: ${keyCode} (节点: ${this.node.name})`);
         
         // J键攻击
-        if (event.keyCode === KeyCode.KEY_J) {
+        if (keyCode === KeyCode.KEY_J) {
             this.tryAttack();
         }
         
         // H键受伤测试
-        if (event.keyCode === KeyCode.KEY_H) {
+        if (keyCode === KeyCode.KEY_H) {
             this.node.emit('test-damage');
         }
         
         // K键死亡测试
-        if (event.keyCode === KeyCode.KEY_K) {
+        if (keyCode === KeyCode.KEY_K) {
             this.node.emit('test-death');
         }
-        
-        // 更新移动输入
-        this.updateMovementInput();
     }
 
     /**
-     * 按键松开处理
+     * 按键松开处理 - 处理来自InputManager的事件
      */
-    private onKeyUp = (event: EventKeyboard): void => {
+    private onKeyReleased = (keyCode: KeyCode): void => {
         if (this._controlMode !== ControlMode.MANUAL) return;
         
-        this._keyStates[event.keyCode] = false;
+        console.log(`[ControlComponent] 接收到按键松开事件: ${keyCode} (节点: ${this.node.name})`);
         
-        // 更新移动输入
-        this.updateMovementInput();
+        // 按键松开时可以处理一些特殊逻辑
+        // 目前主要用于调试
     }
 
     /**
@@ -340,23 +386,18 @@ export class ControlComponent extends Component implements IControllable {
     }
 
     /**
-     * 更新移动输入
+     * 处理移动方向变化 - 来自InputManager的移动事件
      */
-    private updateMovementInput(): void {
-        let hasInput = false;
+    private onMoveDirectionChanged = (direction: Vec3): void => {
+        if (this._controlMode !== ControlMode.MANUAL) return;
         
-        // 检查WASD键状态
-        if (this._keyStates[KeyCode.KEY_W] ||
-            this._keyStates[KeyCode.KEY_A] ||
-            this._keyStates[KeyCode.KEY_S] ||
-            this._keyStates[KeyCode.KEY_D]) {
-            hasInput = true;
-        }
-        
+        const hasInput = direction.length() > 0;
         this._currentInputSignals.hasMovementInput = hasInput;
         
+        console.log(`[ControlComponent] 移动方向变化: (${direction.x}, ${direction.y}) 有输入: ${hasInput} (节点: ${this.node.name})`);
+        
         // 通知移动组件更新移动方向
-        this.node.emit('update-movement-direction', this._keyStates);
+        this.node.emit('update-movement-direction', direction);
     }
 
     /**
@@ -460,7 +501,6 @@ export class ControlComponent extends Component implements IControllable {
      */
     private onResetState(): void {
         // 重置输入状态
-        this._keyStates = {};
         this._currentInputSignals = {
             hasMovementInput: false,
             wantsToAttack: false

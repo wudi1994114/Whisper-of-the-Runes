@@ -103,7 +103,7 @@ export class MonsterSpawner extends Component {
         this.node.setPosition(config.position.x, config.position.y);
         
         // 不再设置生成器默认阵营，每个敌人按照自己的配置设置阵营
-        console.log(`MonsterSpawner: 初始化生成器 ${config.id}，将根据每个敌人的配置单独设置阵营`);
+        console.log(`MonsterSpawner: 初始化生成器 ${config.id}，位置设置为: (${config.position.x}, ${config.position.y})，将根据每个敌人的配置单独设置阵营`);
         
         // 初始化存活怪物映射
         config.enemies.forEach(enemyConfig => {
@@ -242,11 +242,15 @@ export class MonsterSpawner extends Component {
         const finalY = this.node.position.y + y;
         const zDepth = -finalY * 0.1; // Y轴每增加10像素，Z轴减少1
         
-        return new Vec3(
+        const spawnPos = new Vec3(
             this.node.position.x + x,
             finalY,
             zDepth
         );
+        
+        console.log(`[MonsterSpawner] 计算生成位置 - 生成器位置: (${this.node.position.x}, ${this.node.position.y}), 偏移: (${x}, ${y}), 最终位置: (${spawnPos.x}, ${spawnPos.y})`);
+        
+        return spawnPos;
     }
     
     /**
@@ -268,21 +272,30 @@ export class MonsterSpawner extends Component {
             // 2. 🔥 使用统一ECS工厂创建AI敌人（先确保工厂可用）
             let character = null;
             try {
+                // 检查游戏管理器是否启用一维流场AI
+                const gameManager = GameManager.instance;
+                const useFlowField = gameManager && gameManager.useOneDimensionalFlowField;
+                
                 character = await UnifiedECSCharacterFactory.createAIEnemy(enemyType, {
                     position: position,
                     faction: enemyConfig?.faction || 'red',
-                    behaviorType: behaviorType
+                    behaviorType: behaviorType,
+                    useFlowField: useFlowField
                 });
+                
+                if (useFlowField) {
+                    console.log(`[MonsterSpawner] 创建流场AI怪物: ${enemyType} (${enemyConfig?.faction || 'red'}阵营)`);
+                }
             } catch (factoryError) {
                 console.error(`[MonsterSpawner] 工厂初始化失败:`, factoryError);
-                // 回退到旧系统
-                return this.createMonsterWithOldSystem(enemyType, position, enemyConfig);
+                // 工厂创建失败，直接返回null
+                return null;
             }
 
             if (!character) {
                 console.error(`MonsterSpawner: 统一ECS工厂创建怪物失败 ${enemyType}`);
-                // 回退到旧系统
-                return this.createMonsterWithOldSystem(enemyType, position, enemyConfig);
+                // 工厂创建失败，直接返回null
+                return null;
             }
 
             // 3. 获取角色节点
@@ -292,7 +305,8 @@ export class MonsterSpawner extends Component {
             this.addMonsterToCanvas(characterNode);
             
             const characterName = (character as any).node.name;
-            console.log(`MonsterSpawner: ✅ 使用统一ECS工厂创建怪物成功: ${characterName} [${enemyType}]`);
+            const finalPos = characterNode.getPosition();
+            console.log(`MonsterSpawner: ✅ 使用统一ECS工厂创建怪物成功: ${characterName} [${enemyType}]，最终位置: (${finalPos.x}, ${finalPos.y})`);
             return characterNode;
             
         } catch (error) {

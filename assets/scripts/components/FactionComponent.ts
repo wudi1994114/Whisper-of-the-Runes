@@ -10,6 +10,7 @@ import { basicEnemyFinder } from './BasicEnemyFinder';
 /**
  * 阵营组件 - 负责阵营设置、物理分组管理
  * 实现 IFactional 接口，专注于阵营管理的单一职责
+ * 重构版本：利用Cocos Creator生命周期管理初始化流程
  */
 export class FactionComponent extends Component implements IFactional {
     // 阵营相关属性
@@ -17,6 +18,7 @@ export class FactionComponent extends Component implements IFactional {
     private _currentFaction: Faction = Faction.RED;
 
     // 组件依赖
+    private controlComponent: ControlComponent | null = null;
     private collider: Collider2D | null = null;
     private rigidBody: RigidBody2D | null = null;
     
@@ -35,7 +37,10 @@ export class FactionComponent extends Component implements IFactional {
     }
 
     protected onLoad(): void {
-        // 获取物理组件
+        console.log(`[FactionComponent] onLoad执行，获取组件引用...`);
+        
+        // 获取组件引用
+        this.controlComponent = this.getComponent(ControlComponent);
         this.collider = this.getComponent(Collider2D);
         this.rigidBody = this.getComponent(RigidBody2D);
         
@@ -51,7 +56,23 @@ export class FactionComponent extends Component implements IFactional {
         // 监听生命周期事件
         this.node.on('reset-character-state', this.onResetState, this);
         
-        console.log(`[FactionComponent] 初始化完成, collider: ${this.collider ? '已找到' : '未找到'}`);
+        console.log(`[FactionComponent] onLoad完成, 组件引用获取: control=${!!this.controlComponent}, collider=${!!this.collider}`);
+    }
+
+    protected start(): void {
+        console.log(`[FactionComponent] start执行，执行依赖逻辑...`);
+        
+        // 在 start 方法中，this.controlComponent 必定已经执行完它的 onLoad
+        // 并且 controlMode 也应该已经被工厂设置好了
+        if (this.controlComponent) {
+            this.setupDefaultFaction(); // 内部可以使用 this.controlComponent.controlMode
+            console.log(`[FactionComponent] ✅ 默认阵营设置完成`);
+        } else {
+            console.error("FactionComponent 依赖的 ControlComponent 不存在！");
+            // 设置一个默认的红色阵营以避免阻塞
+            this.setFaction(Faction.RED);
+            console.log(`[FactionComponent] 使用默认红色阵营作为回退方案`);
+        }
     }
 
     protected onDestroy(): void {
@@ -133,25 +154,16 @@ export class FactionComponent extends Component implements IFactional {
     }
 
     /**
-     * 设置默认阵营 - 重构版本，增强依赖检查
+     * 设置默认阵营 - 重构版本，简化依赖检查（现在在start中调用，依赖关系有保证）
      */
     setupDefaultFaction(): void {
-        // 获取控制组件来判断控制模式 - 使用正确的类型
-        let controlComponent = this.getComponent(ControlComponent);
-        if (!controlComponent) {
-            // 尝试通过节点获取
-            controlComponent = this.node.getComponent(ControlComponent);
-            if (!controlComponent) {
-                console.error(`[FactionComponent] 严重错误：缺少ControlComponent，无法设置默认阵营 (节点: ${this.node.name})`);
-                console.log(`[FactionComponent] 节点组件列表:`, this.node.components.map(c => c.constructor.name));
-                // 设置一个默认的红色阵营以避免阻塞
-                this.setFaction(Faction.RED);
-                console.log(`[FactionComponent] 使用默认红色阵营作为回退方案`);
-                return;
-            }
+        if (!this.controlComponent) {
+            console.error(`[FactionComponent] 严重错误：ControlComponent引用为空 (节点: ${this.node.name})`);
+            this.setFaction(Faction.RED);
+            return;
         }
 
-        const controlMode = controlComponent.controlMode;
+        const controlMode = this.controlComponent.controlMode;
         console.log(`[FactionComponent] 检测到控制模式: ${controlMode}, 当前aiFaction: ${this._aiFaction}`);
         
         // AI模式下根据aiFaction设置对应阵营
@@ -266,14 +278,19 @@ export class FactionComponent extends Component implements IFactional {
      * 获取阵营显示名称
      */
     getFactionDisplayName(): string {
-        return FactionUtils.factionToDisplayName(this._currentFaction);
+        return FactionUtils.factionToString(this._currentFaction);
     }
 
     /**
      * 重置状态回调
      */
     private onResetState(): void {
+        // 重新获取组件引用（以防组件有变化）
+        this.controlComponent = this.getComponent(ControlComponent);
+        
         // 重新设置默认阵营
-        this.setupDefaultFaction();
+        if (this.controlComponent) {
+            this.setupDefaultFaction();
+        }
     }
 }

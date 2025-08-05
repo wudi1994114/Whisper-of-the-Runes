@@ -22,9 +22,43 @@ export class AnimationComponent extends Component implements IAnimatable {
     set currentDirection(value: AnimationDirection) { this._currentDirection = value; }
 
     protected onLoad(): void {
-        // 不在这里创建Animation组件，让animationManager统一管理
-        // this._animationComponent 将在 initializeAnimations 中由 animationManager 创建
-        console.log(`[AnimationComponent] onLoad - 等待animationManager初始化动画组件`);
+        console.log(`[AnimationComponent] onLoad执行，获取Animation组件引用...`);
+        
+        // 尝试获取现有的Animation组件
+        this._animationComponent = this.getComponent(Animation);
+        if (!this._animationComponent) {
+            // 如果没有Animation组件，添加一个
+            this._animationComponent = this.addComponent(Animation);
+            console.log(`[AnimationComponent] 创建新的Animation组件`);
+        } else {
+            console.log(`[AnimationComponent] 找到现有的Animation组件，clips数量: ${this._animationComponent.clips.length}`);
+        }
+        
+        // 监听配置加载完成事件
+        this.node.on('enemy-config-loaded', this.onEnemyConfigLoaded, this);
+    }
+
+    protected onDestroy(): void {
+        // 清理事件监听
+        this.node.off('enemy-config-loaded', this.onEnemyConfigLoaded, this);
+    }
+
+    /**
+     * 响应敌人配置加载完成事件
+     */
+    private async onEnemyConfigLoaded(enemyData: EnemyData): Promise<void> {
+        console.log(`[AnimationComponent] 收到配置加载完成事件，开始初始化动画...`);
+        this.setEnemyData(enemyData);
+        
+        try {
+            await this.initializeAnimations(enemyData);
+            console.log(`[AnimationComponent] 动画初始化完成，发送就绪事件...`);
+            
+            // 发送动画就绪事件，通知其他组件（如状态机）可以开始使用动画
+            this.node.emit('animation-ready');
+        } catch (error) {
+            console.error(`[AnimationComponent] 动画初始化失败:`, error);
+        }
     }
 
     /**
@@ -42,12 +76,20 @@ export class AnimationComponent extends Component implements IAnimatable {
     playCurrentAnimation(state: AnimationState): void {
         // 详细的状态检查
         if (!this._animationComponent) {
-            console.error(`[AnimationComponent] 动画组件未初始化 (节点: ${this.node?.name || 'unknown'})`);
+            console.warn(`[AnimationComponent] 动画组件未初始化，稍后重试 (节点: ${this.node?.name || 'unknown'})`);
+            // 延迟重试
+            this.scheduleOnce(() => {
+                this.playCurrentAnimation(state);
+            }, 0.1);
             return;
         }
 
         if (!this._enemyData) {
-            console.error(`[AnimationComponent] 敌人数据未设置 (节点: ${this.node?.name || 'unknown'})`);
+            console.warn(`[AnimationComponent] 敌人数据未设置，稍后重试 (节点: ${this.node?.name || 'unknown'})`);
+            // 延迟重试
+            this.scheduleOnce(() => {
+                this.playCurrentAnimation(state);
+            }, 0.1);
             return;
         }
 
@@ -59,6 +101,12 @@ export class AnimationComponent extends Component implements IAnimatable {
         // 构建完整的动画名称
         const animationName = `${this._enemyData.assetNamePrefix}_${state}_${this._currentDirection}`;
         console.log(`[AnimationComponent] 尝试播放动画: ${animationName} (节点: ${this.node?.name || 'unknown'})`);
+
+        // 调试：显示当前可用的动画
+        if (this._animationComponent && this._animationComponent.clips) {
+            const availableClips = this._animationComponent.clips.map(clip => clip?.name || 'unnamed').filter(name => name !== 'unnamed');
+            console.log(`[AnimationComponent] 当前可用的动画clips:`, availableClips);
+        }
 
         // 使用 AnimationManager 播放动画
         const success = animationManager.playAnimation(this._animationComponent, animationName);
@@ -213,8 +261,16 @@ export class AnimationComponent extends Component implements IAnimatable {
                 return;
             }
 
+            console.log(`[AnimationComponent] 动画剪辑创建完成，剪辑列表:`, Array.from(animationClips.keys()));
+
             // 委托 AnimationManager 统一设置Animation组件和clips
             this._animationComponent = animationManager.setupAnimationComponent(this.node, animationClips);
+            
+            // 验证Animation组件中的clips
+            if (this._animationComponent && this._animationComponent.clips) {
+                const clipNames = this._animationComponent.clips.map(clip => clip?.name || 'unnamed').filter(name => name !== 'unnamed');
+                console.log(`[AnimationComponent] Animation组件中已加载的clips:`, clipNames);
+            }
             
             console.log(`[AnimationComponent] 动画资源初始化完成，共 ${animationClips.size} 个动画剪辑 (节点: ${this.node?.name || 'unknown'})`);
             console.log(`[AnimationComponent] Animation组件已由animationManager统一管理`);
@@ -236,6 +292,61 @@ export class AnimationComponent extends Component implements IAnimatable {
                 console.warn(`[AnimationComponent] 停止动画失败:`, error);
             }
         }
+    }
+
+    /**
+     * 根据移动方向更新动画朝向
+     * @param direction 移动方向向量 {x, y}
+     */
+    updateDirectionFromMovement(direction: {x: number, y: number}): void {
+        // 忽略极小的移动输入，避免频繁切换方向
+        const threshold = 0.1;
+        if (Math.abs(direction.x) < threshold && Math.abs(direction.y) < threshold) {
+            return;
+        }
+
+        let newDirection: AnimationDirection;
+
+        // 根据移动方向确定动画朝向
+        // 优先判断水平方向，因为左右移动比较常见
+        if (Math.abs(direction.x) > Math.abs(direction.y)) {
+            // 水平移动为主
+            if (direction.x > 0) {
+                newDirection = AnimationDirection.RIGHT;
+            } else {
+                newDirection = AnimationDirection.LEFT;
+            }
+        } else {
+            // 垂直移动为主
+            if (direction.y > 0) {
+                newDirection = AnimationDirection.BACK;  // 向上
+            } else {
+                newDirection = AnimationDirection.FRONT; // 向下
+            }
+        }
+
+        // 只在方向真正改变时更新
+        if (this._currentDirection !== newDirection) {
+            const oldDirection = this._currentDirection;
+            this._currentDirection = newDirection;
+            console.log(`[AnimationComponent] 动画方向更新: ${oldDirection} -> ${newDirection} (移动: ${direction.x.toFixed(2)}, ${direction.y.toFixed(2)}) (节点: ${this.node?.name || 'unknown'})`);
+        }
+    }
+
+    /**
+     * 根据目标位置更新动画朝向
+     * @param targetPosition 目标位置
+     */
+    updateDirectionTowards(targetPosition: any): void {
+        if (!targetPosition || !this.node) return;
+        
+        const currentPos = this.node.worldPosition;
+        const direction = {
+            x: targetPosition.x - currentPos.x,
+            y: targetPosition.y - currentPos.y
+        };
+        
+        this.updateDirectionFromMovement(direction);
     }
 
     /**

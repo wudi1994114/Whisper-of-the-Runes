@@ -13,10 +13,9 @@ import { animationManager } from './AnimationManager';
 import { instantiate } from 'cc';
 import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
 
-import { ControlMode } from '../state-machine/CharacterEnums';
-
 import { damageDisplayController } from '../controllers/DamageDisplayController';
 import { ensureFactoryInitialized, UnifiedECSCharacterFactory } from '../factories/UnifiedECSCharacterFactory';
+import { flowFieldManager } from './FlowFieldManager';
 
 const { ccclass, property } = _decorator;
 
@@ -73,6 +72,12 @@ export class GameManager extends Component {
         tooltip: "手动控制单个怪物进行调试"
     })
     public manualTestMode: boolean = false;
+
+    @property({
+        displayName: "使用一维流场AI",
+        tooltip: "启用基于方向场的一维AI系统"
+    })
+    public useOneDimensionalFlowField: boolean = false;
 
     // ===== 关卡选择配置 =====
     @property({
@@ -150,6 +155,8 @@ export class GameManager extends Component {
     // 鼠标跟随功能相关
     private currentMouseWorldPosition: Vec3 = new Vec3(0, 0, 0);
 
+    // 一维流场系统（通过管理器访问）
+
     // 便捷方法
     public get testMode(): boolean {
         return this.manualTestMode;
@@ -207,6 +214,11 @@ export class GameManager extends Component {
     protected onDestroy(): void {
         this.cleanupInputDispatcher();
         
+        // 清理流场系统
+        if (this.useOneDimensionalFlowField) {
+            flowFieldManager.cleanup();
+        }
+        
         // 清理伤害显示频率控制器
         damageDisplayController.destroy();
     }
@@ -214,6 +226,11 @@ export class GameManager extends Component {
     protected update(deltaTime: number): void {
         // 更新对象池管理器
         poolManager.update();
+
+        // 更新流场系统
+        if (this.useOneDimensionalFlowField) {
+            flowFieldManager.update(deltaTime);
+        }
 
         // 玩家移动（如果不是手动测试模式）
         if (!this.manualTestMode && this.playerController && this.isMoving && this.currentMoveDirection.length() > 0) {
@@ -584,7 +601,10 @@ export class GameManager extends Component {
         // 注册挂载的预制体到对象池
         this.registerMountedPrefabs();
 
-
+        // 初始化流场系统（如果启用）
+        if (this.useOneDimensionalFlowField) {
+            flowFieldManager.initialize(30, 1920, 1080);
+        }
         
         // 初始化伤害文字池系统
         poolManager.initializeDamageTextPool();

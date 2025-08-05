@@ -47,6 +47,14 @@ export class HealthBarComponent extends Component {
      * @param characterType 角色类型（可选，影响血条样式）
      */
     public setTarget(targetNode: Node, characterType: string = 'default'): void {
+        // 检查是否已经绑定了相同的目标，避免重复设置
+        if (this._targetNode === targetNode && this._characterType === characterType) {
+            if (this.showDebugInfo) {
+                console.log(`[HealthBarComponent] 目标节点未变化，跳过重复设置: ${targetNode.name}`);
+            }
+            return;
+        }
+
         if (this._targetNode) {
             // 如果已经绑定了旧目标，先解绑，防止事件重复监听
             this.unbindTarget();
@@ -58,11 +66,13 @@ export class HealthBarComponent extends Component {
         // 监听新目标的血量变化事件
         this._targetNode.on('health-changed', this.onHealthChanged, this);
         
-        // 重新创建血条以应用新的角色类型样式
-        if (this.healthBarNode) {
-            this.healthBarNode.destroy();
+        // 只有在角色类型改变或血条不存在时才重新创建
+        if (!this.healthBarNode || this._characterType !== characterType) {
+            if (this.healthBarNode) {
+                this.healthBarNode.destroy();
+            }
+            this.createHealthBar();
         }
-        this.createHealthBar();
         
         if (this.showDebugInfo) {
             console.log(`[HealthBarComponent] 成功绑定到节点: ${targetNode.name}, 类型: ${characterType}`);

@@ -9,12 +9,19 @@ import { GameManager } from '../managers/GameManager';
 /**
  * 配置组件 - 负责配置数据加载、类型管理
  * 实现 IConfigurable 接口，专注于配置管理的单一职责
+ * 重构版本：利用Cocos Creator生命周期管理初始化流程
  */
 export class ConfigComponent extends Component implements IConfigurable {
     // 配置相关属性
     private _enemyData: EnemyData | null = null;
     private _aiBehaviorType: string = "melee";
     private _explicitEnemyType: string | null = null;
+    
+    // 由工厂注入的属性
+    public characterType: string = '';
+    
+    // 初始化状态
+    private _isInitialized = false;
 
     // IConfigurable 接口属性
     get enemyData(): EnemyData | null { return this._enemyData; }
@@ -22,9 +29,26 @@ export class ConfigComponent extends Component implements IConfigurable {
     set aiBehaviorType(value: string) { this._aiBehaviorType = value; }
 
     protected onLoad(): void {
+        console.log(`[ConfigComponent] onLoad执行，开始加载配置数据...`);
+        
         // 监听生命周期事件
         this.node.on('reuse-from-pool', this.onReuse, this);
         this.node.on('reset-character-state', this.onResetState, this);
+        
+        // 加载配置数据（如果已经设置了角色类型）
+        if (this.characterType || this._explicitEnemyType) {
+            this.loadEnemyConfig();
+            this.distributeConfigToComponents();
+        }
+    }
+
+    protected start(): void {
+        // start: 可以在这里初始化依赖其他组件的模块
+        if (this._isInitialized) return;
+        
+        console.log(`[ConfigComponent] start执行，初始化AI系统...`);
+        this.initializeAI();
+        this._isInitialized = true;
     }
 
     protected onDestroy(): void {
@@ -40,9 +64,11 @@ export class ConfigComponent extends Component implements IConfigurable {
     setEnemyType(enemyType: string): void {
         console.log(`[ConfigComponent] 🔧 设置敌人类型: ${enemyType}`);
         this._explicitEnemyType = enemyType;
+        this.characterType = enemyType;
         
         // 重新加载配置
         this.loadEnemyConfig();
+        this.distributeConfigToComponents();
     }
 
     /**
@@ -112,7 +138,7 @@ export class ConfigComponent extends Component implements IConfigurable {
     }
 
     /**
-     * 加载敌人配置 - 重构版本，只加载数据不初始化组件
+     * 加载敌人配置 - 重构版本，在onLoad中执行
      */
     loadEnemyConfig(): void {
         const configId = this.getEnemyConfigId();
@@ -129,6 +155,60 @@ export class ConfigComponent extends Component implements IConfigurable {
         } else {
             console.error(`[ConfigComponent] 无法加载配置 ${configId}`);
         }
+    }
+
+    /**
+     * 将数据分发给其他需要配置的组件
+     * 这是关键一步，替代了工厂的 initializeRelatedComponentsManually
+     */
+    private distributeConfigToComponents(): void {
+        if (!this._enemyData) return;
+        
+        console.log(`[ConfigComponent] 开始分发配置数据到相关组件...`);
+        
+        // 配置CharacterStats组件
+        const characterStats = this.getComponent('CharacterStats');
+        if (characterStats && typeof (characterStats as any).configure === 'function') {
+            (characterStats as any).configure(this._enemyData);
+            console.log(`[ConfigComponent] ✅ CharacterStats配置完成`);
+        }
+        
+        // 配置CombatComponent组件
+        const combatComponent = this.getComponent('CombatComponent');
+        if (combatComponent && typeof (combatComponent as any).configure === 'function') {
+            (combatComponent as any).configure(this._enemyData);
+            console.log(`[ConfigComponent] ✅ CombatComponent配置完成`);
+        }
+        
+        // 配置其他组件...
+        this.configureAdditionalComponents();
+    }
+
+    /**
+     * 配置其他附加组件
+     */
+    private configureAdditionalComponents(): void {
+        if (!this._enemyData) return;
+        
+        // 通知CharacterStats组件
+        const characterStats = this.getComponent('CharacterStats');
+        if (characterStats && typeof (characterStats as any).initWithEnemyData === 'function') {
+            (characterStats as any).initWithEnemyData(this._enemyData);
+        }
+
+        // 初始化血条组件（避免重复设置）
+        const healthBarComponent = this.getComponent('HealthBarComponent');
+        if (healthBarComponent && typeof (healthBarComponent as any).setTarget === 'function') {
+            // 绑定到当前节点，使用敌人类型作为血条样式
+            (healthBarComponent as any).setTarget(this.node, this._enemyData.id);
+        }
+
+        // 动画组件初始化现在通过事件触发，无需手动设置
+        // AnimationComponent会监听'enemy-config-loaded'事件并自行初始化
+
+        // 分析攻击类型并通知战斗组件
+        const attackAnalysis = this.analyzeEnemyAttackType();
+        this.node.emit('attack-type-analyzed', attackAnalysis);
     }
 
     /**
@@ -271,6 +351,13 @@ export class ConfigComponent extends Component implements IConfigurable {
             (characterStats as any).initWithEnemyData(this._enemyData);
         }
 
+        // 初始化血条组件
+        const healthBarComponent = this.getComponent('HealthBarComponent');
+        if (healthBarComponent && typeof (healthBarComponent as any).setTarget === 'function') {
+            // 绑定到当前节点，使用敌人类型作为血条样式
+            (healthBarComponent as any).setTarget(this.node, this._enemyData.id);
+        }
+
         // 通知动画组件
         const animationComponent = this.getComponent('AnimationComponent') as any;
         if (animationComponent && typeof animationComponent.setEnemyData === 'function') {
@@ -283,15 +370,27 @@ export class ConfigComponent extends Component implements IConfigurable {
     }
 
     /**
+     * 当从对象池复用时
+     */
+    reuse(characterType: string, options: any): void {
+        this.characterType = characterType;
+        this._explicitEnemyType = characterType;
+        // 重置其他状态
+        this._isInitialized = false;
+        this.onLoad(); // 手动调用生命周期以重新加载配置
+    }
+
+    /**
      * 重用回调
      */
     private onReuse(): void {
-        if (!this._explicitEnemyType) {
+        if (!this._explicitEnemyType && !this.characterType) {
             console.warn(`[ConfigComponent] ⚠️ 重用时未发现预设敌人类型，将在后续初始化中确定`);
         }
         
         // 重新加载配置
         this.loadEnemyConfig();
+        this.distributeConfigToComponents();
     }
 
     /**
@@ -299,6 +398,7 @@ export class ConfigComponent extends Component implements IConfigurable {
      */
     private onResetState(): void {
         // 保持配置数据，只重置运行时状态
+        this._isInitialized = false;
         console.log(`[ConfigComponent] 重置配置状态完成`);
     }
 }

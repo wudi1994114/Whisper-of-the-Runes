@@ -7,7 +7,19 @@ import { animationManager } from './AnimationManager';
 import { getAnimationConfigByPrefix, AnimationState, AnimationDirection } from '../configs/AnimationConfig';
 import { CharacterStats } from '../components/CharacterStats';
 import { HealthBarComponent } from '../components/HealthBarComponent';
-import { MonsterAnimationController } from '../controllers/MonsterAnimationController';
+// import { MonsterAnimationController } from '../controllers/MonsterAnimationController'; // 不再使用
+
+// ECS 组件导入
+import { LifecycleComponent } from '../components/LifecycleComponent';
+import { ConfigComponent } from '../components/ConfigComponent';
+import { FactionComponent } from '../components/FactionComponent';
+import { MovementComponent } from '../components/MovementComponent';
+import { CombatComponent } from '../components/CombatComponent';
+import { AnimationComponent } from '../components/AnimationComponent';
+import { RenderComponent } from '../components/RenderComponent';
+import { ControlComponent } from '../components/ControlComponent';
+import { AIIntentionComponent } from '../components/AIIntentionComponent';
+import { ModularCharacter } from '../entities/ModularCharacter';
 
 const { ccclass } = _decorator;
 
@@ -301,7 +313,15 @@ class PoolManager {
      */
     private createNode(name: string, prefab: Prefab): Node | null {
         try {
-            return instantiate(prefab);
+            const node = instantiate(prefab);
+            
+            // 为角色类型的节点自动注入ECS组件
+            if (this.isCharacterPool(name)) {
+                this.injectECSComponents(node);
+                console.log(`PoolManager: 为池节点注入ECS组件 - ${name}`);
+            }
+            
+            return node;
         } catch (error) {
             handleError(
                 ErrorType.RESOURCE_LOADING,
@@ -311,6 +331,49 @@ class PoolManager {
                 error as Error
             );
             return null;
+        }
+    }
+
+    /**
+     * 判断是否为角色类型的对象池
+     * @param poolName 池名称
+     * @returns 是否为角色池
+     */
+    private isCharacterPool(poolName: string): boolean {
+        // 根据池名称判断是否为角色类型
+        // 通常角色池的命名包含敌人ID，如 'ent', 'goblin', 'lich' 等
+        const characterPoolPatterns = [
+            'ent', 'goblin', 'lich', 'orc', 'slime', 'golem', 'player'
+        ];
+        
+        return characterPoolPatterns.some(pattern => poolName.toLowerCase().includes(pattern));
+    }
+
+    /**
+     * 为节点注入基础架构组件（对象池创建时）
+     * @param node 要注入组件的节点
+     */
+    private injectECSComponents(node: Node): void {
+        try {
+            // 检查是否已有基础组件，避免重复注入
+            if (node.getComponent(ModularCharacter)) {
+                console.log(`PoolManager: 节点已有基础组件，跳过注入`);
+                return;
+            }
+
+            // 只注入基础架构组件（生命周期长，状态简单可重置）
+            console.log(`PoolManager: 注入基础架构组件...`);
+            const movement = node.addComponent(MovementComponent);       // 移动能力
+            const combat = node.addComponent(CombatComponent);           // 战斗能力  
+            const animation = node.addComponent(AnimationComponent);     // 动画能力
+            const render = node.addComponent(RenderComponent);           // 渲染能力
+            const characterStats = node.addComponent(CharacterStats);   // 角色属性
+            const healthBar = node.addComponent(HealthBarComponent);     // 血条组件
+            const character = node.addComponent(ModularCharacter);       // 主组合组件
+
+            console.log(`PoolManager: 基础架构组件注入完成（7个）`);
+        } catch (error) {
+            console.error(`PoolManager: 基础组件注入失败`, error);
         }
     }
 

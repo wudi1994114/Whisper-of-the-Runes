@@ -1,8 +1,5 @@
-// assets/scripts/factories/UnifiedECSCharacterFactory.ts
-
-import { _decorator, Component, Node, Prefab, instantiate, Vec3 } from 'cc';
+import { _decorator, Component, Node, Prefab, instantiate, Vec3, Sprite } from 'cc';
 import { ICharacter } from '../interfaces/ICharacter';
-import { ICharacterFactory } from '../interfaces/ICharacterFactory';
 import { ControlMode } from '../state-machine/CharacterEnums';
 import { poolManager } from '../managers/PoolManager';
 import { dataManager } from '../managers/DataManager';
@@ -15,6 +12,8 @@ import { MovementComponent } from '../components/MovementComponent';
 import { CombatComponent } from '../components/CombatComponent';
 import { AnimationComponent } from '../components/AnimationComponent';
 import { RenderComponent } from '../components/RenderComponent';
+import { CharacterStats } from '../components/CharacterStats';
+import { HealthBarComponent } from '../components/HealthBarComponent';
 import { ControlComponent } from '../components/ControlComponent';
 import { AIIntentionComponent } from '../components/AIIntentionComponent';
 import { ModularCharacter } from '../entities/ModularCharacter';
@@ -44,7 +43,7 @@ export interface CharacterCreationOptions {
  * 统一初始化流程，解决组件依赖问题
  */
 @ccclass('UnifiedECSCharacterFactory')
-export class UnifiedECSCharacterFactory implements ICharacterFactory {
+export class UnifiedECSCharacterFactory {
     private static instance: UnifiedECSCharacterFactory | null = null;
     
     // 注册的预制体
@@ -72,11 +71,11 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
     }
 
     /**
-     * 创建角色 - 统一入口
+     * 创建角色 - 统一入口（简化版本，回归生命周期管理）
      * @param characterType 角色类型
      * @param options 创建选项
      */
-    async createCharacter(characterType: string, options: CharacterCreationOptions = {}): Promise<ICharacter | null> {
+    createCharacter(characterType: string, options: CharacterCreationOptions = {}): ICharacter | null {
         try {
             console.log(`[UnifiedECSFactory] 🎯 开始创建角色: ${characterType}`, options);
 
@@ -87,26 +86,37 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
                 return null;
             }
 
-            // 2. 创建完整的角色节点（节点获取+组件管理一体化）
-            const character = await this.createCompleteCharacterNode(characterType, options);
-            if (!character) {
+            // 2. 获取节点并确保组件存在
+            const characterNode = this.getNodeWithComponents(characterType, options);
+            if (!characterNode) {
                 console.error(`[UnifiedECSFactory] 角色节点创建失败: ${characterType}`);
                 return null;
             }
 
-            // 3. 配置和初始化组件
-            const success = await this.configureAndInitialize(character, characterType, options);
-            if (!success) {
-                console.error(`[UnifiedECSFactory] 配置初始化失败: ${characterType}`);
-                const node = (character as any).node;
-                this.returnNodeToPool(node, characterType);
+            // 3. 获取 ICharacter 接口
+            const character = characterNode.getComponent(ModularCharacter);
+            if (!character) {
+                console.error(`[UnifiedECSFactory] ModularCharacter组件不存在: ${characterType}`);
+                this.returnNodeToPool(characterNode, characterType);
                 return null;
             }
 
-            // 4. 注册到活跃角色列表
+            // 4. 配置组件（这是工厂的核心职责！）
+            // 在所有组件的 onLoad 之前，将配置数据注入
+            this.configureCharacter(character, characterType, options);
+
+            // 5. 检查是否从对象池复用，发送复用事件
+            if (this.isNodeFromPool(characterNode)) {
+                characterNode.emit('reuse-from-pool');
+            }
+
+            // 6. 激活节点，让引擎开始调用 onLoad, start 等
+            characterNode.active = true;
+
+            // 7. 注册到活跃角色列表
             this.activeCharacters.add(character);
 
-            console.log(`[UnifiedECSFactory] ✅ 角色创建成功: ${characterType} (类型: ModularCharacter)`);
+            console.log(`[UnifiedECSFactory] ✅ 角色配置完成，即将交由引擎初始化: ${characterType}`);
             return character;
 
         } catch (error) {
@@ -116,7 +126,46 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
     }
 
     /**
-     * 创建完整的角色节点（节点获取+组件管理一体化）
+     * 获取节点并确保组件存在（简化版本）
+     */
+    private getNodeWithComponents(characterType: string, options: CharacterCreationOptions = {}): Node | null {
+        let characterNode: Node | null = null;
+        
+        // 1. 尝试从对象池获取
+        characterNode = poolManager.getEnemyInstance(characterType);
+        if (characterNode) {
+            console.log(`[UnifiedECSFactory] 🔄 从对象池获取节点: ${characterType}`);
+            
+            // 确保所有必要的组件都已附加
+            this.ensureAllComponents(characterNode);
+            
+            // 重置节点状态（为生命周期做准备）
+            this.prepareNodeForReuse(characterNode);
+            
+            // 增强生命周期重置机制
+            this.enhanceLifecycleReset(characterNode, characterType, options);
+        } else {
+            // 2. 创建新节点（从预制体或空节点）
+            const prefab = this.characterPrefabs.get(characterType);
+            if (prefab) {
+                characterNode = instantiate(prefab);
+                console.log(`[UnifiedECSFactory] 🆕 从预制体创建节点: ${characterType}`);
+            } else {
+                characterNode = new Node(`Character_${characterType}`);
+                console.log(`[UnifiedECSFactory] 🆕 创建空节点: ${characterType}`);
+            }
+            
+            // 新节点需要注入完整的ECS组件
+            if (characterNode) {
+                this.ensureAllComponents(characterNode);
+            }
+        }
+        
+        return characterNode;
+    }
+
+    /**
+     * 创建完整的角色节点（节点获取+组件管理一体化）- 已废弃，保留用于向后兼容
      */
     private async createCompleteCharacterNode(characterType: string, options: CharacterCreationOptions): Promise<ICharacter | null> {
         console.log(`[UnifiedECSFactory] 🏗️ 开始创建完整角色节点: ${characterType}`);
@@ -126,21 +175,35 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
         let character: ICharacter | null = null;
         let isReused = false;
         
-        // 1. 尝试从对象池获取（这些节点已经有完整组件）
+        // 1. 尝试从对象池获取
         characterNode = poolManager.getEnemyInstance(characterType);
         if (characterNode) {
-            console.log(`[UnifiedECSFactory] 🔄 从对象池复用节点: ${characterType}`);
+            console.log(`[UnifiedECSFactory] 🔄 从对象池获取节点: ${characterType}`);
             isReused = true;
             
-            // 复用节点已有组件，只需重置状态
+            // 检查基础架构组件（PoolManager应该已经注入了）
             character = characterNode.getComponent(ModularCharacter);
             if (character) {
+                console.log(`[UnifiedECSFactory] ✅ 基础架构组件已存在`);
+                
+                // 确保实例特定组件也已注入（分层注入策略）
+                this.injectInstanceSpecificComponents(characterNode);
+                
+                // 重置角色状态
                 this.resetCharacterForReuse(character);
-                console.log(`[UnifiedECSFactory] ✅ 复用节点组件状态重置完成`);
+                console.log(`[UnifiedECSFactory] ✅ 复用节点组件完整性检查和状态重置完成`);
             } else {
-                console.error(`[UnifiedECSFactory] 对象池节点缺少ModularCharacter组件`);
-                this.returnNodeToPool(characterNode, characterType);
-                return null;
+                // 兜底：如果连基础组件都没有，说明PoolManager逻辑有问题
+                console.error(`[UnifiedECSFactory] 严重错误：对象池节点缺少基础架构组件！执行完整注入...`);
+                this.injectModularComponents(characterNode);
+                character = characterNode.getComponent(ModularCharacter);
+                if (character) {
+                    console.log(`[UnifiedECSFactory] ⚠️ 完整组件注入成功，但应检查PoolManager逻辑`);
+                } else {
+                    console.error(`[UnifiedECSFactory] 完整注入也失败，返回节点到对象池`);
+                    this.returnNodeToPool(characterNode, characterType);
+                    return null;
+                }
             }
         } else {
             // 2. 创建新节点（从预制体或空节点）
@@ -153,11 +216,11 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
                 console.log(`[UnifiedECSFactory] 🆕 创建空节点: ${characterType}`);
             }
             
-            // 新节点需要注入组件
+            // 新节点需要注入完整的ECS组件
             if (characterNode) {
                 this.injectModularComponents(characterNode);
                 character = characterNode.getComponent(ModularCharacter);
-                console.log(`[UnifiedECSFactory] ✅ 新节点组件注入完成`);
+                console.log(`[UnifiedECSFactory] ✅ 新节点完整组件注入完成`);
             }
         }
         
@@ -180,45 +243,73 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
     }
 
     /**
-     * 配置和初始化组件
+     * 配置和初始化组件 - 已废弃，现在只需要配置，初始化由生命周期自动处理
      */
     private async configureAndInitialize(character: ICharacter, characterType: string, options: CharacterCreationOptions): Promise<boolean> {
-        console.log(`[UnifiedECSFactory] 🎛️ 开始配置和初始化: ${characterType}`);
-        
-        try {
-            // 配置角色属性
-            this.configureCharacter(character, characterType, options);
-
-            // 统一初始化流程
-            await this.initializeComponents(character);
-
-            console.log(`[UnifiedECSFactory] ✅ 配置和初始化完成: ${characterType}`);
-            return true;
-        } catch (error) {
-            console.error(`[UnifiedECSFactory] 配置和初始化失败: ${characterType}`, error);
-            return false;
-        }
+        console.warn(`[UnifiedECSFactory] configureAndInitialize已废弃，现在由生命周期方法自动管理`);
+        // 只保留配置逻辑
+        this.configureCharacter(character, characterType, options);
+        return true;
     }
 
+    /**
+     * 确保所有必要组件都存在
+     */
+    private ensureAllComponents(node: Node): void {
+        // 基础架构组件
+        if (!node.getComponent(ModularCharacter)) {
+            console.log(`[UnifiedECSFactory] 注入基础架构组件...`);
+            node.addComponent(MovementComponent);
+            node.addComponent(CombatComponent);
+            node.addComponent(AnimationComponent);
+            node.addComponent(RenderComponent);
+            node.addComponent(CharacterStats);
+            node.addComponent(HealthBarComponent);
+            node.addComponent(ModularCharacter);
+        }
 
-
-
+        // 实例特定组件
+        this.ensureInstanceSpecificComponents(node);
+    }
 
     /**
-     * 注入 ModularCharacter 所需组件
+     * 注入完整的ECS组件（已废弃，保留用于向后兼容）
      */
     private injectModularComponents(node: Node): void {
+        this.ensureAllComponents(node);
+    }
 
-        const lifecycle = node.addComponent(LifecycleComponent);
-        const config = node.addComponent(ConfigComponent);
-        const control = node.addComponent(ControlComponent);  // 提前添加，确保在FactionComponent之前
-        const faction = node.addComponent(FactionComponent);
-        const aiIntention = node.addComponent(AIIntentionComponent); // AI意向组件
-        const movement = node.addComponent(MovementComponent);
-        const combat = node.addComponent(CombatComponent);
-        const animation = node.addComponent(AnimationComponent);
-        const render = node.addComponent(RenderComponent);
-        const character = node.addComponent(ModularCharacter);
+    /**
+     * 确保实例特定组件存在
+     */
+    private ensureInstanceSpecificComponents(node: Node): void {
+        console.log(`[UnifiedECSFactory] 确保实例特定组件存在...`);
+        
+        // 检查并注入实例特定组件
+        if (!node.getComponent(LifecycleComponent)) {
+            node.addComponent(LifecycleComponent);      // 生命周期管理
+        }
+        if (!node.getComponent(ConfigComponent)) {
+            node.addComponent(ConfigComponent);         // 配置管理
+        }
+        if (!node.getComponent(ControlComponent)) {
+            node.addComponent(ControlComponent);        // 控制模式
+        }
+        if (!node.getComponent(FactionComponent)) {
+            node.addComponent(FactionComponent);        // 阵营管理
+        }
+        if (!node.getComponent(AIIntentionComponent)) {
+            node.addComponent(AIIntentionComponent);    // AI意向状态
+        }
+
+        console.log(`[UnifiedECSFactory] 实例特定组件检查完成`);
+    }
+
+    /**
+     * 注入实例特定组件（已废弃，保留用于向后兼容）
+     */
+    private injectInstanceSpecificComponents(node: Node): void {
+        this.ensureInstanceSpecificComponents(node);
     }
 
     /**
@@ -252,6 +343,8 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
         // 配置配置组件
         const configComponent = node.getComponent(ConfigComponent);
         if (configComponent) {
+            // 直接设置属性，让组件自己在生命周期中处理
+            configComponent.characterType = characterType;
             configComponent.setEnemyType(characterType);
             if (options.aiBehaviorType) {
                 configComponent.aiBehaviorType = options.aiBehaviorType;
@@ -261,211 +354,79 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
         console.log(`[UnifiedECSFactory] 🎛️ 角色配置完成: ${characterType}`);
     }
 
+    /**
+     * 检查节点是否来自对象池
+     */
+    private isNodeFromPool(node: Node): boolean {
+        // 可以通过节点名称或者其他标识来判断
+        // 这里简化处理，可以根据实际需要调整判断逻辑
+        return node.name.includes('Pool') || (poolManager as any).isFromPool?.(node) || false;
+    }
+
+    /**
+     * 为复用准备节点状态
+     */
+    private prepareNodeForReuse(node: Node): void {
+        // 设置节点为非激活状态，等待配置完成后激活
+        node.active = false;
+        
+        // 重置位置（如果需要）
+        node.setPosition(0, 0, 0);
+        
+        console.log(`[UnifiedECSFactory] 🔄 节点已准备好复用: ${node.name}`);
+    }
+
+    /**
+     * 增强生命周期重置机制：为复用节点设置必要的状态
+     */
+    private enhanceLifecycleReset(node: Node, characterType: string, options: CharacterCreationOptions): void {
+        // 为ConfigComponent设置必要的信息以便重用
+        const configComponent = node.getComponent(ConfigComponent);
+        if (configComponent && typeof configComponent.reuse === 'function') {
+            configComponent.reuse(characterType, options);
+        }
+        
+        // 确保FactionComponent有正确的阵营信息
+        const factionComponent = node.getComponent(FactionComponent);
+        if (factionComponent && options.aiFaction) {
+            factionComponent.aiFaction = options.aiFaction;
+        }
+        
+        console.log(`[UnifiedECSFactory] 🔄 生命周期重置机制配置完成: ${node.name}`);
+    }
+
 
 
     /**
-     * 统一组件初始化流程 - 重构版本，解决初始化时序问题
+     * 统一组件初始化流程 - 已废弃，现在由各组件的生命周期方法自行管理
+     * 保留用于向后兼容，但不再使用
      */
     private async initializeComponents(character: ICharacter): Promise<void> {
-        const node = (character as any).node;
-        console.log(`[UnifiedECSFactory] 🔄 开始初始化组件: ${node.name}`);
-
-        // 步骤1: 等待所有组件的onLoad完成
-        await this.waitForComponentsReady(node);
-        
-        // 验证关键组件是否已准备好
-        this.verifyComponentsAfterOnLoad(node);
-
-        // 步骤2: 加载配置数据（不触发组件初始化）
-        const configComponent = node.getComponent(ConfigComponent);
-        if (configComponent) {
-            await configComponent.waitForDataManager();
-            configComponent.loadEnemyConfig();
-            console.log(`[UnifiedECSFactory] ✅ 配置数据加载完成`);
-        }
-
-        // 步骤3: 等待配置数据传播
-        await this.waitForFrame();
-
-        // 步骤4: 让ConfigComponent初始化相关组件（设置敌人数据）
-        if (configComponent) {
-            configComponent.initializeRelatedComponentsManually();
-            console.log(`[UnifiedECSFactory] ✅ 相关组件数据设置完成`);
-        }
-
-        // 步骤5: 初始化动画组件（统一路径）
-        await this.initializeAnimationComponent(node, configComponent);
-
-        // 步骤6: 初始化控制组件
-        await this.initializeControlComponent(node);
-
-        // 步骤7: 初始化阵营组件（确保控制组件就绪）
-        await this.initializeFactionComponent(node);
-
-        // 步骤8: 初始化AI系统
-        await this.initializeAISystem(node, configComponent);
-
-        console.log(`[UnifiedECSFactory] 🔄 组件初始化完成: ${node.name}`);
+        console.warn(`[UnifiedECSFactory] initializeComponents已废弃，组件初始化现在由生命周期方法自动管理`);
+        // 不再执行任何初始化逻辑，交给生命周期管理
     }
 
     /**
-     * 等待所有组件的onLoad完成
+     * 这些初始化方法已废弃，现在由各组件的生命周期方法自行管理
+     * 保留用于向后兼容，但不再使用
      */
-    private async waitForComponentsReady(node: Node): Promise<void> {
-        // 等待多帧确保所有组件的onLoad都已执行
-        await this.waitForFrame();
-        await this.waitForFrame();
-        await this.waitForFrame(); // 增加等待时间
-        console.log(`[UnifiedECSFactory] ✅ 组件onLoad等待完成`);
-    }
+    
+    // 已废弃的方法，保留用于向后兼容
+    private async waitForComponentsReady(node: Node): Promise<void> {}
+    private verifyComponentsAfterOnLoad(node: Node): void {}
+    private async waitForFrame(): Promise<void> {}
+    private async initializeAnimationComponent(node: Node, configComponent: ConfigComponent | null): Promise<void> {}
+    private async initializeControlComponent(node: Node): Promise<void> {}
+    private async initializeFactionComponent(node: Node): Promise<void> {}
+    private async initializeAISystem(node: Node, configComponent: ConfigComponent | null): Promise<void> {}
 
     /**
-     * 验证组件在onLoad后的状态
-     */
-    private verifyComponentsAfterOnLoad(node: Node): void {
-        const controlComponent = node.getComponent(ControlComponent);
-        const animationComponent = node.getComponent(AnimationComponent);
-        const factionComponent = node.getComponent(FactionComponent);
-        
-        console.log(`[UnifiedECSFactory] 组件验证结果:`);
-        console.log(`  - ControlComponent: ${!!controlComponent}`);
-        console.log(`  - AnimationComponent: ${!!animationComponent}`);
-        console.log(`  - FactionComponent: ${!!factionComponent}`);
-        
-        if (animationComponent) {
-            console.log(`  - Animation内部组件: ${!!animationComponent.animationComponent}`);
-        }
-        
-        if (controlComponent) {
-            console.log(`  - Control模式: ${controlComponent.controlMode}`);
-        }
-    }
-
-    /**
-     * 等待一帧
-     */
-    private async waitForFrame(): Promise<void> {
-        return new Promise(resolve => {
-            setTimeout(resolve, 16); // 约1帧的时间（60fps）
-        });
-    }
-
-    /**
-     * 初始化动画组件 - 简化版本，完全委托给AnimationComponent和animationManager
-     */
-    private async initializeAnimationComponent(node: Node, configComponent: ConfigComponent | null): Promise<void> {
-        const animationComponent = node.getComponent(AnimationComponent);
-        const enemyData = configComponent?.getEnemyData();
-        
-        if (!animationComponent) {
-            console.warn(`[UnifiedECSFactory] AnimationComponent不存在，跳过动画初始化`);
-            return;
-        }
-
-        if (!enemyData) {
-            console.warn(`[UnifiedECSFactory] 敌人数据未就绪，跳过动画初始化`);
-            return;
-        }
-
-        try {
-            console.log(`[UnifiedECSFactory] 开始初始化动画组件，委托给AnimationComponent...`);
-            // 直接调用AnimationComponent的初始化方法，它会使用animationManager统一管理
-            await animationComponent.initializeAnimations(enemyData);
-            console.log(`[UnifiedECSFactory] ✅ 动画组件初始化完成`);
-        } catch (error) {
-            console.error(`[UnifiedECSFactory] 动画组件初始化失败:`, error);
-        }
-    }
-
-    /**
-     * 初始化控制组件
-     */
-    private async initializeControlComponent(node: Node): Promise<void> {
-        const controlComponent = node.getComponent(ControlComponent);
-        if (controlComponent) {
-            controlComponent.setupInput();
-            console.log(`[UnifiedECSFactory] ✅ 控制组件初始化完成`);
-        }
-    }
-
-    /**
-     * 初始化阵营组件 - 确保控制组件就绪
-     */
-    private async initializeFactionComponent(node: Node): Promise<void> {
-        const factionComponent = node.getComponent(FactionComponent);
-        
-        if (!factionComponent) {
-            console.warn(`[UnifiedECSFactory] FactionComponent不存在，跳过阵营初始化`);
-            return;
-        }
-
-        // 详细检查控制组件
-        let controlComponent = node.getComponent(ControlComponent);
-        if (!controlComponent) {
-            console.error(`[UnifiedECSFactory] ControlComponent不存在，尝试重新获取...`);
-            
-            // 等待几帧后重试
-            await this.waitForFrame();
-            await this.waitForFrame();
-            
-            controlComponent = node.getComponent(ControlComponent);
-            if (!controlComponent) {
-                console.error(`[UnifiedECSFactory] 仍然无法获取ControlComponent，检查组件列表...`);
-                const components = node.components;
-                console.log(`[UnifiedECSFactory] 节点组件列表:`, components.map(c => c.constructor.name));
-                
-                // 尝试通过组件名称获取
-                controlComponent = node.getComponent('ControlComponent') as any;
-                if (!controlComponent) {
-                    console.error(`[UnifiedECSFactory] 通过名称也无法获取ControlComponent，阵营初始化失败`);
-                    return;
-                }
-            }
-        }
-
-        console.log(`[UnifiedECSFactory] 找到ControlComponent，当前controlMode: ${controlComponent.controlMode}`);
-
-        // 等待控制组件完全就绪
-        let retryCount = 0;
-        const maxRetries = 10;
-        
-        while (retryCount < maxRetries) {
-            if (controlComponent.controlMode !== undefined) {
-                console.log(`[UnifiedECSFactory] ControlComponent就绪，controlMode: ${controlComponent.controlMode}`);
-                break;
-            }
-            console.log(`[UnifiedECSFactory] 等待ControlComponent设置controlMode... (尝试 ${retryCount + 1}/${maxRetries})`);
-            await this.waitForFrame();
-            retryCount++;
-        }
-
-        if (retryCount >= maxRetries) {
-            console.error(`[UnifiedECSFactory] 控制组件初始化超时，controlMode仍为: ${controlComponent.controlMode}`);
-        }
-
-        factionComponent.setupDefaultFaction();
-        console.log(`[UnifiedECSFactory] ✅ 阵营组件初始化完成`);
-    }
-
-    /**
-     * 初始化AI系统
-     */
-    private async initializeAISystem(node: Node, configComponent: ConfigComponent | null): Promise<void> {
-        const controlComponent = node.getComponent(ControlComponent);
-        
-        if (controlComponent?.controlMode === ControlMode.AI && configComponent) {
-            configComponent.initializeAI();
-            console.log(`[UnifiedECSFactory] ✅ AI系统初始化完成`);
-        }
-    }
-
-    /**
-     * 重置角色状态以供复用
+     * 重置角色状态以供复用（增强生命周期重置机制）
      */
     private resetCharacterForReuse(character: ICharacter): void {
         const node = (character as any).node;
         
-        // 触发重用事件
+        // 触发重用事件，组件会响应这些事件进行自我重置
         node.emit('reuse-from-pool');
         node.emit('reset-character-state');
         
@@ -509,12 +470,12 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
     /**
      * 创建AI敌人
      */
-    public static async createAIEnemy(characterType: string, options: {
+    public static createAIEnemy(characterType: string, options: {
         position?: Vec3;
         faction: string;
         behaviorType?: string;
-    }): Promise<ICharacter | null> {
-        return await UnifiedECSCharacterFactory.getInstance().createCharacter(characterType, {
+    }): ICharacter | null {
+        return UnifiedECSCharacterFactory.getInstance().createCharacter(characterType, {
             controlMode: ControlMode.AI,
             position: options.position,
             aiFaction: options.faction,
@@ -525,10 +486,10 @@ export class UnifiedECSCharacterFactory implements ICharacterFactory {
     /**
      * 创建玩家角色
      */
-    public static async createPlayer(characterType: string, options: {
+    public static createPlayer(characterType: string, options: {
         position?: Vec3;
-    } = {}): Promise<ICharacter | null> {
-        return await UnifiedECSCharacterFactory.getInstance().createCharacter(characterType, {
+    } = {}): ICharacter | null {
+        return UnifiedECSCharacterFactory.getInstance().createCharacter(characterType, {
             controlMode: ControlMode.MANUAL,
             position: options.position,
             aiFaction: "player"
