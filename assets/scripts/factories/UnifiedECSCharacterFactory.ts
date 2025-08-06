@@ -16,7 +16,10 @@ import { CharacterStats } from '../components/CharacterStats';
 import { HealthBarComponent } from '../components/HealthBarComponent';
 import { ControlComponent } from '../components/ControlComponent';
 import { AIIntentionComponent } from '../components/AIIntentionComponent';
+import { OneDimensionalUnitAI } from '../components/OneDimensionalUnitAI';
 import { ModularCharacter } from '../entities/ModularCharacter';
+import { GameManager } from '../managers/GameManager';
+import { FactionUtils } from '../configs/FactionConfig';
 
 
 const { ccclass } = _decorator;
@@ -151,7 +154,7 @@ export class UnifiedECSCharacterFactory {
                 characterNode = instantiate(prefab);
                 console.log(`[UnifiedECSFactory] 🆕 从预制体创建节点: ${characterType}`);
             } else {
-                characterNode = new Node(`Character_${characterType}`);
+                characterNode = new Node(`Temp_${characterType}`);
                 console.log(`[UnifiedECSFactory] 🆕 创建空节点: ${characterType}`);
             }
             
@@ -212,7 +215,7 @@ export class UnifiedECSCharacterFactory {
                 characterNode = instantiate(prefab);
                 console.log(`[UnifiedECSFactory] 🆕 从预制体创建节点: ${characterType}`);
             } else {
-                characterNode = new Node(`Character_${characterType}`);
+                characterNode = new Node(`Temp_${characterType}`);
                 console.log(`[UnifiedECSFactory] 🆕 创建空节点: ${characterType}`);
             }
             
@@ -302,7 +305,46 @@ export class UnifiedECSCharacterFactory {
             node.addComponent(AIIntentionComponent);    // AI意向状态
         }
 
+        // 检查是否需要添加流场AI组件
+        this.ensureFlowFieldAIComponent(node);
+
         console.log(`[UnifiedECSFactory] 实例特定组件检查完成`);
+    }
+
+    /**
+     * 确保流场AI组件存在（如果启用）
+     */
+    private ensureFlowFieldAIComponent(node: Node): void {
+        // 动态检查GameManager是否启用流场AI
+        try {
+            // 获取GameManager实例
+            const gameManager = GameManager?.instance;
+            
+            // 检查是否启用了一维流场AI
+            if (gameManager && gameManager.useOneDimensionalFlowField) {
+                // 检查是否已有流场AI组件
+                if (!node.getComponent(OneDimensionalUnitAI)) {
+                    const aiComponent = node.addComponent(OneDimensionalUnitAI);
+                    console.log(`[UnifiedECSFactory] ✅ 添加流场AI组件: ${node.name}`);
+                    
+                    // 设置调试模式（可选）
+                    if (gameManager.gameMode === 0) { // DEVELOPMENT模式
+                        aiComponent.debugMode = true;
+                    }
+                } else {
+                    console.log(`[UnifiedECSFactory] 流场AI组件已存在: ${node.name}`);
+                }
+            } else {
+                console.log(`[UnifiedECSFactory] 流场AI未启用，跳过添加组件`);
+            }
+        } catch (error) {
+            console.warn(`[UnifiedECSFactory] 检查流场AI状态失败，将稍后检查:`, error);
+            
+            // 如果检查失败，延迟检查
+            setTimeout(() => {
+                this.ensureFlowFieldAIComponent(node);
+            }, 100);
+        }
     }
 
     /**
@@ -337,7 +379,14 @@ export class UnifiedECSCharacterFactory {
         // 配置阵营组件
         const factionComponent = node.getComponent(FactionComponent);
         if (factionComponent && options.aiFaction) {
+            // 设置字符串阵营属性
             factionComponent.aiFaction = options.aiFaction;
+            
+            // 调用setFaction方法来正确设置阵营并更新物理分组
+            const targetFaction = FactionUtils.stringToFaction(options.aiFaction);
+            factionComponent.setFaction(targetFaction);
+            
+            console.log(`[UnifiedECSFactory] ✅ 阵营已设置: ${options.aiFaction} -> ${targetFaction} (含物理分组更新)`);
         }
 
         // 配置配置组件
@@ -349,6 +398,41 @@ export class UnifiedECSCharacterFactory {
             if (options.aiBehaviorType) {
                 configComponent.aiBehaviorType = options.aiBehaviorType;
             }
+            
+            // 🎯 配置完成后，更新节点名称为正确的中文显示名称
+            const enemyData = dataManager.getEnemyData(characterType);
+            if (enemyData && enemyData.name) {
+                const faction = options.aiFaction || 'neutral';
+                const timestamp = Date.now().toString().slice(-6);
+                const newName = `${enemyData.name}_${faction}_${timestamp}`;
+                node.name = newName;
+                console.log(`[UnifiedECSFactory] 🏷️ 更新节点名称: ${characterType} -> ${newName}`);
+            }
+        }
+
+        // 配置流场AI组件（如果存在）
+        const flowFieldAI = node.getComponent(OneDimensionalUnitAI);
+        if (flowFieldAI && options.controlMode === ControlMode.AI) {
+            console.log(`[UnifiedECSFactory] 🧭 配置流场AI组件: ${characterType}`);
+            
+            // 设置调试模式
+            try {
+                const gameManager = GameManager?.instance;
+                if (gameManager && gameManager.gameMode === 0) { // DEVELOPMENT模式
+                    flowFieldAI.debugMode = true;
+                }
+            } catch (error) {
+                console.warn(`[UnifiedECSFactory] 设置流场AI调试模式失败:`, error);
+            }
+        }
+
+        // 🎯 设置节点位置（关键修复）
+        if (options.position) {
+            node.setPosition(options.position);
+            console.log(`[UnifiedECSFactory] 📍 设置节点位置: ${characterType} -> (${options.position.x.toFixed(1)}, ${options.position.y.toFixed(1)}, ${options.position.z.toFixed(1)})`);
+        } else {
+            node.setPosition(0, 0, 0);
+            console.log(`[UnifiedECSFactory] 📍 设置节点默认位置: ${characterType} -> (0, 0, 0)`);
         }
 
         console.log(`[UnifiedECSFactory] 🎛️ 角色配置完成: ${characterType}`);
@@ -370,8 +454,7 @@ export class UnifiedECSCharacterFactory {
         // 设置节点为非激活状态，等待配置完成后激活
         node.active = false;
         
-        // 重置位置（如果需要）
-        node.setPosition(0, 0, 0);
+        // 位置会在configureCharacter中根据传入参数设置，这里不需要重置
         
         console.log(`[UnifiedECSFactory] 🔄 节点已准备好复用: ${node.name}`);
     }
@@ -450,9 +533,15 @@ export class UnifiedECSCharacterFactory {
      * 生成唯一角色名称
      */
     private generateCharacterName(characterType: string, options: CharacterCreationOptions): string {
+        // 获取敌人数据中的中文名称
+        const enemyData = dataManager.getEnemyData(characterType);
+        const displayName = enemyData?.name || characterType;
+        
         const faction = options.aiFaction || 'neutral';
-        const timestamp = Date.now();
-        return `${characterType}_${faction}_${timestamp}`;
+        const timestamp = Date.now().toString().slice(-6); // 只取最后6位时间戳，避免过长
+        
+        // 格式：中文名称_阵营_时间戳 (例如: 小树人_red_234567)
+        return `${displayName}_${faction}_${timestamp}`;
     }
 
     /**
@@ -474,6 +563,7 @@ export class UnifiedECSCharacterFactory {
         position?: Vec3;
         faction: string;
         behaviorType?: string;
+        useFlowField?: boolean;
     }): ICharacter | null {
         return UnifiedECSCharacterFactory.getInstance().createCharacter(characterType, {
             controlMode: ControlMode.AI,

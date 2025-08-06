@@ -7,7 +7,8 @@ import { OneDimensionalGrid } from '../systems/OneDimensionalGrid';
 import { FactionComponent } from './FactionComponent';
 import { MovementComponent } from './MovementComponent';
 import { CombatComponent } from './CombatComponent';
-import { Faction } from '../configs/FactionConfig';
+import { Faction, FactionUtils } from '../configs/FactionConfig';
+import { flowFieldManager } from '../managers/FlowFieldManager';
 import { EntityType, QueryOptions } from '../interfaces/IGrid';
 
 const { ccclass, property } = _decorator;
@@ -92,6 +93,8 @@ export class OneDimensionalUnitAI extends Component {
         // 自动注册到流场系统
         this.registerToFlowFieldSystem();
         
+        console.log(`[OneDimensionalUnitAI] 🚀 AI系统已启动: ${this.node.name} (初始状态: ${this.currentState})`);
+        
         if (this.debugMode) {
             console.log(`[OneDimensionalUnitAI] AI系统已启动: ${this.node.name}`);
             console.log(`[OneDimensionalUnitAI] 初始状态: ${this.currentState}`);
@@ -100,6 +103,11 @@ export class OneDimensionalUnitAI extends Component {
     
     protected update(deltaTime: number): void {
         if (!this.isSystemReady()) {
+            // 定期输出系统状态以便调试
+            if (Date.now() - this.lastStateChangeTime > 5000) {
+                console.log(`[OneDimensionalUnitAI] ⚠️ 系统未就绪: ${this.node.name} (方向场: ${!!this.directionFieldSystem}, 网格: ${!!this.oneDGrid}, 阵营: ${!!this.factionComponent}, 移动: ${!!this.movementComponent})`);
+                this.lastStateChangeTime = Date.now();
+            }
             return;
         }
         
@@ -122,6 +130,9 @@ export class OneDimensionalUnitAI extends Component {
     }
     
     protected onDestroy(): void {
+        // 从网格系统注销
+        this.unregisterFromGrid();
+        
         if (this.debugMode) {
             console.log(`[OneDimensionalUnitAI] AI组件已销毁: ${this.node.name}`);
         }
@@ -198,7 +209,7 @@ export class OneDimensionalUnitAI extends Component {
         
         // 设置前进方向（假设X轴正方向为前进方向）
         const forwardDirection = new Vec2(1, 0);
-        this.movementComponent.setMoveDirection(forwardDirection);
+        this.movementComponent.moveDirection = forwardDirection;
         this.movementComponent.moveSpeed = this.marchSpeed;
         
         if (this.debugMode) {
@@ -225,12 +236,8 @@ export class OneDimensionalUnitAI extends Component {
         const combinedDirection = this.combineMovementDirection(flowDirection, nearestEnemy);
         
         // 应用移动
-        this.movementComponent.setMoveDirection(combinedDirection);
+        this.movementComponent.moveDirection = combinedDirection;
         this.movementComponent.moveSpeed = this.moveSpeed;
-        
-        if (this.debugMode) {
-            console.log(`[OneDimensionalUnitAI] ${this.node.name} 智能移动 - 流场方向: ${flowDirection}, 目标敌人: ${nearestEnemy ? nearestEnemy.node.name : '无'}`);
-        }
     }
     
     /**
@@ -285,7 +292,7 @@ export class OneDimensionalUnitAI extends Component {
         }
         
         // 执行攻击
-        this.combatComponent.performAttack(target.node);
+        this.combatComponent.performSpecialAttack();
         
         if (this.debugMode) {
             console.log(`[OneDimensionalUnitAI] ${this.node.name} 攻击目标: ${target.node.name}`);
@@ -303,12 +310,15 @@ export class OneDimensionalUnitAI extends Component {
             return [];
         }
         
-        const myFaction = this.factionComponent.faction;
+        const myFactionString = this.factionComponent.aiFaction;
         const queryOptions: QueryOptions = {
             entityTypes: [EntityType.CHARACTER],
             ignoreEntity: this.node,
             onlyAlive: true
         };
+        
+        // 将字符串阵营转换为Faction枚举
+        const myFaction = FactionUtils.stringToFaction(myFactionString);
         
         // 获取敌对阵营
         queryOptions.factions = this.getEnemyFactions(myFaction);
@@ -316,7 +326,13 @@ export class OneDimensionalUnitAI extends Component {
         // 使用一维网格的专用方法检索三列
         const results = this.oneDGrid.findEntitiesInThreeColumnRange(this.lastKnownColumn, queryOptions);
         
-        return results.filter(result => result.distance <= this.detectionRange);
+        const filteredResults = results.filter(result => result.distance <= this.detectionRange);
+        
+        if (this.debugMode && filteredResults.length > 0) {
+            console.log(`[OneDimensionalUnitAI] 🔍 ${this.node.name} 检测到${filteredResults.length}个敌人 (列: ${this.lastKnownColumn})`);
+        }
+        
+        return filteredResults;
     }
     
     /**
@@ -355,6 +371,9 @@ export class OneDimensionalUnitAI extends Component {
         this.currentState = newState;
         this.lastStateChangeTime = Date.now();
         this.combatTimer = 0; // 重置战斗计时器
+        
+        // 显示状态转换（用于调试流场AI工作状态）
+        console.log(`[OneDimensionalUnitAI] 🎯 ${this.node.name} 状态转换: ${oldState} -> ${newState} (列: ${this.lastKnownColumn})`);
         
         if (this.debugMode) {
             console.log(`[OneDimensionalUnitAI] ${this.node.name} 状态转换: ${oldState} -> ${newState}`);
@@ -448,6 +467,11 @@ export class OneDimensionalUnitAI extends Component {
         this.directionFieldSystem = directionFieldSystem;
         this.oneDGrid = oneDGrid;
         
+        console.log(`[OneDimensionalUnitAI] ✅ 系统引用已设置: ${this.node.name} (方向场: ${!!directionFieldSystem}, 网格: ${!!oneDGrid})`);
+        
+        // 🎯 关键修复：立即注册到网格系统
+        this.registerToGrid();
+        
         if (this.debugMode) {
             console.log(`[OneDimensionalUnitAI] 系统引用已设置: ${this.node.name}`);
         }
@@ -483,30 +507,65 @@ export class OneDimensionalUnitAI extends Component {
     }
 
     /**
+     * 注册到网格系统
+     */
+    private registerToGrid(): void {
+        if (!this.oneDGrid || !this.factionComponent) {
+            console.warn(`[OneDimensionalUnitAI] 无法注册到网格：缺少系统引用或阵营组件: ${this.node.name}`);
+            return;
+        }
+
+        try {
+            // 获取阵营信息并转换为Faction枚举
+            const myFactionString = this.factionComponent.aiFaction;
+            const myFaction = FactionUtils.stringToFaction(myFactionString);
+            
+            // 注册到网格系统
+            this.oneDGrid.registerEntity(this.node, myFaction, EntityType.CHARACTER);
+            
+            console.log(`[OneDimensionalUnitAI] 🌐 已注册到网格系统: ${this.node.name} (阵营: ${myFactionString})`);
+            
+        } catch (error) {
+            console.error(`[OneDimensionalUnitAI] 网格注册失败: ${this.node.name}`, error);
+        }
+    }
+
+    /**
+     * 从网格系统注销
+     */
+    private unregisterFromGrid(): void {
+        if (!this.oneDGrid) {
+            return;
+        }
+
+        try {
+            this.oneDGrid.unregisterEntity(this.node);
+            console.log(`[OneDimensionalUnitAI] 🌐 已从网格系统注销: ${this.node.name}`);
+        } catch (error) {
+            console.error(`[OneDimensionalUnitAI] 网格注销失败: ${this.node.name}`, error);
+        }
+    }
+
+    /**
      * 自动注册到流场系统
      */
     private registerToFlowFieldSystem(): void {
-        // 延迟执行注册，确保流场管理器已初始化
-        setTimeout(() => {
-            try {
-                // 尝试获取全局流场管理器实例
-                const flowFieldManager = (globalThis as any).flowFieldManager;
-                if (flowFieldManager && typeof flowFieldManager.registerAIUnit === 'function') {
-                    flowFieldManager.registerAIUnit(this);
-                    
-                    if (this.debugMode) {
-                        console.log(`[OneDimensionalUnitAI] 已注册到流场管理器: ${this.node.name}`);
-                    }
-                } else {
-                    if (this.debugMode) {
-                        console.warn(`[OneDimensionalUnitAI] 流场管理器未找到，将稍后重试: ${this.node.name}`);
-                    }
-                    // 重试机制
-                    setTimeout(() => this.registerToFlowFieldSystem(), 500);
+        try {
+            console.log(`[OneDimensionalUnitAI] 🔍 尝试注册: ${this.node.name} (管理器存在: ${!!flowFieldManager})`);
+            
+            if (flowFieldManager && typeof flowFieldManager.registerAIUnit === 'function') {
+                flowFieldManager.registerAIUnit(this);
+                
+                console.log(`[OneDimensionalUnitAI] ✅ 已注册到流场管理器: ${this.node.name}`);
+                
+                if (this.debugMode) {
+                    console.log(`[OneDimensionalUnitAI] 已注册到流场管理器: ${this.node.name}`);
                 }
-            } catch (error) {
-                console.warn(`[OneDimensionalUnitAI] 流场管理器注册失败: ${this.node.name}`, error);
+            } else {
+                console.error(`[OneDimensionalUnitAI] ❌ 流场管理器不可用: ${this.node.name}`);
             }
-        }, 100);
+        } catch (error) {
+            console.error(`[OneDimensionalUnitAI] 流场管理器注册失败: ${this.node.name}`, error);
+        }
     }
 }

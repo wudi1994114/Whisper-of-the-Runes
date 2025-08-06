@@ -4,23 +4,43 @@
       "id": 0,
       "name": "普通测试场景",
       "backgroundImage": "textures/backgrounds/test_arena",
-      "mapSize": { "width": 1600, "height": 1000 },
-      "playerSpawn": { "x": 0, "y": 0 },
-      
-      "factionRelationships": {
-        "player": { "attacks": [] },
-        "red": { "attacks": ["blue"] },
-        "blue": { "attacks": ["red"] }
+      "mapSize": {
+        "width": 1600,
+        "height": 1000
       },
-      
+      "playerSpawn": {
+        "x": 0,
+        "y": 0
+      },
+      "factionRelationships": {
+        "player": {
+          "attacks": []
+        },
+        "red": {
+          "attacks": [
+            "blue"
+          ]
+        },
+        "blue": {
+          "attacks": [
+            "red"
+          ]
+        }
+      },
       "monsterSpawners": [
         {
           "id": "red_left_spawner",
-          "position": { "x": -600, "y": 0 },
+          "position": {
+            "x": -600,
+            "y": 0
+          },
           "spawnRadius": 120,
           "spawnType": "circle",
           "faction": "red",
-          "randomOffset": { "x": 80, "y": 100 },
+          "randomOffset": {
+            "x": 80,
+            "y": 100
+          },
           "enemies": [
             {
               "type": "ent_normal",
@@ -44,11 +64,17 @@
         },
         {
           "id": "blue_right_spawner",
-          "position": { "x": 600, "y": 0 },
+          "position": {
+            "x": 600,
+            "y": 0
+          },
           "spawnRadius": 120,
           "spawnType": "circle",
           "faction": "blue",
-          "randomOffset": { "x": 80, "y": 100 },
+          "randomOffset": {
+            "x": 80,
+            "y": 100
+          },
           "enemies": [
             {
               "type": "ent_normal",
@@ -71,14 +97,12 @@
           ]
         }
       ],
-      
       "objectives": [
         {
           "type": "test",
           "description": "普通对战测试"
         }
       ],
-      
       "duration": 300,
       "description": "普通测试场景 - 红蓝两阵营对抗"
     },
@@ -86,25 +110,48 @@
       "id": 1,
       "name": "森林边缘",
       "backgroundImage": "textures/backgrounds/forest",
-      "mapSize": { "width": 2000, "height": 1200 },
-      "playerSpawn": { "x": 0, "y": 0 },
-      
-      "factionRelationships": {
-        "player": { "attacks": ["red", "blue", "green", "purple"] },
-        "red": { "attacks": ["player", "blue", "green", "purple"] },
-        "blue": { "attacks": ["player", "red", "green", "purple"] },
-        "green": { "attacks": ["player", "red", "blue", "purple"] },
-        "purple": { "attacks": ["player", "red", "blue", "green"] }
+      "mapSize": {
+        "width": 2000,
+        "height": 1200
       },
-      
+      "playerSpawn": {
+        "x": 0,
+        "y": 0
+      },
+      "factionRelationships": {
+        "player": {
+          "attacks": [
+            "red",
+            "blue"
+          ]
+        },
+        "red": {
+          "attacks": [
+            "player",
+            "blue"
+          ]
+        },
+        "blue": {
+          "attacks": [
+            "player",
+            "red"
+          ]
+        }
+      },
       "monsterSpawners": [
         {
           "id": "red_left_forest_spawner",
-          "position": { "x": -700, "y": 0 },
+          "position": {
+            "x": -700,
+            "y": 0
+          },
           "spawnRadius": 150,
           "spawnType": "circle",
           "faction": "red",
-          "randomOffset": { "x": 100, "y": 120 },
+          "randomOffset": {
+            "x": 100,
+            "y": 120
+          },
           "enemies": [
             {
               "type": "ent_normal",
@@ -128,11 +175,17 @@
         },
         {
           "id": "blue_right_forest_spawner",
-          "position": { "x": 700, "y": 0 },
+          "position": {
+            "x": 700,
+            "y": 0
+          },
           "spawnRadius": 150,
           "spawnType": "circle",
           "faction": "blue",
-          "randomOffset": { "x": 100, "y": 120 },
+          "randomOffset": {
+            "x": 100,
+            "y": 120
+          },
           "enemies": [
             {
               "type": "ent_normal",
@@ -142,16 +195,31 @@
               "spawnDelay": 3.0,
               "respawnOnDeath": true,
               "faction": "blue"
+            },
+            {
+              "type": "lich_normal",
+              "count": 3,
+              "spawnInterval": 12.0,
+              "maxAlive": 2,
+              "spawnDelay": 8.0,
+              "respawnOnDeath": true,
+              "faction": "blue"
             }
           ]
         },
         {
-          "id": "center_purple_spawner",
-          "position": { "x": 0, "y": 200 },
+          "id": "blue_center_spawner",
+          "position": {
+            "x": 0,
+            "y": 200
+          },
           "spawnRadius": 80,
           "spawnType": "circle",
-          "faction": "purple",
-          "randomOffset": { "x": 60, "y": 60 },
+          "faction": "blue",
+          "randomOffset": {
+            "x": 60,
+            "y": 60
+          },
           "enemies": [
             {
               "type": "lich_normal",
@@ -160,78 +228,259 @@
               "maxAlive": 1,
               "spawnDelay": 10.0,
               "respawnOnDeath": true,
-              "faction": "purple"
+              "faction": "blue"
             }
           ]
         }
       ],
-      
-      
       "objectives": [
         {
           "type": "survive",
           "duration": 60
         }
       ],
-      
       "duration": 60,
-      "description": "新手训练区域"
+      "description": "森林边缘 - 红蓝两阵营在森林中的对抗"
     },
     {
       "id": 2,
       "name": "暗黑洞穴",
       "backgroundImage": "textures/backgrounds/cave",
-      
       "factionRelationships": {
-        "player": { "attacks": ["purple", "red"] },
-        "purple": { "attacks": ["player", "red"] },
-        "red": { "attacks": ["player", "purple"] }
+        "player": {
+          "attacks": [
+            "red",
+            "blue"
+          ]
+        },
+        "red": {
+          "attacks": [
+            "player",
+            "blue"
+          ]
+        },
+        "blue": {
+          "attacks": [
+            "player",
+            "red"
+          ]
+        }
       },
-      
-      "enemies": [
+      "monsterSpawners": [
         {
-          "type": "skeleton",
-          "spawnCount": 8,
-          "spawnInterval": 2.5,
-          "faction": "purple"
+          "id": "red_cave_spawner",
+          "position": {
+            "x": -400,
+            "y": 0
+          },
+          "spawnRadius": 100,
+          "spawnType": "circle",
+          "faction": "red",
+          "randomOffset": {
+            "x": 80,
+            "y": 80
+          },
+          "enemies": [
+            {
+              "type": "skeleton_normal",
+              "count": 8,
+              "spawnInterval": 2.5,
+              "maxAlive": 4,
+              "spawnDelay": 1.0,
+              "respawnOnDeath": true,
+              "faction": "red"
+            }
+          ]
         },
         {
-          "type": "orc",
-          "spawnCount": 2,
-          "spawnInterval": 8,
-          "faction": "red"
+          "id": "blue_cave_spawner",
+          "position": {
+            "x": 400,
+            "y": 0
+          },
+          "spawnRadius": 100,
+          "spawnType": "circle",
+          "faction": "blue",
+          "randomOffset": {
+            "x": 80,
+            "y": 80
+          },
+          "enemies": [
+            {
+              "type": "orc_normal",
+              "count": 6,
+              "spawnInterval": 4.0,
+              "maxAlive": 3,
+              "spawnDelay": 2.0,
+              "respawnOnDeath": true,
+              "faction": "blue"
+            }
+          ]
         }
       ],
       "duration": 90,
-      "description": "危险的地下洞穴"
+      "description": "暗黑洞穴 - 红色骷髅军团与蓝色兽人部队的地下战争"
     },
     {
       "id": 3,
       "name": "兽人要塞",
       "backgroundImage": "textures/backgrounds/fortress",
-      
       "factionRelationships": {
-        "player": { "attacks": ["red", "green"] },
-        "red": { "attacks": ["player", "green"] },
-        "green": { "attacks": ["player", "red"] }
+        "player": {
+          "attacks": [
+            "red",
+            "blue"
+          ]
+        },
+        "red": {
+          "attacks": [
+            "player",
+            "blue"
+          ]
+        },
+        "blue": {
+          "attacks": [
+            "player",
+            "red"
+          ]
+        }
       },
-      
-      "enemies": [
+      "monsterSpawners": [
         {
-          "type": "orc",
-          "spawnCount": 10,
-          "spawnInterval": 3,
-          "faction": "red"
+          "id": "red_fortress_spawner",
+          "position": {
+            "x": -500,
+            "y": 0
+          },
+          "spawnRadius": 120,
+          "spawnType": "circle",
+          "faction": "red",
+          "randomOffset": {
+            "x": 100,
+            "y": 100
+          },
+          "enemies": [
+            {
+              "type": "orc_normal",
+              "count": 10,
+              "spawnInterval": 3.0,
+              "maxAlive": 5,
+              "spawnDelay": 1.0,
+              "respawnOnDeath": true,
+              "faction": "red"
+            }
+          ]
         },
         {
-          "type": "goblin",
-          "spawnCount": 15,
-          "spawnInterval": 1.5,
-          "faction": "green"
+          "id": "blue_fortress_spawner",
+          "position": {
+            "x": 500,
+            "y": 0
+          },
+          "spawnRadius": 120,
+          "spawnType": "circle",
+          "faction": "blue",
+          "randomOffset": {
+            "x": 100,
+            "y": 100
+          },
+          "enemies": [
+            {
+              "type": "goblin_normal",
+              "count": 12,
+              "spawnInterval": 2.0,
+              "maxAlive": 6,
+              "spawnDelay": 1.5,
+              "respawnOnDeath": true,
+              "faction": "blue"
+            }
+          ]
         }
       ],
       "duration": 120,
-      "description": "兽人的主要据点"
+      "description": "兽人要塞 - 红色兽人军团与蓝色哥布林部队争夺要塞控制权"
+    },
+    {
+      "id": 4,
+      "name": "网格战场",
+      "backgroundImage": "textures/backgrounds/test_arena",
+      "mapSize": {
+        "width": 1920,
+        "height": 1080
+      },
+      "playerSpawn": {
+        "x": 0,
+        "y": 0
+      },
+      "factionRelationships": {
+        "player": {
+          "attacks": [
+            "red",
+            "blue"
+          ]
+        },
+        "red": {
+          "attacks": [
+            "player",
+            "blue"
+          ]
+        },
+        "blue": {
+          "attacks": [
+            "player",
+            "red"
+          ]
+        }
+      },
+      "monsterSpawners": [
+        {
+          "id": "grid_multi_column_spawner",
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "spawnRadius": 0,
+          "spawnType": "grid_columns",
+          "faction": "mixed",
+          "enemies": [
+            {
+              "type": "ent_normal",
+              "count": 15,
+              "spawnInterval": 1.5,
+              "maxAlive": 15,
+              "spawnDelay": 0.5,
+              "respawnOnDeath": true,
+              "faction": "red"
+            },
+            {
+              "type": "lich_normal",
+              "count": 10,
+              "spawnInterval": 2.5,
+              "maxAlive": 10,
+              "spawnDelay": 1.0,
+              "respawnOnDeath": true,
+              "faction": "blue"
+            },
+            {
+              "type": "skeleton_normal",
+              "count": 8,
+              "spawnInterval": 3.0,
+              "maxAlive": 8,
+              "spawnDelay": 1.5,
+              "respawnOnDeath": true,
+              "faction": "red"
+            }
+          ]
+        }
+      ],
+      "objectives": [
+        {
+          "type": "test",
+          "description": "网格刷怪测试 - 怪物将在屏幕左右各三列按网格排列"
+        }
+      ],
+      "duration": 300,
+      "description": "网格刷怪测试场景 - 怪物按网格在左右各三列刷新，支持多种敌人类型"
     }
   ]
-} 
+}

@@ -187,7 +187,7 @@
     "_priority": 0,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 360,
+    "_orthoHeight": 386.3063063063063,
     "_near": 0,
     "_far": 2000,
     "_color": {
@@ -310,7 +310,8 @@
     },
     "normalMode": true,
     "manualTestMode": false,
-    "selectedLevelId": 0,
+    "useOneDimensionalFlowField": false,
+    "selectedLevelId": 4,
     "testEnemyType": 0,
     "showSizeRanges": false,
     "aiMouseFollowEnabled": false,

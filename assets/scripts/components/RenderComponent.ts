@@ -5,6 +5,7 @@ import { IRenderable } from '../interfaces/IRenderable';
 import { systemConfigManager } from '../configs/SystemConfig';
 import { damageDisplayController } from '../controllers/DamageDisplayController';
 import { EnemyData } from '../configs/EnemyConfig';
+import { AnimationManager } from '../managers/AnimationManager';
 
 /**
  * 渲染组件 - 负责UI渲染、血条、特效等视觉元素
@@ -13,14 +14,10 @@ import { EnemyData } from '../configs/EnemyConfig';
 export class RenderComponent extends Component implements IRenderable {
     // 渲染相关属性
     private _spriteComponent: Sprite | null = null;
-    private _healthBarNode: Node | null = null;
-    private _healthBarGraphics: Graphics | null = null;
     private _enemyData: EnemyData | null = null;
 
     // IRenderable 接口属性
     get spriteComponent(): Sprite | null { return this._spriteComponent; }
-    get healthBarNode(): Node | null { return this._healthBarNode; }
-    get healthBarGraphics(): Graphics | null { return this._healthBarGraphics; }
 
     protected onLoad(): void {
         // 获取或添加精灵组件
@@ -46,111 +43,30 @@ export class RenderComponent extends Component implements IRenderable {
     }
 
     /**
-     * 创建血条
+     * 创建血条 (已废弃 - 由 HealthBarComponent 统一管理)
+     * @deprecated 血条创建现在由 HealthBarComponent 统一管理
      */
     createHealthBar(): void {
-        if (this._healthBarNode) {
-            console.log(`[RenderComponent] 血条已存在，跳过创建`);
-            return;
-        }
-
-        // 获取角色配置
-        const configComponent = this.getComponent('ConfigComponent') as any;
-        const characterName = configComponent ? configComponent.getCharacterDisplayName() : 'Unknown';
-        const baseConfig = systemConfigManager.getHealthBarConfigForCharacter(characterName);
+        console.warn(`[RenderComponent] createHealthBar() 已废弃，血条创建由 HealthBarComponent 统一管理`);
         
-        // 获取角色的实际尺寸
-        const uiTransform = this.node.getComponent(UITransform);
-        const characterWidth = uiTransform ? uiTransform.contentSize.width : 64;
-        const characterHeight = uiTransform ? uiTransform.contentSize.height : 64;
-        
-        // 计算最终血条配置
-        const finalConfig = systemConfigManager.calculateFinalHealthBarConfig(
-            baseConfig, 
-            characterWidth, 
-            characterHeight,
-            this._enemyData
-        );
-        
-        // 创建血条容器
-        this._healthBarNode = new Node('HealthBar');
-        this._healthBarNode.setParent(this.node);
-        
-        // 设置血条位置（包含z轴深度）
-        const characterZDepth = this.node.position.z;
-        this._healthBarNode.setPosition(0, finalConfig.offsetY, characterZDepth + finalConfig.zOffset);
-        
-        // 添加 UITransform 组件
-        const transform = this._healthBarNode.addComponent(UITransform);
-        transform.setContentSize(finalConfig.width, finalConfig.height);
-        
-        // 添加 Graphics 组件用于绘制血条
-        this._healthBarGraphics = this._healthBarNode.addComponent(Graphics);
-        
-        // 绘制血条
-        this.updateHealthBar();
-        
-        console.log(`[RenderComponent] 血条创建完成`);
+        // 不再在这里创建血条，避免重复创建
+        // 血条创建和管理已转移到 HealthBarComponent
     }
 
     /**
-     * 更新血条显示
+     * 更新血条显示 (已废弃 - 由 HealthBarComponent 统一管理)
+     * @deprecated 血条更新现在由 HealthBarComponent 统一管理
      */
     updateHealthBar(): void {
-        if (!this._healthBarGraphics || !this._healthBarNode) {
-            return;
-        }
-
-        // 获取血量信息
+        // 不再在这里更新血条，由 HealthBarComponent 统一管理
+        // 通过事件通知 HealthBarComponent 更新血条
         const characterStats = this.getComponent('CharacterStats') as any;
-        if (!characterStats) {
-            return;
-        }
-
-        const currentHealth = characterStats.currentHealth;
-        const maxHealth = characterStats.maxHealth;
-        const healthPercent = maxHealth > 0 ? currentHealth / maxHealth : 0;
-        
-        // 获取血条的实际尺寸
-        const healthBarTransform = this._healthBarNode.getComponent(UITransform);
-        if (!healthBarTransform) return;
-        
-        const barWidth = healthBarTransform.contentSize.width;
-        const barHeight = healthBarTransform.contentSize.height;
-        const halfWidth = barWidth / 2;
-        const halfHeight = barHeight / 2;
-        
-        // 清除之前的绘制
-        this._healthBarGraphics.clear();
-        
-        // 绘制背景边框
-        this._healthBarGraphics.strokeColor = new Color(30, 30, 30, 255);
-        this._healthBarGraphics.lineWidth = 1;
-        this._healthBarGraphics.rect(-halfWidth, -halfHeight, barWidth, barHeight);
-        this._healthBarGraphics.stroke();
-        
-        // 绘制背景填充
-        this._healthBarGraphics.fillColor = new Color(50, 50, 50, 255);
-        this._healthBarGraphics.rect(-halfWidth, -halfHeight, barWidth, barHeight);
-        this._healthBarGraphics.fill();
-        
-        // 绘制血量填充
-        if (healthPercent > 0) {
-            const fillWidth = barWidth * healthPercent;
+        if (characterStats && characterStats.isInitialized) {
+            const currentHealth = characterStats.currentHealth;
+            const maxHealth = characterStats.maxHealth;
             
-            // 根据血量百分比选择颜色
-            let fillColor: Color;
-            if (healthPercent > 0.6) {
-                fillColor = new Color(0, 255, 0, 255); // 绿色
-            } else if (healthPercent > 0.3) {
-                fillColor = new Color(255, 255, 0, 255); // 黄色
-            } else {
-                fillColor = new Color(255, 0, 0, 255); // 红色
-            }
-            
-            this._healthBarGraphics.fillColor = fillColor;
-            this._healthBarGraphics.rect(-halfWidth, -halfHeight, fillWidth, barHeight);
-            this._healthBarGraphics.fill();
+            // 通知 HealthBarComponent 更新血条
+            this.node.emit('health-changed', currentHealth, maxHealth);
         }
     }
 
@@ -206,36 +122,18 @@ export class RenderComponent extends Component implements IRenderable {
         if (Math.abs(currentPosition.z - newZDepth) > 0.01) {
             this.node.setPosition(currentPosition.x, currentPosition.y, newZDepth);
             
-            // 同步更新血条的z轴位置
-            this.updateHealthBarZDepth(newZDepth);
+            // 血条深度管理已转移到 HealthBarComponent
         }
     }
 
     /**
-     * 更新血条的z轴深度
+     * 更新血条的z轴深度 (已废弃 - 由 HealthBarComponent 统一管理)
      * @param characterZDepth 角色的z轴深度
+     * @deprecated 血条深度管理现在由 HealthBarComponent 统一处理
      */
     updateHealthBarZDepth(characterZDepth: number): void {
-        if (!this._healthBarNode) return;
-        
-        // 获取血条配置中的z轴偏移
-        const configComponent = this.getComponent('ConfigComponent') as any;
-        const characterName = configComponent ? configComponent.getCharacterDisplayName() : 'Unknown';
-        const baseConfig = systemConfigManager.getHealthBarConfigForCharacter(characterName);
-        const finalConfig = systemConfigManager.calculateFinalHealthBarConfig(
-            baseConfig, 
-            64, // 默认值，这里只需要zOffset
-            64,
-            this._enemyData
-        );
-        
-        // 血条显示在比角色更靠前的位置
-        const healthBarPosition = this._healthBarNode.position;
-        this._healthBarNode.setPosition(
-            healthBarPosition.x, 
-            healthBarPosition.y, 
-            characterZDepth + finalConfig.zOffset
-        );
+        console.warn(`[RenderComponent] updateHealthBarZDepth() 已废弃，血条深度管理由 HealthBarComponent 统一处理`);
+        // 血条深度管理已转移到 HealthBarComponent
     }
 
     /**
@@ -312,10 +210,127 @@ export class RenderComponent extends Component implements IRenderable {
     private onEnemyConfigLoaded(enemyData: EnemyData): void {
         this._enemyData = enemyData;
         
-        // 检查是否需要创建血条
-        const healthBarComponent = this.node.getComponent('HealthBarComponent');
-        if (!healthBarComponent) {
-            this.createHealthBar();
+        console.log(`[RenderComponent] 🎨 开始应用敌人配置: ${enemyData.name} (${enemyData.id})`);
+        
+        // 应用所有渲染相关配置
+        this.applyEnemyVisualConfig(enemyData);
+        
+        // 不再在这里创建血条，由 HealthBarComponent 统一管理
+        // 血条创建由 HealthBarComponent 在 onLoad 中自动处理
+    }
+
+    /**
+     * 应用敌人可视化配置
+     */
+    private async applyEnemyVisualConfig(enemyData: EnemyData): Promise<void> {
+        try {
+            // 1. 设置节点缩放
+            if (enemyData.nodeScale) {
+                this.node.setScale(enemyData.nodeScale, enemyData.nodeScale, enemyData.nodeScale);
+                console.log(`[RenderComponent] ✅ 节点缩放已设置: ${enemyData.nodeScale}`);
+            }
+
+            // 2. 设置UI尺寸
+            if (enemyData.uiSize) {
+                const uiTransform = this.node.getComponent('cc.UITransform');
+                if (uiTransform) {
+                    (uiTransform as any).setContentSize(enemyData.uiSize.width, enemyData.uiSize.height);
+                    console.log(`[RenderComponent] ✅ UI尺寸已设置: ${enemyData.uiSize.width}x${enemyData.uiSize.height}`);
+                }
+            }
+
+            // 3. 加载并设置精灵资源
+            if (enemyData.plistUrl && enemyData.assetNamePrefix && this._spriteComponent) {
+                await this.loadSpriteResource(enemyData.plistUrl, enemyData.assetNamePrefix);
+            }
+
+            // 4. 设置物理碰撞体大小
+            this.applyColliderConfig(enemyData);
+
+            // 5. 设置投射物发射起点（如果有CombatComponent）
+            this.applyProjectileOriginConfig(enemyData);
+
+            console.log(`[RenderComponent] 🎨 敌人可视化配置应用完成: ${enemyData.name}`);
+
+        } catch (error) {
+            console.error(`[RenderComponent] 应用敌人配置失败:`, error);
+        }
+    }
+
+    /**
+     * 加载精灵资源
+     */
+    private async loadSpriteResource(plistUrl: string, assetNamePrefix: string): Promise<void> {
+        try {
+            // 使用AnimationManager加载精灵图集
+            const atlas = await AnimationManager.instance.loadSpriteAtlas(plistUrl);
+            
+            if (atlas && this._spriteComponent) {
+                // 从图集中获取精灵帧
+                const spriteFrame = atlas.getSpriteFrame(assetNamePrefix);
+                if (spriteFrame) {
+                    this._spriteComponent.spriteFrame = spriteFrame;
+                    console.log(`[RenderComponent] ✅ 精灵资源已加载: ${plistUrl}/${assetNamePrefix}`);
+                } else {
+                    console.warn(`[RenderComponent] 图集中未找到精灵帧: ${assetNamePrefix}`);
+                }
+            } else {
+                console.warn(`[RenderComponent] 精灵图集加载失败: ${plistUrl}`);
+            }
+        } catch (error) {
+            console.error(`[RenderComponent] 加载精灵资源异常:`, error);
+        }
+    }
+
+    /**
+     * 应用碰撞体配置
+     */
+    private applyColliderConfig(enemyData: EnemyData): void {
+        if (!enemyData.colliderSize) return;
+
+        const collider = this.node.getComponent('cc.CircleCollider2D') || this.node.getComponent('cc.BoxCollider2D');
+        if (collider) {
+            // 圆形碰撞体
+            if ((collider as any).radius !== undefined && enemyData.colliderSize.radius) {
+                (collider as any).radius = enemyData.colliderSize.radius;
+                console.log(`[RenderComponent] ✅ 圆形碰撞体半径已设置: ${enemyData.colliderSize.radius}`);
+            }
+            
+            // 设置偏移
+            if (enemyData.colliderSize.xoffset !== undefined || enemyData.colliderSize.yoffset !== undefined) {
+                const offset = (collider as any).offset || { x: 0, y: 0 };
+                if (enemyData.colliderSize.xoffset !== undefined) offset.x = enemyData.colliderSize.xoffset;
+                if (enemyData.colliderSize.yoffset !== undefined) offset.y = enemyData.colliderSize.yoffset;
+                (collider as any).offset = offset;
+                console.log(`[RenderComponent] ✅ 碰撞体偏移已设置: (${offset.x}, ${offset.y})`);
+            }
+        }
+    }
+
+    /**
+     * 应用投射物发射起点配置
+     */
+    private applyProjectileOriginConfig(enemyData: EnemyData): void {
+        const combatComponent = this.node.getComponent('CombatComponent');
+        if (!combatComponent) return;
+
+        // 根据怪物尺寸和类型设置发射起点
+        let projectileOrigin = { x: 0, y: 0 };
+        
+        if (enemyData.uiSize) {
+            // 默认从角色中心偏上一点发射
+            projectileOrigin.y = enemyData.uiSize.height * 0.3;
+        }
+
+        // 如果配置中有特定的发射点配置，优先使用
+        if ((enemyData as any).projectileOrigin) {
+            projectileOrigin = (enemyData as any).projectileOrigin;
+        }
+
+        // 应用到CombatComponent
+        if (typeof (combatComponent as any).setProjectileOrigin === 'function') {
+            (combatComponent as any).setProjectileOrigin(projectileOrigin.x, projectileOrigin.y);
+            console.log(`[RenderComponent] ✅ 投射物发射起点已设置: (${projectileOrigin.x}, ${projectileOrigin.y})`);
         }
     }
 

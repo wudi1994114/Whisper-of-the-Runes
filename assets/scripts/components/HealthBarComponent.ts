@@ -32,8 +32,8 @@ export class HealthBarComponent extends Component {
     private _maxHealth: number = 100;
 
     onLoad() {
-        // 创建血条UI，但不绑定任何目标
-        this.createHealthBar();
+        // 等待 setTarget 被调用时才创建血条，避免重复创建
+        // 血条创建将在 setTarget 方法中处理
     }
 
     onDestroy() {
@@ -63,14 +63,12 @@ export class HealthBarComponent extends Component {
         this._targetNode = targetNode;
         this._characterType = characterType;
         
-        // 监听新目标的血量变化事件
+        // 监听新目标的事件
         this._targetNode.on('health-changed', this.onHealthChanged, this);
+        this._targetNode.on('position-changed', this.onPositionChanged, this);
         
-        // 只有在角色类型改变或血条不存在时才重新创建
-        if (!this.healthBarNode || this._characterType !== characterType) {
-            if (this.healthBarNode) {
-                this.healthBarNode.destroy();
-            }
+        // 只有在血条不存在时才创建（避免重复创建）
+        if (!this.healthBarNode) {
             this.createHealthBar();
         }
         

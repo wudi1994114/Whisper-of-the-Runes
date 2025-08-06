@@ -2,54 +2,13 @@
 这是整个方案的精髓所在，它根据战场态势，实时为每一“列”的单位提供最佳的横向移动建议。
 
 数据结构:
-一个一维数组 Direction[] directionField = new Direction[n];，其中 Direction 是一个包含 { LEFT, RIGHT, NEUTRAL } 的枚举。
+一个一维数组 Direction[] directionField = new Direction[n];，其中 Direction 是一个包含 { LEFT, RIGHT } 的枚举。
 
 更新逻辑 (The Key Algorithm):
 此逻辑取代了之前所有的重心计算和独立的渗透者检测，成为唯一的大局观判断来源。
 
-更新频率: 每 0.5 秒或 1 秒执行一次即可，性能开销极低。
+更新频率: 每 1 秒执行一次即可，性能开销极低。
 
-算法伪代码:
-
-C#
-
-// C# 风格伪代码
-void UpdateDirectionField(List<Unit> allEnemies)
-{
-    // 遍历战场中的每一“列”
-    for (int x = 0; x < n; x++)
-    {
-        int enemiesOnLeft = 0;
-        int enemiesOnRight = 0;
-
-        // 对每一个敌人，判断其相对当前列的位置
-        foreach (Unit enemy in allEnemies)
-        {
-            if (enemy.x < x)
-            {
-                enemiesOnLeft++;
-            }
-            else if (enemy.x > x)
-            {
-                enemiesOnRight++;
-            }
-        }
-
-        // 根据左右敌人数量，决定这一列的移动方向
-        if (enemiesOnRight > enemiesOnLeft)
-        {
-            directionField[x] = Direction.RIGHT; // 右边敌人多，向右压制
-        }
-        else if (enemiesOnLeft > enemiesOnRight)
-        {
-            directionField[x] = Direction.LEFT;  // 左边敌人多，向左压制
-        }
-        else
-        {
-            directionField[x] = Direction.NEUTRAL; // 势均力敌，保持中立或前进
-        }
-    }
-}
 应对渗透的内在逻辑:
 这个算法的巧妙之处在于，当一个敌方单位渗透到后方（例如 enemy.x 很小），对于我方后排的单位（它们的 x 坐标也较小），在它们计算时，这个渗透者会被计入 enemiesOnLeft。如果后方没有其他敌人，enemiesOnRight 将为0，directionField 在这些后排的列上会自然地指向 LEFT，引导后排部队自动转身迎敌。这就形成了一个动态的、自适应的“后卫线”。
 

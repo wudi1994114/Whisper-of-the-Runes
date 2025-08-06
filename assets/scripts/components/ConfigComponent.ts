@@ -133,6 +133,12 @@ export class ConfigComponent extends Component implements IConfigurable {
      * 获取角色显示名称
      */
     getCharacterDisplayName(): string {
+        // 优先使用敌人数据中的中文名称
+        if (this._enemyData && this._enemyData.name) {
+            return this._enemyData.name;
+        }
+        
+        // 如果没有敌人数据，使用基础ID
         const baseId = this.getEnemyConfigId();
         return `Character_${baseId}`;
     }

@@ -391,12 +391,16 @@ export class ModularCharacter extends Component implements ICharacter {
         return this._renderComponent?.spriteComponent || null; 
     }
     
-    get healthBarNode(): Node | null { 
-        return this._renderComponent?.healthBarNode || null; 
+        get healthBarNode(): Node | null { 
+        // 血条节点现在由 HealthBarComponent 管理
+        const healthBarComponent = this.getComponent('HealthBarComponent') as any;
+        return healthBarComponent?.healthBarNode || null;
     }
     
     get healthBarGraphics(): Graphics | null { 
-        return this._renderComponent?.healthBarGraphics || null; 
+        // 血条图形组件现在由 HealthBarComponent 管理
+        const healthBarComponent = this.getComponent('HealthBarComponent') as any;
+        return healthBarComponent?.healthBarGraphics || null;
     }
     
     createHealthBar(): void {
@@ -420,7 +424,11 @@ export class ModularCharacter extends Component implements ICharacter {
     }
     
     updateHealthBarZDepth(characterZDepth: number): void {
-        this._renderComponent?.updateHealthBarZDepth(characterZDepth);
+        // 血条深度管理已转移到 HealthBarComponent
+        const healthBarComponent = this.getComponent('HealthBarComponent') as any;
+        if (healthBarComponent && typeof healthBarComponent.updateHealthBarZDepth === 'function') {
+            healthBarComponent.updateHealthBarZDepth();
+        }
     }
     
     createUIRangeDisplay(): void {

@@ -16,6 +16,9 @@ export class CombatComponent extends Component implements ICombat {
     private _wantsToAttack: boolean = false;
     private _isInvincible: boolean = false;
 
+    // 投射物发射起点配置
+    private _projectileOrigin: { x: number; y: number } = { x: 0, y: 0 };
+
     // 组件依赖
     private characterStats: CharacterStats | null = null;
 
@@ -35,6 +38,55 @@ export class CombatComponent extends Component implements ICombat {
     protected onLoad(): void {
         // 获取必要的组件
         this.characterStats = this.getComponent(CharacterStats);
+    }
+
+    /**
+     * 设置投射物发射起点
+     */
+    setProjectileOrigin(x: number, y: number): void {
+        this._projectileOrigin.x = x;
+        this._projectileOrigin.y = y;
+        console.log(`[CombatComponent] 投射物发射起点已设置: (${x}, ${y})`);
+    }
+
+    /**
+     * 获取投射物发射起点
+     */
+    get projectileOrigin(): { x: number; y: number } {
+        return { ...this._projectileOrigin };
+    }
+
+    /**
+     * 获取世界坐标的投射物发射起点
+     */
+    getWorldProjectileOrigin(): { x: number; y: number } {
+        const nodePos = this.node.getWorldPosition();
+        return {
+            x: nodePos.x + this._projectileOrigin.x,
+            y: nodePos.y + this._projectileOrigin.y
+        };
+    }
+
+    /**
+     * 使用敌人配置数据配置战斗组件
+     */
+    configure(enemyData: any): void {
+        // 应用攻击冷却时间
+        if (enemyData.attackInterval) {
+            this._attackCooldown = enemyData.attackInterval;
+            console.log(`[CombatComponent] ✅ 攻击间隔已设置: ${enemyData.attackInterval}秒`);
+        }
+
+        // 如果配置中有发射起点，设置它
+        if (enemyData.projectileOrigin) {
+            this.setProjectileOrigin(enemyData.projectileOrigin.x, enemyData.projectileOrigin.y);
+        } else if (enemyData.uiSize) {
+            // 根据UI尺寸计算默认发射起点
+            const defaultY = enemyData.uiSize.height * 0.3;
+            this.setProjectileOrigin(0, defaultY);
+        }
+
+        console.log(`[CombatComponent] 🗡️ 战斗配置应用完成: ${enemyData.name || enemyData.id}`);
     }
 
     /**

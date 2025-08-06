@@ -1,10 +1,8 @@
-// assets/scripts/core/InputManager.ts
-
 import { _decorator, Component, input, Input, EventKeyboard, EventMouse, KeyCode, Vec2, Vec3, director, Camera, view } from 'cc';
 import { eventManager } from './EventManager';
 import { GameEvents } from '../components/GameEvents';
 
-const { ccclass, property } = _decorator;
+const { ccclass } = _decorator;
 
 /**
  * 输入管理器组件
@@ -12,21 +10,17 @@ const { ccclass, property } = _decorator;
  */
 @ccclass('InputManager')
 export class InputManager extends Component {
-    private static _instance: InputManager;
+    private static _instance: InputManager | null = null;
     
     // 键盘状态记录
     private keyStates: { [key: number]: boolean } = {};
-    
     // 移动方向向量
     private moveDirection: Vec2 = new Vec2(0, 0);
-    
     // 初始化状态
     private isInitialized: boolean = false;
-    
     // 鼠标状态记录
     private currentMousePosition: Vec3 = new Vec3(0, 0, 0);
     private lastMousePosition: Vec3 = new Vec3(0, 0, 0);
-    
     // 允许的移动按键列表
     private readonly MOVEMENT_KEYS: KeyCode[] = [
         KeyCode.KEY_W,      // W键 - 上
@@ -42,7 +36,7 @@ export class InputManager extends Component {
     /**
      * 获取单例实例
      */
-    public static get instance(): InputManager {
+    public static get instance(): InputManager | null {
         if (!InputManager._instance) {
             // 尝试在场景中查找现有的InputManager组件
             const existingInputManager = director.getScene()?.getComponentInChildren(InputManager);

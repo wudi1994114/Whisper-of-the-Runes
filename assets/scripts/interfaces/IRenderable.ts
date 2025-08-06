@@ -13,22 +13,14 @@ export interface IRenderable {
     readonly spriteComponent: Sprite | null;
     
     /**
-     * 血条节点
-     */
-    readonly healthBarNode: Node | null;
-    
-    /**
-     * 血条图形组件
-     */
-    readonly healthBarGraphics: Graphics | null;
-    
-    /**
-     * 创建血条
+     * 创建血条 (已废弃 - 由 HealthBarComponent 统一管理)
+     * @deprecated 血条创建现在由 HealthBarComponent 统一管理
      */
     createHealthBar(): void;
     
     /**
-     * 更新血条
+     * 更新血条 (已废弃 - 由 HealthBarComponent 统一管理)
+     * @deprecated 血条更新现在由 HealthBarComponent 统一管理
      */
     updateHealthBar(): void;
     
@@ -49,8 +41,9 @@ export interface IRenderable {
     updateZDepthBasedOnY(): void;
     
     /**
-     * 更新血条Z轴深度
+     * 更新血条Z轴深度 (已废弃 - 由 HealthBarComponent 统一管理)
      * @param characterZDepth 角色Z深度
+     * @deprecated 血条深度管理现在由 HealthBarComponent 统一处理
      */
     updateHealthBarZDepth(characterZDepth: number): void;
     

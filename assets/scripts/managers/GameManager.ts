@@ -77,7 +77,7 @@ export class GameManager extends Component {
         displayName: "使用一维流场AI",
         tooltip: "启用基于方向场的一维AI系统"
     })
-    public useOneDimensionalFlowField: boolean = false;
+    public useOneDimensionalFlowField: boolean = true;
 
     // ===== 关卡选择配置 =====
     @property({

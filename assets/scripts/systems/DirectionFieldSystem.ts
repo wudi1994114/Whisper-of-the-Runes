@@ -11,16 +11,18 @@ import { GridEntity, EntityType } from '../interfaces/IGrid';
  * 为每一列提供LEFT或RIGHT的方向建议，用于智能移动决策
  */
 export class DirectionFieldSystem {
-    private static instance: DirectionFieldSystem | null = null;
-    
     // 方向场数据 - 核心的一维数组
     private directionField: FlowDirection[] = [];
     
     // 关联的一维网格系统
     private oneDGrid: OneDimensionalGrid;
     
+    // 阵营配置
+    private ownerFaction: Faction;      // 使用此方向场的阵营
+    private targetFaction: Faction;     // 要走向的目标阵营
+    
     // 更新控制
-    private readonly UPDATE_INTERVAL = 0.5;  // 0.5秒更新一次，性能开销极低
+    private readonly UPDATE_INTERVAL = 1.0;  // 1秒更新一次，性能开销极低
     private lastUpdateTime = 0;
     
     // 统计信息
@@ -30,33 +32,31 @@ export class DirectionFieldSystem {
     /**
      * 构造函数
      * @param oneDGrid 关联的一维网格系统
+     * @param ownerFaction 使用此方向场的阵营
+     * @param targetFaction 要走向的目标阵营
      */
-    private constructor(oneDGrid: OneDimensionalGrid) {
+    public constructor(oneDGrid: OneDimensionalGrid, ownerFaction: Faction, targetFaction: Faction) {
         this.oneDGrid = oneDGrid;
+        this.ownerFaction = ownerFaction;
+        this.targetFaction = targetFaction;
         const gridConfig = oneDGrid.getGridConfig();
         
         // 初始化方向场数组
         this.directionField = new Array(gridConfig.cols).fill(FlowDirection.RIGHT);
         
-        console.log(`[DirectionFieldSystem] 初始化方向场系统，列数: ${gridConfig.cols}`);
+        console.log(`[DirectionFieldSystem] 初始化方向场系统: ${ownerFaction} -> ${targetFaction}，列数: ${gridConfig.cols}`);
         console.log(`[DirectionFieldSystem] 更新间隔: ${this.UPDATE_INTERVAL}秒`);
     }
     
     /**
-     * 获取单例实例
+     * 获取阵营信息
      */
-    public static getInstance(oneDGrid: OneDimensionalGrid): DirectionFieldSystem {
-        if (!DirectionFieldSystem.instance) {
-            DirectionFieldSystem.instance = new DirectionFieldSystem(oneDGrid);
-        }
-        return DirectionFieldSystem.instance;
+    public getOwnerFaction(): Faction {
+        return this.ownerFaction;
     }
     
-    /**
-     * 重置单例实例
-     */
-    public static resetInstance(): void {
-        DirectionFieldSystem.instance = null;
+    public getTargetFaction(): Faction {
+        return this.targetFaction;
     }
     
     /**
@@ -76,22 +76,23 @@ export class DirectionFieldSystem {
      * 
      * 算法逻辑：
      * 1. 遍历战场中的每一"列"
-     * 2. 对每一个敌人，判断其相对当前列的位置
+     * 2. 对每一个目标阵营的敌人，判断其相对当前列的位置
      * 3. 根据左右敌人数量，决定这一列的移动方向
      */
     public updateDirectionField(): void {
-        const allEnemies = this.oneDGrid.getAllEnemies([Faction.PLAYER]); // 排除玩家阵营
+        // 🎯 关键修改：只获取targetFaction的敌人，这样red方向场会寻找blue，blue方向场会寻找red
+        const targetEnemies = this.oneDGrid.getAllEnemies([]).filter(entity => entity.faction === this.targetFaction);
         const gridConfig = this.oneDGrid.getGridConfig();
         
-        console.log(`[DirectionFieldSystem] 开始更新方向场，敌人数量: ${allEnemies.length}`);
+        console.log(`[DirectionFieldSystem ${this.ownerFaction}] 开始更新方向场，目标阵营 ${this.targetFaction} 敌人数量: ${targetEnemies.length}`);
         
         // 遍历战场中的每一"列" (用户指定的算法第一步)
         for (let x = 0; x < gridConfig.cols; x++) {
             let enemiesOnLeft = 0;
             let enemiesOnRight = 0;
             
-            // 对每一个敌人，判断其相对当前列的位置 (用户指定的算法第二步)
-            for (const enemy of allEnemies) {
+            // 对每一个目标阵营的敌人，判断其相对当前列的位置 (用户指定的算法第二步)
+            for (const enemy of targetEnemies) {
                 const enemyCol = this.oneDGrid.worldToGridCol(enemy.worldPosition);
                 
                 if (enemyCol < x) {
@@ -161,13 +162,13 @@ export class DirectionFieldSystem {
         centerCount: number;
         recommendation: FlowDirection;
     } {
-        const allEnemies = this.oneDGrid.getAllEnemies([Faction.PLAYER]);
+        const targetEnemies = this.oneDGrid.getAllEnemies([]).filter(entity => entity.faction === this.targetFaction);
         
         let leftCount = 0;
         let rightCount = 0;
         let centerCount = 0;
         
-        for (const enemy of allEnemies) {
+        for (const enemy of targetEnemies) {
             const enemyCol = this.oneDGrid.worldToGridCol(enemy.worldPosition);
             
             if (Math.abs(enemyCol - centerCol) <= radius) {
@@ -195,12 +196,12 @@ export class DirectionFieldSystem {
      * 检测是否有渗透者（后方出现敌人）
      * 这是方向场算法的内在逻辑体现
      */
-    public detectPenetrators(playerFaction: Faction = Faction.PLAYER): {
+    public detectPenetrators(): {
         hasPenetrators: boolean;
         penetratorColumns: number[];
         affectedColumns: number[];
     } {
-        const allEnemies = this.oneDGrid.getAllEnemies([playerFaction]);
+        const targetEnemies = this.oneDGrid.getAllEnemies([]).filter(entity => entity.faction === this.targetFaction);
         const gridConfig = this.oneDGrid.getGridConfig();
         
         // 假设玩家主要在右侧，检测左侧（后方）是否有敌人
@@ -209,7 +210,7 @@ export class DirectionFieldSystem {
         const penetratorColumns: number[] = [];
         const affectedColumns: number[] = [];
         
-        for (const enemy of allEnemies) {
+        for (const enemy of targetEnemies) {
             const enemyCol = this.oneDGrid.worldToGridCol(enemy.worldPosition);
             
             if (enemyCol < rearThreshold) {
