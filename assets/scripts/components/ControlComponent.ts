@@ -1,6 +1,6 @@
 // assets/scripts/components/ControlComponent.ts
 
-import { Component, input, Input, EventKeyboard, KeyCode, Vec3 } from 'cc';
+import { _decorator, Component, input, Input, EventKeyboard, KeyCode, Vec3 } from 'cc';
 import { IControllable, IInputSignals } from '../interfaces/IControllable';
 import { ControlMode, CharacterState } from '../state-machine/CharacterEnums';
 import { StateMachine, ICharacterController } from '../state-machine/CharacterStateMachine';
@@ -12,10 +12,13 @@ import { LifecycleComponent } from './LifecycleComponent';
 import { eventManager } from '../managers/EventManager';
 import { GameEvents } from './GameEvents';
 
+const { ccclass } = _decorator;
+
 /**
  * 控制组件 - 负责输入处理、状态机、控制模式
  * 实现 IControllable 接口，专注于控制逻辑的单一职责
  */
+@ccclass('ControlComponent')
 export class ControlComponent extends Component implements IControllable {
     // 控制相关属性
     private _controlMode: ControlMode = ControlMode.MANUAL;
@@ -28,7 +31,7 @@ export class ControlComponent extends Component implements IControllable {
 
     // IControllable 接口属性
     get controlMode(): ControlMode { return this._controlMode; }
-    set controlMode(value: ControlMode) { 
+    set controlMode(value: ControlMode) {
         if (this._controlMode !== value) {
             const oldMode = this._controlMode;
             this._controlMode = value;
@@ -41,27 +44,27 @@ export class ControlComponent extends Component implements IControllable {
 
     protected onLoad(): void {
         console.log(`[ControlComponent] onLoad执行，获取组件引用...`);
-        
+
         // 获取AI意向组件
         this._aiIntentionComponent = this.getComponent(AIIntentionComponent);
-        
+
         // 监听生命周期事件
         this.node.on('reuse-from-pool', this.onReuse, this);
         this.node.on('on-recycle-to-pool', this.onRecycle, this);
         this.node.on('reset-character-state', this.onResetState, this);
-        
+
         console.log(`[ControlComponent] onLoad完成，等待start阶段初始化状态机...`);
     }
 
     protected start(): void {
         console.log(`[ControlComponent] start执行，等待动画组件准备就绪...`);
-        
+
         // 【修复】确保输入系统被正确设置
         this.setupInput();
-        
+
         // 监听动画准备就绪事件
         this.node.on('animation-ready', this.onAnimationReady, this);
-        
+
         // 尝试直接初始化状态机（如果动画已经准备好）
         this.tryInitializeStateMachine();
     }
@@ -71,13 +74,13 @@ export class ControlComponent extends Component implements IControllable {
      */
     private tryInitializeStateMachine(): void {
         const animationComponent = this.getComponent(AnimationComponent);
-        
+
         // 检查动画组件和clips是否都已准备好
-        if (animationComponent && 
-            animationComponent.animationComponent && 
-            animationComponent.animationComponent.clips && 
+        if (animationComponent &&
+            animationComponent.animationComponent &&
+            animationComponent.animationComponent.clips &&
             animationComponent.animationComponent.clips.length > 0) {
-            
+
             console.log(`[ControlComponent] 动画组件和clips都已准备好，初始化状态机...`);
             this.initializeStateMachine();
             console.log(`[ControlComponent] ✅ 状态机初始化完成`);
@@ -100,7 +103,7 @@ export class ControlComponent extends Component implements IControllable {
     protected onDestroy(): void {
         // 清理输入监听器
         this.cleanupInput();
-        
+
         // 清理节点事件监听
         this.node.off('reuse-from-pool', this.onReuse, this);
         this.node.off('on-recycle-to-pool', this.onRecycle, this);
@@ -114,7 +117,7 @@ export class ControlComponent extends Component implements IControllable {
     setupInput(): void {
         // 清理之前的输入监听
         this.cleanupInput();
-        
+
         // 只有手动模式才监听键盘输入
         if (this._controlMode === ControlMode.MANUAL) {
             // 监听InputManager发送的按键事件
@@ -199,7 +202,7 @@ export class ControlComponent extends Component implements IControllable {
      */
     private createCharacterController(): ICharacterController {
         const self = this;
-        
+
         return {
             // 动画相关方法 - 委托给AnimationComponent
             playCurrentAnimation(state: any): void {
@@ -211,7 +214,7 @@ export class ControlComponent extends Component implements IControllable {
                     console.warn(`[ControlComponent] AnimationComponent未找到 (节点: ${self.node.name})`);
                 }
             },
-            
+
             playAttackAnimation(callback?: () => void): void {
                 const animationComponent = self.node.getComponent(AnimationComponent);
                 if (animationComponent) {
@@ -222,7 +225,7 @@ export class ControlComponent extends Component implements IControllable {
                     if (callback) callback(); // 如果没有动画组件，直接执行回调
                 }
             },
-            
+
             playHurtAnimationWithCallback(callback: (() => void) | null): void {
                 const animationComponent = self.node.getComponent(AnimationComponent);
                 if (animationComponent) {
@@ -233,7 +236,7 @@ export class ControlComponent extends Component implements IControllable {
                     if (callback) callback();
                 }
             },
-            
+
             playDeathAnimation(): void {
                 const animationComponent = self.node.getComponent(AnimationComponent);
                 if (animationComponent) {
@@ -243,27 +246,27 @@ export class ControlComponent extends Component implements IControllable {
                     console.warn(`[ControlComponent] AnimationComponent未找到，死亡动画播放失败 (节点: ${self.node.name})`);
                 }
             },
-            
+
             // 输入相关属性
             get wantsToAttack(): boolean {
                 return self._currentInputSignals.wantsToAttack;
             },
-            
+
             hasMovementInput(): boolean {
                 return self._currentInputSignals.hasMovementInput;
             },
-            
+
             // 状态机控制
             transitionToState(state: CharacterState): void {
                 if (self._stateMachine) {
                     self._stateMachine.transitionTo(state);
                 }
             },
-            
+
             getCurrentState(): CharacterState | null {
                 return self._stateMachine ? self._stateMachine.getCurrentState() : null;
             },
-            
+
             // 移动相关方法 - 委托给MovementComponent
             handleMovement(deltaTime: number): void {
                 const movementComponent = self.node.getComponent(MovementComponent);
@@ -273,7 +276,7 @@ export class ControlComponent extends Component implements IControllable {
                     console.warn(`[ControlComponent] MovementComponent未找到或handleMovement方法不存在 (节点: ${self.node.name})`);
                 }
             },
-            
+
             stopPhysicalMovement(): void {
                 const movementComponent = self.node.getComponent(MovementComponent);
                 if (movementComponent && typeof movementComponent.stopPhysicalMovement === 'function') {
@@ -282,7 +285,7 @@ export class ControlComponent extends Component implements IControllable {
                     console.warn(`[ControlComponent] MovementComponent未找到或stopPhysicalMovement方法不存在 (节点: ${self.node.name})`);
                 }
             },
-            
+
             stopMovement(): void {
                 const movementComponent = self.node.getComponent(MovementComponent);
                 if (movementComponent && typeof movementComponent.stopMovement === 'function') {
@@ -291,7 +294,7 @@ export class ControlComponent extends Component implements IControllable {
                     console.warn(`[ControlComponent] MovementComponent未找到或stopMovement方法不存在 (节点: ${self.node.name})`);
                 }
             },
-            
+
             // 碰撞和生命周期
             disableCollision(): void {
                 const combatComponent = self.node.getComponent(CombatComponent);
@@ -301,12 +304,12 @@ export class ControlComponent extends Component implements IControllable {
                     console.warn(`[ControlComponent] CombatComponent未找到或disableCollision方法不存在 (节点: ${self.node.name})`);
                 }
             },
-            
+
             getIsFromPool(): boolean {
                 const lifecycleComponent = self.node.getComponent(LifecycleComponent);
                 return lifecycleComponent ? lifecycleComponent.isFromPool : false;
             },
-            
+
             returnToPool(): void {
                 const lifecycleComponent = self.node.getComponent(LifecycleComponent);
                 if (lifecycleComponent && typeof lifecycleComponent.returnToPool === 'function') {
@@ -323,10 +326,10 @@ export class ControlComponent extends Component implements IControllable {
      */
     private onControlModeChanged(oldMode: ControlMode, newMode: ControlMode): void {
         console.log(`[ControlComponent] 控制模式变化: ${oldMode} -> ${newMode}`);
-        
+
         // 重新设置输入系统
         this.setupInput();
-        
+
         // 重置输入状态
         this._currentInputSignals = {
             hasMovementInput: false,
@@ -339,19 +342,19 @@ export class ControlComponent extends Component implements IControllable {
      */
     private onKeyPressed = (keyCode: KeyCode): void => {
         if (this._controlMode !== ControlMode.MANUAL) return;
-        
+
         console.log(`[ControlComponent] 接收到按键事件: ${keyCode} (节点: ${this.node.name})`);
-        
+
         // J键攻击
         if (keyCode === KeyCode.KEY_J) {
             this.tryAttack();
         }
-        
+
         // H键受伤测试
         if (keyCode === KeyCode.KEY_H) {
             this.node.emit('test-damage');
         }
-        
+
         // K键死亡测试
         if (keyCode === KeyCode.KEY_K) {
             this.node.emit('test-death');
@@ -363,9 +366,9 @@ export class ControlComponent extends Component implements IControllable {
      */
     private onKeyReleased = (keyCode: KeyCode): void => {
         if (this._controlMode !== ControlMode.MANUAL) return;
-        
+
         console.log(`[ControlComponent] 接收到按键松开事件: ${keyCode} (节点: ${this.node.name})`);
-        
+
         // 按键松开时可以处理一些特殊逻辑
         // 目前主要用于调试
     }
@@ -379,7 +382,7 @@ export class ControlComponent extends Component implements IControllable {
         if (combatComponent && !combatComponent.canAttack()) {
             return;
         }
-        
+
         // 设置攻击意图
         this._currentInputSignals.wantsToAttack = true;
         console.log(`[ControlComponent] 设置攻击意图`);
@@ -390,12 +393,12 @@ export class ControlComponent extends Component implements IControllable {
      */
     private onMoveDirectionChanged = (direction: Vec3): void => {
         if (this._controlMode !== ControlMode.MANUAL) return;
-        
+
         const hasInput = direction.length() > 0;
         this._currentInputSignals.hasMovementInput = hasInput;
-        
+
         console.log(`[ControlComponent] 移动方向变化: (${direction.x}, ${direction.y}) 有输入: ${hasInput} (节点: ${this.node.name})`);
-        
+
         // 通知移动组件更新移动方向
         this.node.emit('update-movement-direction', direction);
     }
@@ -476,7 +479,7 @@ export class ControlComponent extends Component implements IControllable {
     private onReuse(): void {
         // 重新设置输入系统
         this.setupInput();
-        
+
         // 重启状态机
         if (this._stateMachine) {
             this._stateMachine.start();
@@ -491,7 +494,7 @@ export class ControlComponent extends Component implements IControllable {
         if (this._stateMachine) {
             this._stateMachine.reset();
         }
-        
+
         // 清理输入
         this.cleanupInput();
     }

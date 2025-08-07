@@ -6,6 +6,7 @@ import { OneDimensionalGrid } from '../systems/OneDimensionalGrid';
 import { GridFactory, GridType } from '../systems/GridFactory';
 import { OneDimensionalUnitAI } from '../components/OneDimensionalUnitAI';
 import { Faction, FactionUtils } from '../configs/FactionConfig';
+import { FactionComponent } from '../components/FactionComponent';
 
 const { ccclass } = _decorator;
 
@@ -95,13 +96,13 @@ export class FlowFieldManager {
         }
         
         // 🎯 根据AI单位的阵营选择对应的方向场
-        const factionComponent = aiUnit.node.getComponent('FactionComponent');
+        const factionComponent = aiUnit.node.getComponent(FactionComponent);
         if (!factionComponent) {
             console.error(`[FlowFieldManager] AI单位缺少FactionComponent: ${aiUnit.node.name}`);
             return;
         }
         
-        const factionString = (factionComponent as any).aiFaction;
+        const factionString = factionComponent.aiFaction;
         const directionField = this.directionFieldSystems.get(factionString);
         
         if (!directionField) {
@@ -299,6 +300,7 @@ ${fieldsInfo}`;
      * 系统是否就绪
      */
     private isSystemReady(): boolean {
+        console.log(`[FlowFieldManager] 系统是否就绪: ${this.directionFieldSystems.size} ${this.oneDGrid !== null}`);
         return this.directionFieldSystems.size > 0 && this.oneDGrid !== null;
     }
 }

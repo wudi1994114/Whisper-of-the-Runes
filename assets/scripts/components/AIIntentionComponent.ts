@@ -1,8 +1,10 @@
 // assets/scripts/components/AIIntentionComponent.ts
 
-import { Component, Node, Vec3 } from 'cc';
+import { _decorator, Component, Node, Vec3 } from 'cc';
 import { Faction } from '../configs/FactionConfig';
 import { basicEnemyFinder } from './BasicEnemyFinder';
+
+const { ccclass, property } = _decorator;
 
 /**
  * AI意向枚举
@@ -32,29 +34,30 @@ export interface AIIntentionData {
  * AI意向组件
  * 负责管理AI的意图和目标，作为索敌系统和状态机之间的桥梁
  */
+@ccclass('AIIntentionComponent')
 export class AIIntentionComponent extends Component {
     // 当前意向
     private _currentIntention: AIIntentionData | null = null;
-    
+
     // AI配置
     private _detectionRange: number = 150;    // 索敌范围
     private _attackRange: number = 50;        // 攻击范围
     private _chaseRange: number = 200;        // 追击范围
     private _updateInterval: number = 0.2;    // 意向更新间隔（秒）
-    
+
     // 更新计时器
     private _lastUpdateTime: number = 0;
-    
+
     // 组件依赖
     private _factionComponent: any = null;
-    
+
     protected onLoad(): void {
         // 获取阵营组件
         this._factionComponent = this.getComponent('FactionComponent');
-        
+
         // 监听生命周期事件
         this.node.on('reset-character-state', this.onResetState, this);
-        
+
         console.log(`[AIIntentionComponent] 初始化完成 (节点: ${this.node.name})`);
     }
 
@@ -64,7 +67,8 @@ export class AIIntentionComponent extends Component {
     }
 
     /**
-     * 更新AI意向（由ControlComponent定期调用）
+     * 更新AI意向（现在主要用于清理过期意向）
+     * 注意：意向分析现在由OneDimensionalUnitAI负责，这里只处理过期清理
      */
     update(deltaTime: number): void {
         // 控制更新频率
@@ -76,9 +80,12 @@ export class AIIntentionComponent extends Component {
 
         // 清理过期的意向
         this.clearExpiredIntention();
-        
-        // 执行意向分析
-        this.analyzeAndUpdateIntention();
+
+        // 如果没有OneDimensionalUnitAI组件，则执行原有的意向分析逻辑
+        const aiComponent = this.getComponent('OneDimensionalUnitAI');
+        if (!aiComponent) {
+            this.analyzeAndUpdateIntention();
+        }
     }
 
     /**
@@ -118,10 +125,10 @@ export class AIIntentionComponent extends Component {
      */
     wantsToMove(): boolean {
         const intention = this._currentIntention?.intention;
-        return intention === AIIntention.CHASE_ENEMY || 
-               intention === AIIntention.SEEK_ENEMY || 
-               intention === AIIntention.PATROL ||
-               intention === AIIntention.FLEE;
+        return intention === AIIntention.CHASE_ENEMY ||
+            intention === AIIntention.SEEK_ENEMY ||
+            intention === AIIntention.PATROL ||
+            intention === AIIntention.FLEE;
     }
 
     /**
@@ -152,8 +159,24 @@ export class AIIntentionComponent extends Component {
         const myFaction = this._factionComponent.getFaction();
         const myPosition = this.node.getWorldPosition();
 
-        // 1. 寻找最近的敌人
-        const nearestEnemy = basicEnemyFinder.findNearestEnemy(this.node, myFaction, this._detectionRange);
+        // 1. 寻找最近的敌人 - 优先使用三列检查
+        let nearestEnemy: Node | null = null;
+        
+        // 尝试通过OneDimensionalUnitAI使用三列检查
+        const aiComponent = this.getComponent('OneDimensionalUnitAI') as any;
+        if (aiComponent && typeof aiComponent.findEnemiesInThreeColumns === 'function') {
+            const enemies = aiComponent.findEnemiesInThreeColumns();
+            if (enemies && enemies.length > 0) {
+                // 获取最近的敌人
+                const nearestResult = enemies[0];
+                nearestEnemy = nearestResult.entity ? nearestResult.entity.node : null;
+            }
+        }
+        
+        // 回退方案：使用basicEnemyFinder
+        if (!nearestEnemy) {
+            nearestEnemy = basicEnemyFinder.findNearestEnemy(this.node, myFaction, this._detectionRange);
+        }
 
         if (nearestEnemy) {
             const enemyPosition = nearestEnemy.getWorldPosition();
@@ -255,7 +278,7 @@ export class AIIntentionComponent extends Component {
 
         const { intention, priority, reason, targetNode } = this._currentIntention;
         const targetInfo = targetNode ? `目标: ${targetNode.name}` : '无目标';
-        
+
         return `[AIIntentionComponent] 意向: ${intention}, 优先级: ${priority}, ${targetInfo}, 原因: ${reason}`;
     }
 }

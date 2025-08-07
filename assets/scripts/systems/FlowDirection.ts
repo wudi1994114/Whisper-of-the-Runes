@@ -12,8 +12,8 @@ export enum FlowDirection {
  * 流场单位状态枚举
  */
 export enum FlowFieldUnitState {
-    MARCHING = 'marching',    // 行军状态：直线前进，索敌
-    COMBAT = 'combat'         // 战斗状态：攻击或智能移动
+    MARCHING = 'marching',    // 行军状态：流场移动，简单索敌
+    ENCOUNTER = 'encounter'   // 遭遇状态：战斗决策，复杂战术
 }
 
 /**
@@ -39,6 +39,6 @@ export const DEFAULT_FLOW_FIELD_CONFIG: FlowFieldUnitConfig = {
     detectionRange: 150,
     attackRange: 50,
     combatTimeout: 3.0,
-    moveSpeed: 100,
-    marchSpeed: 150
+    moveSpeed: 10,
+    marchSpeed: 10
 };

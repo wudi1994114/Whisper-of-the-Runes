@@ -1,15 +1,18 @@
 // assets/scripts/components/AnimationComponent.ts
 
-import { Component, Animation } from 'cc';
+import { _decorator, Component, Animation } from 'cc';
 import { IAnimatable } from '../interfaces/IAnimatable';
 import { AnimationState, AnimationDirection } from '../configs/AnimationConfig';
 import { animationManager } from '../managers/AnimationManager';
 import { EnemyData } from '../configs/EnemyConfig';
 
+const { ccclass, property } = _decorator;
+
 /**
  * 动画组件 - 负责动画播放、朝向控制等视觉表现
  * 实现 IAnimatable 接口，专注于动画功能的单一职责
  */
+@ccclass('AnimationComponent')
 export class AnimationComponent extends Component implements IAnimatable {
     // 动画相关属性
     private _animationComponent: Animation | null = null;
@@ -100,22 +103,10 @@ export class AnimationComponent extends Component implements IAnimatable {
 
         // 构建完整的动画名称
         const animationName = `${this._enemyData.assetNamePrefix}_${state}_${this._currentDirection}`;
-        console.log(`[AnimationComponent] 尝试播放动画: ${animationName} (节点: ${this.node?.name || 'unknown'})`);
-
-        // 调试：显示当前可用的动画
-        if (this._animationComponent && this._animationComponent.clips) {
-            const availableClips = this._animationComponent.clips.map(clip => clip?.name || 'unnamed').filter(name => name !== 'unnamed');
-            console.log(`[AnimationComponent] 当前可用的动画clips:`, availableClips);
-        }
 
         // 使用 AnimationManager 播放动画
-        const success = animationManager.playAnimation(this._animationComponent, animationName);
-        
-        if (!success) {
-            console.warn(`[AnimationComponent] 动画播放失败: ${animationName} (节点: ${this.node?.name || 'unknown'})`);
-        } else {
-            console.log(`[AnimationComponent] 动画播放成功: ${animationName}`);
-        }
+        animationManager.playAnimation(this._animationComponent, animationName);
+
     }
 
     /**

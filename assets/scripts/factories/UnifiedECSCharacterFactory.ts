@@ -246,16 +246,6 @@ export class UnifiedECSCharacterFactory {
     }
 
     /**
-     * 配置和初始化组件 - 已废弃，现在只需要配置，初始化由生命周期自动处理
-     */
-    private async configureAndInitialize(character: ICharacter, characterType: string, options: CharacterCreationOptions): Promise<boolean> {
-        console.warn(`[UnifiedECSFactory] configureAndInitialize已废弃，现在由生命周期方法自动管理`);
-        // 只保留配置逻辑
-        this.configureCharacter(character, characterType, options);
-        return true;
-    }
-
-    /**
      * 确保所有必要组件都存在
      */
     private ensureAllComponents(node: Node): void {
@@ -320,8 +310,8 @@ export class UnifiedECSCharacterFactory {
             // 获取GameManager实例
             const gameManager = GameManager?.instance;
             
-            // 检查是否启用了一维流场AI
-            if (gameManager && gameManager.useOneDimensionalFlowField) {
+            // 默认启用一维流场AI
+            if (gameManager) {
                 // 检查是否已有流场AI组件
                 if (!node.getComponent(OneDimensionalUnitAI)) {
                     const aiComponent = node.addComponent(OneDimensionalUnitAI);
@@ -472,36 +462,10 @@ export class UnifiedECSCharacterFactory {
         // 确保FactionComponent有正确的阵营信息
         const factionComponent = node.getComponent(FactionComponent);
         if (factionComponent && options.aiFaction) {
-            factionComponent.aiFaction = options.aiFaction;
+            factionComponent.setFaction(FactionUtils.stringToFaction(options.aiFaction))
         }
-        
         console.log(`[UnifiedECSFactory] 🔄 生命周期重置机制配置完成: ${node.name}`);
     }
-
-
-
-    /**
-     * 统一组件初始化流程 - 已废弃，现在由各组件的生命周期方法自行管理
-     * 保留用于向后兼容，但不再使用
-     */
-    private async initializeComponents(character: ICharacter): Promise<void> {
-        console.warn(`[UnifiedECSFactory] initializeComponents已废弃，组件初始化现在由生命周期方法自动管理`);
-        // 不再执行任何初始化逻辑，交给生命周期管理
-    }
-
-    /**
-     * 这些初始化方法已废弃，现在由各组件的生命周期方法自行管理
-     * 保留用于向后兼容，但不再使用
-     */
-    
-    // 已废弃的方法，保留用于向后兼容
-    private async waitForComponentsReady(node: Node): Promise<void> {}
-    private verifyComponentsAfterOnLoad(node: Node): void {}
-    private async waitForFrame(): Promise<void> {}
-    private async initializeAnimationComponent(node: Node, configComponent: ConfigComponent | null): Promise<void> {}
-    private async initializeControlComponent(node: Node): Promise<void> {}
-    private async initializeFactionComponent(node: Node): Promise<void> {}
-    private async initializeAISystem(node: Node, configComponent: ConfigComponent | null): Promise<void> {}
 
     /**
      * 重置角色状态以供复用（增强生命周期重置机制）

@@ -1,25 +1,34 @@
-import { Component, Vec2, Vec3, RigidBody2D } from 'cc';
+import { _decorator, Component, Vec2, Vec3, RigidBody2D } from 'cc';
 import { IMovable } from '../interfaces/IMovable';
 import { TempVarPool } from '../utils/TempVarPool';
 import { basicEnemyFinder } from './BasicEnemyFinder';
+import { AnimationDirection } from '../configs/AnimationConfig';
+import { BoundaryManager } from '../systems/BoundarySystem';
+
+const { ccclass, property } = _decorator;
 
 /**
  * 移动组件 - 负责角色的移动、位置、物理相关功能
  * 实现 IMovable 接口，专注于移动功能的单一职责
  */
+@ccclass('MovementComponent')
 export class MovementComponent extends Component implements IMovable {
     // 移动相关属性
     private _moveSpeed: number = 150;
     private _moveDirection: Vec2 = new Vec2(0, 0);
     private _rigidBody: RigidBody2D | null = null;
-    
+
+    // 动画状态缓存
+    private _lastAnimationState: string = '';
+    private _lastAnimationDirection: AnimationDirection = AnimationDirection.FRONT;
+
     // IMovable 接口属性
     get moveSpeed(): number { return this._moveSpeed; }
     set moveSpeed(value: number) { this._moveSpeed = value; }
-    
+
     get moveDirection(): Vec2 { return this._moveDirection; }
     set moveDirection(value: Vec2) { this._moveDirection.set(value); }
-    
+
     get rigidBody(): RigidBody2D | null { return this._rigidBody; }
 
     protected onLoad(): void {
@@ -34,13 +43,14 @@ export class MovementComponent extends Component implements IMovable {
      */
     handleMovement(deltaTime: number): void {
         if (!this._rigidBody) {
-            console.warn(`[MovementComponent] 刚体组件未初始化，无法移动`);
+            console.warn(`[MovementComponent] ${this.node.name} 刚体组件未初始化，无法移动`);
             return;
         }
 
         // 检查是否有移动输入
         if (this._moveDirection.length() === 0) {
             this.stopPhysicalMovement();
+            this.triggerIdleAnimation();
             return;
         }
 
@@ -56,9 +66,12 @@ export class MovementComponent extends Component implements IMovable {
             normalizedDirection.y * this._moveSpeed
         );
 
-        // 应用速度到刚体
+        // 直接应用速度，让物理系统处理边界碰撞
         this._rigidBody.linearVelocity = velocity;
-        
+
+        // 触发移动动画
+        this.triggerMovementAnimation(normalizedDirection);
+
         // 通知网格系统位置可能发生变化
         basicEnemyFinder.updateEntityPosition(this.node);
     }
@@ -94,7 +107,7 @@ export class MovementComponent extends Component implements IMovable {
             const newZDepth = -y * 0.1;
             this.node.setPosition(x, y, newZDepth);
         }
-        
+
         // 通知网格系统位置变化
         basicEnemyFinder.updateEntityPosition(this.node);
     }
@@ -141,5 +154,92 @@ export class MovementComponent extends Component implements IMovable {
     resetMovementState(): void {
         this._moveDirection.set(0, 0);
         this.stopPhysicalMovement();
+    }
+
+    /**
+     * 触发移动动画
+     * @param direction 移动方向
+     */
+    private triggerMovementAnimation(direction: Vec2): void {
+        const animationComponent = this.getComponent('AnimationComponent') as any;
+        if (!animationComponent) {
+            console.warn(`[MovementComponent] ${this.node.name} 没有找到AnimationComponent`);
+            return;
+        }
+
+        // 根据移动方向设置动画朝向
+        let newDirection = AnimationDirection.FRONT; // 默认朝向
+
+        if (Math.abs(direction.x) > Math.abs(direction.y)) {
+            // 水平移动为主
+            if (direction.x > 0) {
+                // 向右移动
+                newDirection = AnimationDirection.RIGHT;
+            } else {
+                // 向左移动
+                newDirection = AnimationDirection.LEFT;
+            }
+        } else {
+            // 垂直移动为主
+            if (direction.y > 0) {
+                // 向上移动
+                newDirection = AnimationDirection.BACK;
+            } else {
+                // 向下移动
+                newDirection = AnimationDirection.FRONT;
+            }
+        }
+
+        // 检查是否需要更新动画（避免重复触发相同动画）
+        const currentAnimationState = 'Walk';
+        if (this._lastAnimationState === currentAnimationState && this._lastAnimationDirection === newDirection) {
+            return; // 相同的动画状态和方向，不需要重复触发
+        }
+
+        // 设置动画朝向
+        animationComponent.currentDirection = newDirection;
+
+        console.log(`[MovementComponent] ${this.node.name} 触发移动动画 - 方向: ${newDirection}, 移动向量: (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)})`);
+
+        // 播放移动动画
+        if (typeof animationComponent.playCurrentAnimation === 'function') {
+            animationComponent.playCurrentAnimation('Walk');
+
+            // 更新缓存状态
+            this._lastAnimationState = currentAnimationState;
+            this._lastAnimationDirection = newDirection;
+        } else {
+            console.warn(`[MovementComponent] ${this.node.name} AnimationComponent没有playCurrentAnimation方法`);
+        }
+    }
+
+    /**
+     * 触发待机动画
+     */
+    private triggerIdleAnimation(): void {
+        const animationComponent = this.getComponent('AnimationComponent') as any;
+        if (!animationComponent) {
+            console.warn(`[MovementComponent] ${this.node.name} 没有找到AnimationComponent（待机动画）`);
+            return;
+        }
+
+        // 检查是否需要更新动画（避免重复触发相同动画）
+        const currentAnimationState = 'Idle';
+        if (this._lastAnimationState === currentAnimationState) {
+            return; // 相同的动画状态，不需要重复触发
+        }
+
+        console.log(`[MovementComponent] ${this.node.name} 触发待机动画`);
+
+        // 播放待机动画
+        if (typeof animationComponent.playCurrentAnimation === 'function') {
+            animationComponent.playCurrentAnimation('Idle');
+
+            // 更新缓存状态
+            this._lastAnimationState = currentAnimationState;
+            this._lastAnimationDirection = animationComponent.currentDirection || AnimationDirection.FRONT;
+        } else {
+            console.warn(`[MovementComponent] ${this.node.name} AnimationComponent没有playCurrentAnimation方法（待机动画）`);
+        }
     }
 }

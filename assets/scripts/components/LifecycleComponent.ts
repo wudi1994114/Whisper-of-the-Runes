@@ -1,12 +1,15 @@
 // assets/scripts/components/LifecycleComponent.ts
 
-import { Component } from 'cc';
+import { _decorator, Component } from 'cc';
 import { ILifecycle } from '../interfaces/ILifecycle';
+
+const { ccclass, property } = _decorator;
 
 /**
  * 生命周期组件 - 负责对象池管理、状态重置、生命周期回调
  * 实现 ILifecycle 接口，专注于生命周期管理的单一职责
  */
+@ccclass('LifecycleComponent')
 export class LifecycleComponent extends Component implements ILifecycle {
     // 对象池相关属性
     private _isFromPool: boolean = false;

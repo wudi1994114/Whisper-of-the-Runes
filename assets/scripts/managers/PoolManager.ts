@@ -239,14 +239,14 @@ class PoolManager {
 
         try {
             // 初始化CharacterStats组件
-            const characterStats = node.getComponent('CharacterStats');
+            const characterStats = node.getComponent(CharacterStats);
             if (characterStats && (characterStats as any).initWithEnemyData) {
                 (characterStats as any).initWithEnemyData(enemyData);
                 console.log(`PoolManager: CharacterStats已使用敌人数据初始化`);
             }
 
             // 初始化血条组件
-            const healthBarComponent = node.getComponent('HealthBarComponent');
+            const healthBarComponent = node.getComponent(HealthBarComponent);
             if (healthBarComponent && (healthBarComponent as any).initializeWithEnemyData) {
                 (healthBarComponent as any).initializeWithEnemyData(enemyData);
                 console.log(`PoolManager: HealthBarComponent已初始化`);

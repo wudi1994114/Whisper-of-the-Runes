@@ -10,12 +10,14 @@ import { CombatComponent } from './CombatComponent';
 import { Faction, FactionUtils } from '../configs/FactionConfig';
 import { flowFieldManager } from '../managers/FlowFieldManager';
 import { EntityType, QueryOptions } from '../interfaces/IGrid';
+import { AIIntentionComponent, AIIntention } from './AIIntentionComponent';
 
 const { ccclass, property } = _decorator;
 
 /**
  * 一维流场单位AI组件
- * 实现用户指定的双状态FSM：MARCHING（行军）和COMBAT（战斗）
+ * 负责流场移动和敌人检测，通过AI意图系统与状态机协作
+ * 职责：1. 流场移动（MARCHING状态）2. 敌人检测 3. 设置AI意图
  */
 @ccclass('OneDimensionalUnitAI')
 export class OneDimensionalUnitAI extends Component {
@@ -55,7 +57,7 @@ export class OneDimensionalUnitAI extends Component {
         displayName: "调试模式", 
         tooltip: "开启调试信息输出" 
     })
-    public debugMode: boolean = false;
+    public debugMode: boolean = true;
     
     // ================= 系统状态 =================
     private currentState: FlowFieldUnitState = FlowFieldUnitState.MARCHING;
@@ -70,6 +72,7 @@ export class OneDimensionalUnitAI extends Component {
     private factionComponent: FactionComponent | null = null;
     private movementComponent: MovementComponent | null = null;
     private combatComponent: CombatComponent | null = null;
+    private aiIntentionComponent: AIIntentionComponent | null = null;
     
     // ================= 缓存变量 =================
     private lastKnownColumn: number = -1;
@@ -119,13 +122,18 @@ export class OneDimensionalUnitAI extends Component {
                 this.handleMarchingState(deltaTime);
                 break;
                 
-            case FlowFieldUnitState.COMBAT:
-                this.handleCombatState(deltaTime);
+            case FlowFieldUnitState.ENCOUNTER:
+                this.handleEncounterState(deltaTime);
                 break;
                 
             default:
                 console.warn(`[OneDimensionalUnitAI] 未知状态: ${this.currentState}`);
                 break;
+        }
+        
+        // 🎯 关键修复：调用MovementComponent执行实际移动
+        if (this.movementComponent) {
+            this.movementComponent.handleMovement(deltaTime);
         }
     }
     
@@ -141,161 +149,144 @@ export class OneDimensionalUnitAI extends Component {
     // ================= 状态处理方法 =================
     
     /**
-     * 状态一：行军 MARCHING
-     * 用户指定逻辑：笔直向前 + 九宫格索敌 + 发现敌人切换战斗
+     * 行军状态：流场移动 + 简单索敌
+     * 职责：1. 按流场方向移动 2. 检测三列内是否有敌人 3. 有敌人立即切换到ENCOUNTER
      */
     private handleMarchingState(deltaTime: number): void {
-        // 1. 笔直向前移动（用户指定：完全不参考方向场）
-        this.moveForward();
+        // 1. 流场移动：根据方向场系统设置移动方向
+        this.performFlowFieldMovement();
         
-        // 2. 索敌：检测左中右三列范围内的敌人（一维版本的"九宫格"）
+        // 2. 简单索敌：只检查有没有敌人，有就切换状态
         if (this.shouldCheckEnemies()) {
             const enemies = this.findEnemiesInThreeColumns();
             
-            // 3. 发现敌人后，切换到战斗状态
             if (enemies.length > 0) {
-                this.transitionToState(FlowFieldUnitState.COMBAT);
+                // 发现敌人，立即切换到遭遇状态
+                this.transitionToState(FlowFieldUnitState.ENCOUNTER);
                 
                 if (this.debugMode) {
-                    console.log(`[OneDimensionalUnitAI] ${this.node.name} 发现${enemies.length}个敌人，切换到战斗状态`);
+                    console.log(`[OneDimensionalUnitAI] ${this.node.name} 发现${enemies.length}个敌人，切换到遭遇状态`);
                 }
             }
         }
     }
     
     /**
-     * 状态二：战斗 COMBAT  
-     * 用户指定逻辑：优先攻击 -> 智能移动（参考方向场）-> 超时回到行军
+     * 遭遇状态：处理所有战斗相关的复杂逻辑
+     * 职责：1. 优先攻击 2. 智能移动（参考方向场） 3. 超时回到行军
      */
-    private handleCombatState(deltaTime: number): void {
+    private handleEncounterState(deltaTime: number): void {
         this.combatTimer += deltaTime;
         
-        // 情况A：攻击范围内有敌人（用户指定：最高优先级，忽略一切移动指令）
+        // 情况A：攻击范围内有敌人（最高优先级，设置攻击意图）
         const attackableEnemies = this.findAttackableEnemies();
         if (attackableEnemies.length > 0) {
-            this.performAttack(attackableEnemies[0]);
+            this.setAttackIntention(attackableEnemies[0]);
             this.combatTimer = 0; // 重置战斗计时器
             return;
         }
         
-        // 情况B：攻击范围内无敌人（用户指定：开始参考方向场进行"智能移动"）
-        this.performIntelligentMovement(deltaTime);
+        // 情况B：攻击范围内无敌人，但索敌范围内有敌人（设置追击意图）
+        const detectedEnemies = this.findEnemiesInThreeColumns();
+        if (detectedEnemies.length > 0) {
+            this.setChaseIntention(detectedEnemies[0]);
+            this.combatTimer = 0; // 重置战斗计时器
+            return;
+        }
         
-        // 超时检查：若索敌范围在一段时间内无任何敌人，则切换回行军状态
+        // 情况C：索敌范围内无敌人，检查超时切换回行军
         if (this.combatTimer >= this.combatTimeout) {
-            const nearbyEnemies = this.findEnemiesInThreeColumns();
-            if (nearbyEnemies.length === 0) {
-                this.transitionToState(FlowFieldUnitState.MARCHING);
-                
-                if (this.debugMode) {
-                    console.log(`[OneDimensionalUnitAI] ${this.node.name} 战斗超时且无敌人，回到行军状态`);
-                }
-            } else {
-                this.combatTimer = 0; // 还有敌人，重置计时器
+            this.transitionToState(FlowFieldUnitState.MARCHING);
+            this.clearAIIntention();
+            
+            if (this.debugMode) {
+                console.log(`[OneDimensionalUnitAI] ${this.node.name} 战斗超时且无敌人，回到行军状态`);
             }
         }
     }
+
     
     // ================= 核心行为方法 =================
     
     /**
-     * 笔直向前移动（行军状态专用）
-     * 用户指定：velocity = (forward_speed, 0)，完全不参考方向场
+     * 执行流场移动：根据方向场系统设置移动方向和速度
      */
-    private moveForward(): void {
-        if (!this.movementComponent) {
-            return;
-        }
-        
-        // 设置前进方向（假设X轴正方向为前进方向）
-        const forwardDirection = new Vec2(1, 0);
-        this.movementComponent.moveDirection = forwardDirection;
-        this.movementComponent.moveSpeed = this.marchSpeed;
-        
-        if (this.debugMode) {
-            // console.log(`[OneDimensionalUnitAI] ${this.node.name} 笔直前进，速度: ${this.marchSpeed}`);
-        }
-    }
-    
-    /**
-     * 智能移动（战斗状态专用）
-     * 用户指定：水平移动参考方向场 + 垂直移动朝向最近敌人
-     */
-    private performIntelligentMovement(deltaTime: number): void {
+    private performFlowFieldMovement(): void {
         if (!this.movementComponent || !this.directionFieldSystem) {
+            if (!this.movementComponent) {
+                console.warn(`[OneDimensionalUnitAI] ${this.node.name} MovementComponent未找到`);
+            }
+            if (!this.directionFieldSystem) {
+                console.warn(`[OneDimensionalUnitAI] ${this.node.name} DirectionFieldSystem未找到`);
+            }
             return;
         }
         
-        // 获取当前所在列的方向建议
+        // 获取当前列的方向建议
         const flowDirection = this.directionFieldSystem.getDirectionForColumn(this.lastKnownColumn);
         
-        // 寻找最近的敌人用于垂直移动
-        const nearestEnemy = this.findNearestEnemyInThreeColumns();
+        // 根据方向场设置移动方向
+        let moveDirection: Vec2;
+        if (flowDirection === FlowDirection.LEFT) {
+            moveDirection = new Vec2(-1, 0); // 向左
+        } else {
+            moveDirection = new Vec2(1, 0);  // 向右
+        }
         
-        // 组合移动向量
-        const combinedDirection = this.combineMovementDirection(flowDirection, nearestEnemy);
-        
-        // 应用移动
-        this.movementComponent.moveDirection = combinedDirection;
-        this.movementComponent.moveSpeed = this.moveSpeed;
+        this.movementComponent.moveDirection = moveDirection;
+        this.movementComponent.moveSpeed = this.marchSpeed;
+
     }
     
     /**
-     * 组合移动方向
-     * 用户指定：将水平和垂直的移动意图结合起来，形成最终的移动向量
+     * 设置攻击意图
      */
-    private combineMovementDirection(flowDirection: FlowDirection, nearestEnemy: any): Vec2 {
-        let horizontalDir = 0;
-        let verticalDir = 0;
-        
-        // 水平移动：根据方向场
-        switch (flowDirection) {
-            case FlowDirection.LEFT:
-                horizontalDir = -1;
-                break;
-            case FlowDirection.RIGHT:
-                horizontalDir = 1;
-                break;
-        }
-        
-        // 垂直移动：朝向最近的敌人
-        if (nearestEnemy) {
-            const enemyPos = nearestEnemy.worldPosition;
-            const myPos = this.node.getWorldPosition();
-            
-            const deltaY = enemyPos.y - myPos.y;
-            if (Math.abs(deltaY) > 10) { // 10像素的死区
-                verticalDir = deltaY > 0 ? 1 : -1;
-            }
-        }
-        
-        // 归一化组合向量
-        const combinedDir = new Vec2(horizontalDir, verticalDir);
-        if (combinedDir.length() > 0) {
-            combinedDir.normalize();
-        }
-        
-        return combinedDir;
-    }
-    
-    /**
-     * 执行攻击
-     */
-    private performAttack(target: any): void {
-        if (!this.combatComponent) {
+    private setAttackIntention(enemy: any): void {
+        if (!this.aiIntentionComponent) {
             return;
         }
         
-        // 停止移动
-        if (this.movementComponent) {
-            this.movementComponent.stopMovement();
-        }
-        
-        // 执行攻击
-        this.combatComponent.performSpecialAttack();
+        this.aiIntentionComponent.setIntention({
+            intention: AIIntention.ATTACK_ENEMY,
+            targetNode: enemy.entity?.node,
+            priority: 10,
+            expirationTime: Date.now() + 2000,
+            reason: `敌人在攻击范围内 (距离: ${enemy.distance.toFixed(1)})`
+        });
         
         if (this.debugMode) {
-            console.log(`[OneDimensionalUnitAI] ${this.node.name} 攻击目标: ${target.node.name}`);
+            console.log(`[OneDimensionalUnitAI] ${this.node.name} 设置攻击意图，目标距离: ${enemy.distance.toFixed(1)}`);
+        }
+    }
+    
+    /**
+     * 设置追击意图
+     */
+    private setChaseIntention(enemy: any): void {
+        if (!this.aiIntentionComponent) {
+            return;
+        }
+        
+        this.aiIntentionComponent.setIntention({
+            intention: AIIntention.CHASE_ENEMY,
+            targetNode: enemy.entity?.node,
+            targetPosition: enemy.entity?.node?.getWorldPosition(),
+            priority: 8,
+            expirationTime: Date.now() + 3000,
+            reason: `追击敌人 (距离: ${enemy.distance.toFixed(1)})`
+        });
+        
+        if (this.debugMode) {
+            console.log(`[OneDimensionalUnitAI] ${this.node.name} 设置追击意图，目标距离: ${enemy.distance.toFixed(1)}`);
+        }
+    }
+    
+    /**
+     * 清除AI意图
+     */
+    private clearAIIntention(): void {
+        if (this.aiIntentionComponent) {
+            this.aiIntentionComponent.clearIntention();
         }
     }
     
@@ -305,7 +296,7 @@ export class OneDimensionalUnitAI extends Component {
      * 检测左中右三列的敌人（一维版本的"九宫格"检索）
      * 用户指定：这个过程完全不需要，也完全不关心方向场
      */
-    private findEnemiesInThreeColumns(): any[] {
+    public findEnemiesInThreeColumns(): any[] {
         if (!this.oneDGrid || !this.factionComponent) {
             return [];
         }
@@ -338,29 +329,17 @@ export class OneDimensionalUnitAI extends Component {
     /**
      * 查找攻击范围内的敌人
      */
-    private findAttackableEnemies(): any[] {
+    public findAttackableEnemies(): any[] {
         const allEnemies = this.findEnemiesInThreeColumns();
         return allEnemies.filter(enemy => enemy.distance <= this.attackRange);
     }
     
-    /**
-     * 查找最近的敌人（用于垂直移动）
-     */
-    private findNearestEnemyInThreeColumns(): any | null {
-        const enemies = this.findEnemiesInThreeColumns();
-        
-        if (enemies.length === 0) {
-            return null;
-        }
-        
-        // 已经按距离排序，返回最近的
-        return enemies[0];
-    }
+
     
     // ================= 辅助方法 =================
     
     /**
-     * 状态转换
+     * 状态转换：支持MARCHING和ENCOUNTER两个状态
      */
     private transitionToState(newState: FlowFieldUnitState): void {
         if (this.currentState === newState) {
@@ -370,9 +349,13 @@ export class OneDimensionalUnitAI extends Component {
         const oldState = this.currentState;
         this.currentState = newState;
         this.lastStateChangeTime = Date.now();
-        this.combatTimer = 0; // 重置战斗计时器
         
-        // 显示状态转换（用于调试流场AI工作状态）
+        // 状态切换时重置战斗计时器
+        if (newState === FlowFieldUnitState.ENCOUNTER) {
+            this.combatTimer = 0;
+        }
+        
+        // 显示状态转换（用于调试AI工作状态）
         console.log(`[OneDimensionalUnitAI] 🎯 ${this.node.name} 状态转换: ${oldState} -> ${newState} (列: ${this.lastKnownColumn})`);
         
         if (this.debugMode) {
@@ -422,9 +405,7 @@ export class OneDimensionalUnitAI extends Component {
                this.factionComponent !== null && 
                this.movementComponent !== null;
     }
-    
-    // ================= 初始化方法 =================
-    
+       
     /**
      * 初始化组件引用
      */
@@ -432,6 +413,7 @@ export class OneDimensionalUnitAI extends Component {
         this.factionComponent = this.getComponent(FactionComponent);
         this.movementComponent = this.getComponent(MovementComponent);
         this.combatComponent = this.getComponent(CombatComponent);
+        this.aiIntentionComponent = this.getComponent(AIIntentionComponent);
         
         if (!this.factionComponent) {
             console.error(`[OneDimensionalUnitAI] 缺少FactionComponent: ${this.node.name}`);
@@ -444,22 +426,43 @@ export class OneDimensionalUnitAI extends Component {
         if (!this.combatComponent) {
             console.warn(`[OneDimensionalUnitAI] 缺少CombatComponent: ${this.node.name}`);
         }
+        
+        if (!this.aiIntentionComponent) {
+            console.warn(`[OneDimensionalUnitAI] 缺少AIIntentionComponent: ${this.node.name}，AI意图功能将不可用`);
+        } else {
+            // 同步配置到AIIntentionComponent
+            this.syncConfigToAIIntention();
+        }
+    }
+    
+    /**
+     * 同步配置到AIIntentionComponent
+     */
+    private syncConfigToAIIntention(): void {
+        if (!this.aiIntentionComponent) {
+            return;
+        }
+        
+        // 同步各种范围配置
+        this.aiIntentionComponent.setDetectionRange(this.detectionRange);
+        this.aiIntentionComponent.setAttackRange(this.attackRange);
+        this.aiIntentionComponent.setChaseRange(this.detectionRange); // 使用索敌范围作为追击范围
+        
+        if (this.debugMode) {
+            console.log(`[OneDimensionalUnitAI] 配置已同步到AIIntentionComponent: ${this.node.name}`);
+        }
     }
     
     /**
      * 初始化系统引用
      */
     private initializeSystems(): void {
-        // 这些系统引用需要在系统创建后设置
-        // 通常通过游戏管理器或依赖注入设置
         
         if (this.debugMode) {
             console.log(`[OneDimensionalUnitAI] 等待系统引用设置: ${this.node.name}`);
         }
     }
-    
-    // ================= 公共接口 =================
-    
+
     /**
      * 设置系统引用（由外部系统调用）
      */
@@ -485,7 +488,7 @@ export class OneDimensionalUnitAI extends Component {
     }
     
     /**
-     * 强制切换状态（用于测试）
+     * 强制切换状态（支持MARCHING和ENCOUNTER状态）
      */
     public forceTransitionToState(state: FlowFieldUnitState): void {
         this.transitionToState(state);
@@ -503,7 +506,8 @@ export class OneDimensionalUnitAI extends Component {
 - 当前状态: ${this.currentState}
 - 所在列: ${this.lastKnownColumn}
 - 战斗计时: ${this.combatTimer.toFixed(2)}s
-- 系统就绪: ${this.isSystemReady()}`;
+- 系统就绪: ${this.isSystemReady()}
+- AI意图组件: ${this.aiIntentionComponent ? '已连接' : '未连接'}`;
     }
 
     /**

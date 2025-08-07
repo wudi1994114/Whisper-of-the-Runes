@@ -16,6 +16,8 @@ import { setupPhysicsGroupCollisions } from '../configs/PhysicsConfig';
 import { damageDisplayController } from '../controllers/DamageDisplayController';
 import { ensureFactoryInitialized, UnifiedECSCharacterFactory } from '../factories/UnifiedECSCharacterFactory';
 import { flowFieldManager } from './FlowFieldManager';
+import { Faction } from '../configs/FactionConfig';
+import { BoundarySystem } from '../systems/BoundarySystem';
 
 const { ccclass, property } = _decorator;
 
@@ -44,8 +46,8 @@ export class GameManager extends Component {
     public gameMode: GameMode = GameMode.DEVELOPMENT;
 
     // ===== 简化预制体配置区域 =====
-            // ECS 模块化系统现在只需要两个预制体
-    
+    // ECS 模块化系统现在只需要两个预制体
+
     @property({
         type: Prefab,
         displayName: "通用敌人预制体 (必需)",
@@ -72,12 +74,6 @@ export class GameManager extends Component {
         tooltip: "手动控制单个怪物进行调试"
     })
     public manualTestMode: boolean = false;
-
-    @property({
-        displayName: "使用一维流场AI",
-        tooltip: "启用基于方向场的一维AI系统"
-    })
-    public useOneDimensionalFlowField: boolean = true;
 
     // ===== 关卡选择配置 =====
     @property({
@@ -161,7 +157,7 @@ export class GameManager extends Component {
     public get testMode(): boolean {
         return this.manualTestMode;
     }
-    
+
     // 测试模式相关
     private currentTestEnemy: Node | null = null;
     private availableEnemyTypes: string[] = [
@@ -181,14 +177,14 @@ export class GameManager extends Component {
     private getEnemyTypeFromIndex(index: number): string {
         return this.availableEnemyTypes[index] || 'ent_normal';
     }
-    
+
     protected onLoad(): void {
         if (GameManager.instance) {
             this.destroy();
             return;
         }
         GameManager.instance = this;
-        
+
         // 确保GameManager节点在场景根目录下，以便设置为常驻节点
         if (this.node.parent === director.getScene()) {
             director.addPersistRootNode(this.node);
@@ -204,7 +200,7 @@ export class GameManager extends Component {
             }
         }
     }
-    
+
     protected async start(): Promise<void> {
         // 加载所有player enemy level skill数据
         await this.initManagers();
@@ -213,12 +209,10 @@ export class GameManager extends Component {
 
     protected onDestroy(): void {
         this.cleanupInputDispatcher();
-        
+
         // 清理流场系统
-        if (this.useOneDimensionalFlowField) {
-            flowFieldManager.cleanup();
-        }
-        
+        flowFieldManager.cleanup();
+
         // 清理伤害显示频率控制器
         damageDisplayController.destroy();
     }
@@ -228,9 +222,7 @@ export class GameManager extends Component {
         poolManager.update();
 
         // 更新流场系统
-        if (this.useOneDimensionalFlowField) {
-            flowFieldManager.update(deltaTime);
-        }
+        flowFieldManager.update(deltaTime);
 
         // 玩家移动（如果不是手动测试模式）
         if (!this.manualTestMode && this.playerController && this.isMoving && this.currentMoveDirection.length() > 0) {
@@ -245,7 +237,7 @@ export class GameManager extends Component {
             }
         }
     }
-    
+
     /**
      * 统一更新所有活动角色
      */
@@ -450,10 +442,10 @@ export class GameManager extends Component {
 
         const currentMode = this.normalMode ? '正常模式' : '手动测试模式';
         console.log(`GameManager: 切换到 ${currentMode}`);
-        
+
         // 清理之前的状态
         this.clearTestEnemy();
-        
+
         // 根据新模式设置场景
         if (this.manualTestMode) {
             this.initTestMode(); // 切换到手动测试时，初始化
@@ -520,20 +512,20 @@ export class GameManager extends Component {
      */
     private createInputManagerNode(): void {
         console.log('🎹 GameManager: 自动创建InputManager节点...');
-        
+
         const scene = director.getScene();
         if (!scene) {
             console.error('❌ 无法获取当前场景');
             return;
         }
-        
+
         // 创建InputManager节点
         const inputManagerNode = new Node('InputManager');
         const inputManagerComponent = inputManagerNode.addComponent('InputManager');
-        
+
         // 将节点添加到场景根目录
         scene.addChild(inputManagerNode);
-        
+
         console.log('✅ InputManager节点已自动创建并添加到场景');
         console.log('🎹 键盘输入功能现已可用，按P键显示/隐藏测试控制面板');
     }
@@ -601,27 +593,28 @@ export class GameManager extends Component {
         // 注册挂载的预制体到对象池
         this.registerMountedPrefabs();
 
-        // 初始化流场系统（如果启用）
-        if (this.useOneDimensionalFlowField) {
-            flowFieldManager.initialize(30, 1920, 1080);
-        }
-        
+        // 初始化流场系统
+        flowFieldManager.initialize(30, 1920, 1080);
+
+        // 初始化边界系统
+        this.initializeBoundarySystem();
+
         // 初始化伤害文字池系统
         poolManager.initializeDamageTextPool();
-        
+
         // 根据模式启动关卡或测试（在TargetSelector初始化后）
         if (this.normalMode) {
             await this.startSelectedLevel();
         }
-        
+
         // 打印伤害文字池状态
         const damagePoolStats = poolManager.getDamageTextPoolStats();
         console.log('GameManager: 伤害文字池状态', damagePoolStats);
 
         // 数据加载完成后，可以通知其他模块进行初始化
         eventManager.emit(GameEvents.GAME_DATA_LOADED);
-        
-        
+
+
         // 初始化测试模式
         console.log(`GameManager: 检查测试模式状态 - testMode: ${this.testMode}`);
         if (this.manualTestMode) {
@@ -630,9 +623,9 @@ export class GameManager extends Component {
         } else {
             console.log('GameManager: 正常模式，由关卡管理器控制');
         }
-        
+
         console.log("GameManager initialized.");
-        
+
 
     }
 
@@ -678,7 +671,7 @@ export class GameManager extends Component {
      */
     private registerMountedPrefabs(): void {
         console.log(`GameManager: 开始注册挂载的预制体到对象池...`);
-        
+
         if (this.manualTestMode) {
             // 手动测试模式：注册所有敌人类型到对象池
             console.log(`GameManager: 当前为手动测试模式，注册所有敌人类型`);
@@ -695,7 +688,7 @@ export class GameManager extends Component {
      */
     private registerAllEnemyTypesToPool(): void {
         console.log('🧪 测试模式：注册所有敌人类型到对象池...');
-        
+
         let successCount = 0;
         let totalCount = 0;
 
@@ -711,7 +704,7 @@ export class GameManager extends Component {
                 'slime_ghost', 'slime_lightning', 'slime_crystal', 'slime_devil', 'slime_lava',
                 'golem_normal', 'golem_elite', 'golem_boss'
             ];
-            
+
             const getPoolConfig = (enemyType: string) => {
                 if (enemyType.includes('normal') || enemyType.startsWith('slime_')) {
                     return { maxSize: 30, preloadCount: 5 };
@@ -723,7 +716,7 @@ export class GameManager extends Component {
                     return { maxSize: 20, preloadCount: 3 };
                 }
             };
-            
+
             for (const enemyType of allEnemyTypes) {
                 totalCount++;
                 const config = getPoolConfig(enemyType);
@@ -758,7 +751,7 @@ export class GameManager extends Component {
      */
     private registerBasicPrefabs(): void {
         console.log('🎮 正常模式：根据关卡注册所需的敌人类型...');
-        
+
         let successCount = 0;
         let totalCount = 0;
 
@@ -769,7 +762,7 @@ export class GameManager extends Component {
 
         // 【关键修复】获取选择关卡需要的所有敌人类型
         const requiredEnemyTypes = this.getRequiredEnemyTypesForLevel(this.selectedLevelId);
-        
+
         if (requiredEnemyTypes.length === 0) {
             console.warn(`🎮 GameManager: 关卡 ${this.selectedLevelId} 没有配置敌人，只注册基础类型`);
             requiredEnemyTypes.push('ent_normal'); // 至少注册一个基础类型
@@ -836,7 +829,7 @@ export class GameManager extends Component {
      */
     private getRequiredEnemyTypesForLevel(levelId: number): string[] {
         const enemyTypes = new Set<string>();
-        
+
         try {
             // 从DataManager获取关卡数据
             const levelData = dataManager.getLevelData(levelId);
@@ -853,7 +846,7 @@ export class GameManager extends Component {
                     });
                 });
             }
-            
+
             // 从旧格式的enemies中提取（兼容性）
             if (levelData.enemies) {
                 levelData.enemies.forEach(enemy => {
@@ -999,6 +992,51 @@ export class GameManager extends Component {
     }
 
     /**
+     * 初始化边界系统
+     */
+    private initializeBoundarySystem(): void {
+        console.log('[GameManager] 初始化边界系统...');
+
+        // 找到Canvas节点（尝试多种方式）
+        let canvas = director.getScene()?.getChildByName('Canvas');
+        if (!canvas) {
+            // 尝试查找任何包含Canvas的节点
+            const scene = director.getScene();
+            if (scene) {
+                const allChildren = scene.children;
+                console.log('[GameManager] 场景中的所有子节点:', allChildren.map(child => child.name));
+                
+                // 查找第一个有UITransform的节点（通常是Canvas）
+                canvas = allChildren.find(child => child.getComponent(UITransform)) || null;
+                
+                if (canvas) {
+                    console.log(`[GameManager] 找到Canvas节点: ${canvas.name}`);
+                } else {
+                    console.error('[GameManager] ❌ 未找到任何Canvas节点，将边界系统挂载到场景根节点');
+                    canvas = scene;
+                }
+            }
+        }
+        
+        // 创建边界系统节点，挂载到Canvas下
+        const boundarySystemNode = new Node('BoundarySystem');
+        boundarySystemNode.setParent(canvas);
+
+        // 添加物理边界系统组件
+        const boundarySystem = boundarySystemNode.addComponent(BoundarySystem);
+        if (boundarySystem) {
+            // 设置边界参数
+            boundarySystem.useCameraBounds = true; // 使用摄像机边界
+            boundarySystem.boundaryThickness = 100; // 增加边界厚度
+            boundarySystem.showBoundaries = true; // 临时启用边界显示（调试用）
+
+            console.log('[GameManager] ✅ 物理边界系统初始化完成');
+        } else {
+            console.error('[GameManager] ❌ 物理边界系统初始化失败');
+        }
+    }
+
+    /**
      * 测试伤害显示频率控制（快速连续造成伤害，验证频率限制）
      */
     public testDamageDisplayRateLimit(): void {
@@ -1006,25 +1044,25 @@ export class GameManager extends Component {
             console.warn('没有可用的测试怪物，无法测试伤害显示频率');
             return;
         }
-        
+
         console.log('=== 开始测试伤害显示频率控制 ===');
         console.log('将在0.05秒内连续造成6次伤害，预期只显示前3个');
-        
+
         const characterStats = this.currentTestEnemy.getComponent('CharacterStats') as any;
         if (!characterStats) {
             console.error('测试怪物没有CharacterStats组件');
             return;
         }
-        
+
         // 快速连续造成6次伤害，每次间隔0.01秒
         for (let i = 0; i < 6; i++) {
             setTimeout(() => {
                 const damage = (i + 1) * 10; // 10, 20, 30, 40, 50, 60
                 console.log(`测试伤害 #${i + 1}: ${damage}点伤害`);
-                
+
                 // 直接调用takeDamage，这会触发showDamageText
                 characterStats.takeDamage(damage);
-                
+
                 if (i === 5) {
                     // 最后一次伤害后，显示统计信息
                     setTimeout(() => {
@@ -1041,7 +1079,7 @@ export class GameManager extends Component {
      */
     public testDamageTextPoolConfigs(): void {
         console.log('GameManager: 开始测试不同的伤害文字池配置...');
-        
+
         // 测试全量加载模式
         console.log('--- 测试全量加载模式 ---');
         systemConfigManager.updateConfig({
@@ -1053,12 +1091,12 @@ export class GameManager extends Component {
                 }
             }
         });
-        
+
         // 清理并重新初始化
         poolManager.clearDamageTextPool();
         poolManager.initializeDamageTextPool();
         this.printDamageTextPoolStats();
-        
+
         // 恢复默认配置
         console.log('--- 恢复默认配置 ---');
         systemConfigManager.resetToDefault();
@@ -1093,7 +1131,7 @@ export class GameManager extends Component {
         console.log(`📊 伤害文字池实时状态:`);
         console.log(`- 活跃节点: ${stats.activeNodes}/${stats.totalNodes}`);
         console.log(`- 池使用率: ${((stats.activeNodes / stats.totalNodes) * 100).toFixed(1)}%`);
-        
+
         // 如果活跃节点过多，建议清理
         if (stats.activeNodes > stats.totalNodes * 0.8) {
             console.warn('⚠️ 活跃节点过多，建议检查回收逻辑');
@@ -1105,12 +1143,12 @@ export class GameManager extends Component {
      */
     public ensurePrefabComponents(): void {
         console.log('=== 检查和修复预制体组件 ===');
-        
+
         // 检查ent预制体
         if (this.entPrefab) {
             const entNode = instantiate(this.entPrefab);
             console.log(`\n检查 ent 预制体组件:`);
-            
+
             // 检查CharacterStats
             let characterStats = entNode.getComponent('CharacterStats');
             if (!characterStats) {
@@ -1119,7 +1157,7 @@ export class GameManager extends Component {
             } else {
                 console.log('✅ CharacterStats组件存在');
             }
-            
+
             // 检查HealthBarComponent
             let healthBar = entNode.getComponent('HealthBarComponent');
             if (!healthBar) {
@@ -1128,7 +1166,7 @@ export class GameManager extends Component {
             } else {
                 console.log('✅ HealthBarComponent组件存在');
             }
-            
+
             entNode.destroy();
         }
     }
@@ -1158,7 +1196,7 @@ export class GameManager extends Component {
      */
     public async testGridBasedCrowdingPerformance(): Promise<void> {
         console.log('=== 🚀 网格化拥挤系统性能测试 ===');
-        
+
         if (!this.manualTestMode) {
             console.warn('性能测试需要在手动测试模式下进行，请先切换模式');
             return;
@@ -1174,7 +1212,7 @@ export class GameManager extends Component {
         const testCount = 50; // 50个角色
         const testPositions: Vec3[] = [];
         const testRadius = 200; // 在200px半径内随机分布
-        
+
         console.log(`生成 ${testCount} 个角色进行网格性能测试...`);
 
         // 生成随机位置
@@ -1228,13 +1266,13 @@ export class GameManager extends Component {
      */
     private async initTestMode(): Promise<void> {
         console.log('🧪 [测试模式] 初始化角色对象池系统...');
-        
+
         // 初始化所有角色对象池（测试模式）- 已移除，现在使用UnifiedECSCharacterFactory
         // CharacterPoolInitializer.initializeAllPools();
-        
+
         // 打印对象池状态 - 方法已移除
         // this.printPoolStatus();
-        
+
         // 自动生成默认测试怪物
         await this.spawnTestEnemy(this.getEnemyTypeFromIndex(this.testEnemyType));
     }
@@ -1251,10 +1289,10 @@ export class GameManager extends Component {
         }
 
         console.log(`🧪 手动测试模式：生成可控制的测试怪物: ${enemyType}`);
-        
+
         // 清除之前的测试怪物
         this.clearTestEnemy();
-        
+
         // 获取敌人数据
         const enemyData = dataManager.getEnemyData(enemyType);
         if (!enemyData) {
@@ -1267,7 +1305,7 @@ export class GameManager extends Component {
         const character = await UnifiedECSCharacterFactory.createPlayer(enemyType, {
             position: testPosition
         });
-        
+
         if (!character) {
             console.error(`❌ 无法从新对象池系统创建怪物: ${enemyType}`);
             return;
@@ -1276,14 +1314,14 @@ export class GameManager extends Component {
         console.log(`🎮 手动测试模式：创建手动控制角色: ${enemyType}`);
 
         const enemyInstance = (character as any).node;
-        
+
         // 角色已经在创建时设置了位置，确保激活状态
         enemyInstance.active = true;
         console.log(`🎯 测试怪物位置: (${testPosition.x}, ${testPosition.y})`);
-        
+
         // 找到合适的父节点 - 优先使用Canvas
         let parentNode = null;
-        
+
         // 方法1: 查找Canvas节点
         const scene = director.getScene();
         if (scene) {
@@ -1303,7 +1341,7 @@ export class GameManager extends Component {
                 }
             }
         }
-        
+
         if (parentNode) {
             parentNode.addChild(enemyInstance);
             enemyInstance.setSiblingIndex(1000); // 置顶显示
@@ -1311,24 +1349,24 @@ export class GameManager extends Component {
         } else {
             console.error('❌ 找不到合适的父节点');
         }
-        
+
         this.currentTestEnemy = enemyInstance;
         // 更新testEnemyType为对应的索引
         const typeIndex = this.availableEnemyTypes.indexOf(enemyType);
         if (typeIndex !== -1) {
             this.testEnemyType = typeIndex;
         }
-        
+
         const modeStr = this.manualTestMode ? '手动控制' : 'AI控制';
         console.log(`✅ 测试怪物已生成: ${enemyData.name} (血量: ${enemyData.baseHealth}) - ${modeStr}`);
-        
+
         // 检查血条配置
         const healthBarComponent = enemyInstance.getComponent('HealthBarComponent') as any;
         if (healthBarComponent) {
             const healthData = healthBarComponent.getHealthData();
             console.log(`📊 血条数据: ${healthData.current}/${healthData.max}`);
         }
-        
+
         console.log('🎮 手动测试模式操作说明:');
         console.log('  - WASD: 移动怪物');
         console.log('  - J: 攻击');
@@ -1367,7 +1405,7 @@ export class GameManager extends Component {
             console.log('可用类型:', this.availableEnemyTypes.join(', '));
             return;
         }
-        
+
         await this.spawnTestEnemy(enemyType);
     }
 
@@ -1380,15 +1418,15 @@ export class GameManager extends Component {
             console.warn('没有可用的测试怪物');
             return;
         }
-        
+
         const characterStats = this.currentTestEnemy.getComponent('CharacterStats') as any;
         if (characterStats) {
             const beforeHealth = characterStats.currentHealth;
             const result = characterStats.takeDamage(damage);
             const afterHealth = characterStats.currentHealth;
-            
+
             console.log(`💥 造成伤害: ${damage}, 血量: ${beforeHealth} -> ${afterHealth}`);
-            
+
             if (result.isDead) {
                 console.log('💀 测试怪物死亡');
                 // 延迟清除，让死亡动画播放完
@@ -1410,13 +1448,13 @@ export class GameManager extends Component {
             console.warn('没有可用的测试怪物');
             return;
         }
-        
+
         const characterStats = this.currentTestEnemy.getComponent('CharacterStats') as any;
         if (characterStats) {
             const beforeHealth = characterStats.currentHealth;
             characterStats.heal(healAmount);
             const afterHealth = characterStats.currentHealth;
-            
+
             console.log(`💚 治疗: ${healAmount}, 血量: ${beforeHealth} -> ${afterHealth}`);
         } else {
             console.error('测试怪物没有CharacterStats组件');
@@ -1464,7 +1502,7 @@ export class GameManager extends Component {
         this.testEnemyType = nextIndex;
         const enemyType = this.getEnemyTypeFromIndex(nextIndex);
         console.log(`GameManager: 切换到下一个敌人类型: ${enemyType} (${nextIndex}/${this.availableEnemyTypes.length - 1})`);
-        
+
         // 如果测试模式启用，自动切换测试怪物
         if (this.testMode) {
             this.switchTestEnemy(enemyType);
@@ -1479,7 +1517,7 @@ export class GameManager extends Component {
         this.testEnemyType = prevIndex;
         const enemyType = this.getEnemyTypeFromIndex(prevIndex);
         console.log(`GameManager: 切换到上一个敌人类型: ${enemyType} (${prevIndex}/${this.availableEnemyTypes.length - 1})`);
-        
+
         // 如果测试模式启用，自动切换测试怪物
         if (this.testMode) {
             this.switchTestEnemy(enemyType);
@@ -1496,7 +1534,7 @@ export class GameManager extends Component {
             console.warn('没有可用的测试怪物');
             return;
         }
-        
+
         this.currentTestEnemy.setPosition(x, y, 0);
         console.log(`🚀 测试怪物已移动到: (${x}, ${y})`);
     }
@@ -1510,18 +1548,18 @@ export class GameManager extends Component {
             console.warn('没有可用的测试怪物');
             return;
         }
-        
+
         const scene = director.getScene();
         if (!scene) {
             console.error('找不到场景');
             return;
         }
-        
+
         // 查找指定名称的节点
         const targetParent = scene.getChildByName(parentName);
         if (!targetParent) {
             console.error(`找不到名为 ${parentName} 的节点`);
-            
+
             // 打印可用的节点名称
             console.log('可用的节点名称:');
             scene.children.forEach((child, index) => {
@@ -1529,7 +1567,7 @@ export class GameManager extends Component {
             });
             return;
         }
-        
+
         // 移动怪物到新父节点
         targetParent.addChild(this.currentTestEnemy);
         this.currentTestEnemy.setSiblingIndex(1000); // 置顶
@@ -1541,7 +1579,7 @@ export class GameManager extends Component {
      */
     public async attemptResourceFix(): Promise<void> {
         console.log('=== 尝试自动修复资源问题 ===');
-        
+
         try {
             // 如果预制体未挂载，尝试从 resources 加载
             if (!this.entPrefab) {
@@ -1553,7 +1591,7 @@ export class GameManager extends Component {
                     console.error('❌ 通用敌人预制体加载失败');
                 }
             }
-            
+
             if (!this.firePrefab) {
                 console.log('尝试加载火球预制体...');
                 this.firePrefab = await resourceManager.loadResource('prefabs/effects/fire', Prefab);
@@ -1563,13 +1601,13 @@ export class GameManager extends Component {
                     console.error('❌ 火球预制体加载失败');
                 }
             }
-            
+
             // 重新注册修复后的预制体
             if (this.entPrefab || this.firePrefab) {
                 console.log('重新注册修复后的预制体...');
                 this.registerMountedPrefabs();
             }
-            
+
             console.log('=== 资源修复完成 ===');
         } catch (error) {
             console.error('资源修复过程中出现错误:', error);

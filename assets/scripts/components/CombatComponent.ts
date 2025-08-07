@@ -1,13 +1,19 @@
 // assets/scripts/components/CombatComponent.ts
 
-import { Component, Node } from 'cc';
+import { _decorator, Component, Node } from 'cc';
 import { ICombat, IAttackResult } from '../interfaces/ICombat';
 import { CharacterStats } from './CharacterStats';
+import { basicEnemyFinder } from './BasicEnemyFinder';
+import { FactionComponent } from './FactionComponent';
+import { OneDimensionalUnitAI } from './OneDimensionalUnitAI';
+
+const { ccclass, property } = _decorator;
 
 /**
  * 战斗组件 - 负责攻击、伤害、战斗相关功能
  * 实现 ICombat 接口，专注于战斗功能的单一职责
  */
+@ccclass('CombatComponent')
 export class CombatComponent extends Component implements ICombat {
     // 战斗相关属性
     private _attackCooldown: number = 1.0;
@@ -156,13 +162,41 @@ export class CombatComponent extends Component implements ICombat {
     }
 
     /**
-     * 寻找最近的敌人
+     * 寻找最近的敌人 - 使用三列检查（当前列+左右相邻列）
      */
     findNearestEnemy(): Node | null {
-        // 这里需要与目标选择器服务协调
-        // 通过服务定位器获取目标选择器
-        console.log(`[CombatComponent] 查找最近敌人`);
-        return null; // 临时返回，实际需要实现
+        // 获取阵营组件
+        const factionComponent = this.getComponent(FactionComponent) as any;
+        if (!factionComponent) {
+            console.warn(`[CombatComponent] 缺少FactionComponent，无法查找敌人`);
+            return null;
+        }
+
+        // 尝试通过OneDimensionalUnitAI获取网格系统引用
+        const aiComponent = this.getComponent(OneDimensionalUnitAI) as any;
+        if (aiComponent && typeof aiComponent.findAttackableEnemies === 'function') {
+            // 使用AI组件的攻击范围检查方法（三列检查+攻击范围过滤）
+            const attackableEnemies = aiComponent.findAttackableEnemies();
+            if (attackableEnemies && attackableEnemies.length > 0) {
+                // 返回最近的可攻击敌人（已按距离排序）
+                const nearestResult = attackableEnemies[0];
+                const targetNode = nearestResult.entity ? nearestResult.entity.node : null;
+                if (targetNode) {
+                    console.log(`[CombatComponent] ${this.node.name} 通过三列+攻击范围检查找到目标: ${targetNode.name} (距离: ${nearestResult.distance.toFixed(1)})`);
+                    return targetNode;
+                }
+            }
+        }
+
+        // 回退方案：使用basicEnemyFinder
+        const myFaction = factionComponent.getFaction();
+        const nearestEnemy = basicEnemyFinder.findNearestEnemy(this.node, myFaction, 100); // 100像素攻击范围
+        
+        if (nearestEnemy) {
+            console.log(`[CombatComponent] ${this.node.name} 通过距离检查找到攻击目标: ${nearestEnemy.name}`);
+        }
+        
+        return nearestEnemy;
     }
 
     /**

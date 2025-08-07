@@ -1,16 +1,19 @@
 // assets/scripts/components/RenderComponent.ts
 
-import { Component, Sprite, Graphics, Node, Color, UITransform, tween } from 'cc';
+import { _decorator, Component, Sprite, Graphics, Node, Color, UITransform, tween } from 'cc';
 import { IRenderable } from '../interfaces/IRenderable';
 import { systemConfigManager } from '../configs/SystemConfig';
 import { damageDisplayController } from '../controllers/DamageDisplayController';
 import { EnemyData } from '../configs/EnemyConfig';
 import { AnimationManager } from '../managers/AnimationManager';
 
+const { ccclass, property } = _decorator;
+
 /**
  * 渲染组件 - 负责UI渲染、血条、特效等视觉元素
  * 实现 IRenderable 接口，专注于渲染显示的单一职责
  */
+@ccclass('RenderComponent')
 export class RenderComponent extends Component implements IRenderable {
     // 渲染相关属性
     private _spriteComponent: Sprite | null = null;

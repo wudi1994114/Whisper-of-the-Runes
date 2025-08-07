@@ -4,13 +4,10 @@ import { _decorator, Component, Node, director, Vec3, instantiate, Prefab } from
 import { AIBehaviorType } from '../components/MonsterAI';
 import { Faction, FactionUtils } from '../configs/FactionConfig';
 import { dataManager } from './DataManager';
-import { eventManager } from './EventManager';
-import { GameEvents } from '../components/GameEvents';
 import { GameManager } from './GameManager';
 
 import { ControlMode } from '../state-machine/CharacterEnums';
 import { UnifiedECSCharacterFactory } from '../factories/UnifiedECSCharacterFactory';
-import { flowFieldManager } from './FlowFieldManager';
 
 const { ccclass, property } = _decorator;
 
@@ -146,7 +143,7 @@ export class MonsterSpawner extends Component {
     public initWithConfig(config: SpawnerConfig): void {
         // 只用传入的config设置位置，其他都忽略
         this.node.setPosition(config.position.x, config.position.y);
-        
+
         console.log(`[MonsterSpawner] 位置设置为: (${config.position.x}, ${config.position.y})，启动双侧战斗模式`);
 
         // 直接初始化双侧战斗模式
@@ -314,9 +311,9 @@ export class MonsterSpawner extends Component {
         try {
             console.log(`[MonsterSpawner] 创建双侧战斗单位: ${enemyType}, 阵营: ${faction}, 位置: (${position.x.toFixed(1)}, ${position.y.toFixed(1)})`);
 
-            // 获取游戏管理器，确保启用流场AI
+            // 获取游戏管理器，流场AI默认启用
             const gameManager = GameManager.instance;
-            const useFlowField = gameManager && gameManager.useOneDimensionalFlowField;
+            const useFlowField = true; // 默认启用流场AI
 
             // 使用统一ECS工厂创建AI敌人，强制启用流场AI
             const character = await UnifiedECSCharacterFactory.createAIEnemy(enemyType, {
@@ -378,9 +375,9 @@ export class MonsterSpawner extends Component {
             // 2. 🔥 使用统一ECS工厂创建AI敌人（先确保工厂可用）
             let character = null;
             try {
-                // 检查游戏管理器是否启用一维流场AI
+                // 流场AI默认启用
                 const gameManager = GameManager.instance;
-                const useFlowField = gameManager && gameManager.useOneDimensionalFlowField;
+                const useFlowField = true; // 默认启用流场AI
 
                 character = await UnifiedECSCharacterFactory.createAIEnemy(enemyType, {
                     position: position,
@@ -628,20 +625,8 @@ export class MonsterSpawner extends Component {
             return;
         }
 
-        // 检查是否已启用流场AI
-        if (!gameManager.useOneDimensionalFlowField) {
-            console.log('[MonsterSpawner] 🚀 双侧战斗模式自动启用流场AI系统');
-            
-            // 强制启用流场AI
-            gameManager.useOneDimensionalFlowField = true;
-            
-            // 🎯 移除重复初始化：GameManager已在initManagers中初始化了流场系统
-            // flowFieldManager.initialize(30, 1920, 1080); // 已移除
-            
-            console.log('[MonsterSpawner] ✅ 流场AI系统已启动（使用GameManager的初始化）');
-        } else {
-            console.log('[MonsterSpawner] ✅ 流场AI系统已处于活跃状态');
-        }
+        // 流场AI系统默认启用
+        console.log('[MonsterSpawner] ✅ 流场AI系统默认启用');
     }
 
     /**

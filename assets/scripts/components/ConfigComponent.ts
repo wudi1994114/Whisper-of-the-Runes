@@ -1,16 +1,19 @@
 // assets/scripts/components/ConfigComponent.ts
 
-import { Component } from 'cc';
+import { _decorator, Component } from 'cc';
 import { IConfigurable } from '../interfaces/IConfigurable';
 import { EnemyData } from '../configs/EnemyConfig';
 import { dataManager } from '../managers/DataManager';
 import { GameManager } from '../managers/GameManager';
+
+const { ccclass, property } = _decorator;
 
 /**
  * 配置组件 - 负责配置数据加载、类型管理
  * 实现 IConfigurable 接口，专注于配置管理的单一职责
  * 重构版本：利用Cocos Creator生命周期管理初始化流程
  */
+@ccclass('ConfigComponent')
 export class ConfigComponent extends Component implements IConfigurable {
     // 配置相关属性
     private _enemyData: EnemyData | null = null;

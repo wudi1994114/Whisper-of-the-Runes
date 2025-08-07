@@ -1,17 +1,20 @@
 // assets/scripts/components/FactionComponent.ts
 
-import { Component, Collider2D, RigidBody2D } from 'cc';
+import { _decorator, Component, Collider2D, RigidBody2D } from 'cc';
 import { IFactional } from '../interfaces/IFactional';
 import { Faction, FactionUtils } from '../configs/FactionConfig';
 import { factionManager } from '../managers/FactionManager';
 import { ControlComponent } from './ControlComponent';
 import { basicEnemyFinder } from './BasicEnemyFinder';
 
+const { ccclass, property } = _decorator;
+
 /**
  * 阵营组件 - 负责阵营设置、物理分组管理
  * 实现 IFactional 接口，专注于阵营管理的单一职责
  * 重构版本：利用Cocos Creator生命周期管理初始化流程
  */
+@ccclass('FactionComponent')
 export class FactionComponent extends Component implements IFactional {
     // 阵营相关属性
     private _aiFaction: string = "red";
@@ -88,26 +91,18 @@ export class FactionComponent extends Component implements IFactional {
      * @param faction 阵营
      */
     setFaction(faction: Faction): void {
-        const oldFaction = this._currentFaction;
+
+        this.deregisterFromTargetSelector();
+            
+        // 设置新阵营
+        this._currentFaction = faction;
+        this._aiFaction = FactionUtils.factionToString(faction);
         
-        if (oldFaction !== faction) {
-            // 先反注册旧阵营
-            this.deregisterFromTargetSelector();
-            
-            // 设置新阵营
-            this._currentFaction = faction;
-            this._aiFaction = FactionUtils.factionToString(faction);
-            
-            // 更新物理分组
-            this.safeUpdatePhysicsGroup();
-            
-            // 重新注册新阵营
-            this.registerToTargetSelector();
-            
-            console.log(`[FactionComponent] 阵营已变更: ${oldFaction} → ${faction} (aiFaction: ${this._aiFaction})`);
-        } else {
-            console.log(`[FactionComponent] 阵营未变化: ${faction}`);
-        }
+        // 更新物理分组
+        this.safeUpdatePhysicsGroup();
+        
+        // 重新注册新阵营
+        this.registerToTargetSelector();
     }
 
     /**
