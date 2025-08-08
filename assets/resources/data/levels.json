@@ -447,7 +447,7 @@
               "type": "ent_normal",
               "count": 15,
               "spawnInterval": 1.5,
-              "maxAlive": 15,
+              "maxAlive": 1,
               "spawnDelay": 0.5,
               "respawnOnDeath": true,
               "faction": "red"
@@ -456,7 +456,7 @@
               "type": "lich_normal",
               "count": 10,
               "spawnInterval": 2.5,
-              "maxAlive": 10,
+              "maxAlive": 1,
               "spawnDelay": 1.0,
               "respawnOnDeath": true,
               "faction": "blue"
@@ -465,7 +465,7 @@
               "type": "skeleton_normal",
               "count": 8,
               "spawnInterval": 3.0,
-              "maxAlive": 8,
+              "maxAlive": 0,
               "spawnDelay": 1.5,
               "respawnOnDeath": true,
               "faction": "red"

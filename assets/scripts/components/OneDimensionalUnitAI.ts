@@ -153,16 +153,22 @@ export class OneDimensionalUnitAI extends Component {
      * 职责：1. 按流场方向移动 2. 检测三列内是否有敌人 3. 有敌人立即切换到ENCOUNTER
      */
     private handleMarchingState(deltaTime: number): void {
-        // 1. 流场移动：根据方向场系统设置移动方向
-        this.performFlowFieldMovement();
+        // 1. 流场移动：根据方向场系统设置移动方向（仅当当前不是ENCOUNTER时）
+        // 避免因异步调用造成的状态切换滞后仍然沿用行军移动
+        if (this.currentState === FlowFieldUnitState.MARCHING) {
+            this.performFlowFieldMovement();
+        }
         
         // 2. 简单索敌：只检查有没有敌人，有就切换状态
         if (this.shouldCheckEnemies()) {
             const enemies = this.findEnemiesInThreeColumns();
             
             if (enemies.length > 0) {
-                // 发现敌人，立即切换到遭遇状态
+                // 发现敌人，立即切换到遭遇状态，并清空行军移动输入
                 this.transitionToState(FlowFieldUnitState.ENCOUNTER);
+                if (this.movementComponent) {
+                    this.movementComponent.stopMovement();
+                }
                 
                 if (this.debugMode) {
                     console.log(`[OneDimensionalUnitAI] ${this.node.name} 发现${enemies.length}个敌人，切换到遭遇状态`);
@@ -317,7 +323,20 @@ export class OneDimensionalUnitAI extends Component {
         // 使用一维网格的专用方法检索三列
         const results = this.oneDGrid.findEntitiesInThreeColumnRange(this.lastKnownColumn, queryOptions);
         
-        const filteredResults = results.filter(result => result.distance <= this.detectionRange);
+        // 使用实际世界距离重新计算并过滤，提升攻击/索敌判定的精度
+        const myWorldPos = this.node.getWorldPosition();
+        const recomputed = results.map(r => ({
+            entity: r.entity,
+            distance: this.node && r.entity && r.entity.worldPosition
+                ? Math.sqrt(
+                    (r.entity.worldPosition.x - myWorldPos.x) * (r.entity.worldPosition.x - myWorldPos.x) +
+                    (r.entity.worldPosition.y - myWorldPos.y) * (r.entity.worldPosition.y - myWorldPos.y)
+                  )
+                : r.distance
+        }));
+        
+        const filteredResults = recomputed.filter(result => result.distance <= this.detectionRange);
+        filteredResults.sort((a, b) => a.distance - b.distance);
         
         if (this.debugMode && filteredResults.length > 0) {
             console.log(`[OneDimensionalUnitAI] 🔍 ${this.node.name} 检测到${filteredResults.length}个敌人 (列: ${this.lastKnownColumn})`);
@@ -350,9 +369,12 @@ export class OneDimensionalUnitAI extends Component {
         this.currentState = newState;
         this.lastStateChangeTime = Date.now();
         
-        // 状态切换时重置战斗计时器
+        // 状态切换时重置战斗计时器并立即停止行军残留移动
         if (newState === FlowFieldUnitState.ENCOUNTER) {
             this.combatTimer = 0;
+            if (this.movementComponent) {
+                this.movementComponent.stopMovement();
+            }
         }
         
         // 显示状态转换（用于调试AI工作状态）

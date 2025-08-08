@@ -164,20 +164,20 @@ export class MonsterSpawner extends Component {
             enabled: true,
             leftSide: {
                 faction: 'red',  // 左侧红色怪物使用红色阵营
-                enemyTypes: ['ent_normal', 'lich_normal'],
-                spawnCount: 5,
+                enemyTypes: ['ent_normal'],
+                spawnCount: 1,
                 spawnPosition: { x: -400, y: 0 },
                 spawnRadius: 100
             },
             rightSide: {
                 faction: 'blue',  // 右侧蓝色怪物使用蓝色阵营
-                enemyTypes: ['ent_normal', 'lich_normal'],
-                spawnCount: 5,
+                enemyTypes: ['ent_normal'],
+                spawnCount: 1,
                 spawnPosition: { x: 400, y: 0 },
                 spawnRadius: 100
             },
-            respawnInterval: 3.0,
-            maxUnitsPerSide: 10
+            respawnInterval: 5.0,
+            maxUnitsPerSide: 1
         };
 
         this.isInitialized = true;

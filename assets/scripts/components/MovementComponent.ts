@@ -199,8 +199,6 @@ export class MovementComponent extends Component implements IMovable {
         // 设置动画朝向
         animationComponent.currentDirection = newDirection;
 
-        console.log(`[MovementComponent] ${this.node.name} 触发移动动画 - 方向: ${newDirection}, 移动向量: (${direction.x.toFixed(2)}, ${direction.y.toFixed(2)})`);
-
         // 播放移动动画
         if (typeof animationComponent.playCurrentAnimation === 'function') {
             animationComponent.playCurrentAnimation('Walk');

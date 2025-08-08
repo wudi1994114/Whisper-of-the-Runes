@@ -170,6 +170,14 @@ export class ControlComponent extends Component implements IControllable {
         // 更新状态机
         this._stateMachine?.update(deltaTime);
 
+        // 若当前为AI模式且存在攻击意图，则确保物理移动被停止，避免攻击期间残留移动
+        if (this._controlMode === ControlMode.AI && this._currentInputSignals.wantsToAttack) {
+            const movementComponent = this.node.getComponent(MovementComponent);
+            if (movementComponent) {
+                movementComponent.stopMovement();
+            }
+        }
+
         // 重置一次性信号
         this._currentInputSignals.wantsToAttack = false;
     }

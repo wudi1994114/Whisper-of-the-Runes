@@ -261,8 +261,9 @@ export class OneDimensionalGrid implements IGrid {
                     continue;
                 }
                 
-                // 对于三列范围，我们不需要距离筛选，只需要匹配查询条件
-                const distance = this.getDistance(entity.worldPosition, new Vec3(col * this.GRID_SIZE, 0, 0));
+                // 使用统一的列中心世界坐标换算，避免原点与半格偏移误差
+                const colWorld = this.columnToWorld(col);
+                const distance = this.getDistance(entity.worldPosition, colWorld);
                 results.push({
                     entity,
                     distance
